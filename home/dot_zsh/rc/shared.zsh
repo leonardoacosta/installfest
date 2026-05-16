@@ -76,6 +76,9 @@ fi
 # cmux workspaces
 alias mux="$DOTFILES/scripts/cmux-workspaces.sh"
 
+# Search aliases — forgive muscle-memory typos for ripgrep
+alias rgrep="rg"
+
 # Misc aliases
 alias path='echo $PATH | tr ":" "\n"'
 alias reload="source ~/.zshrc"
