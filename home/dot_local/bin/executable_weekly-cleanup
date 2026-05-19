@@ -7,26 +7,40 @@
 #   - Linux:  ~/.config/systemd/user/weekly-cleanup.timer
 # Schedule: Sundays at 03:00 local time.
 #
-# Scope: caches that the OS / package managers rebuild on demand.
+# Scope: caches that the OS / package managers rebuild on demand, PLUS
+# regenerable build output under ~/dev (age-gated, see below).
 # Explicitly NOT touched:
 #   - ~/Library/Application Support  (irreplaceable app state)
-#   - node_modules in ~/dev          (breaks active projects)
+#   - node_modules / .git in ~/dev   (breaks active projects / history)
 #   - ~/.config                      (deliberate user config)
+#   - Xcode simulator runtimes       (judgment call — prune manually)
+# DOES touch (new): .turbo / .next / *.bun-build under ~/dev when untouched
+#   for >7 days. Active projects rebuild these; stale clones get reclaimed.
 #
 # Notifications: emits a banner+TTS at start (with bloat snapshot) and at
-# finish (with delta) via nexus-agent's UNIX socket. If the agent isn't
-# running the script falls back to silent run.
+# finish (with delta) via nexus-agent's UNIX socket. A FAILED/aborted run
+# now emits a loud failure banner instead of dying silently (this script
+# was a no-op for weeks before that was fixed — see _on_exit trap).
 #
 # Run manually: weekly-cleanup [--dry-run]
+# Live output:  tail -f ~/.local/state/weekly-cleanup.log
 
-set -euo pipefail
+# NOTE: deliberately NOT `set -e` / `set -o pipefail`. A best-effort reaper
+# must not abort on the first non-zero cleanup step — every step below is
+# guarded with `|| true`. `set -e` + the old `tee` process-substitution is
+# exactly what made scheduled runs die after the header with no trace.
+set -u
 
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
 
 LOG_FILE="$HOME/.local/state/weekly-cleanup.log"
+HEARTBEAT="$HOME/.local/state/weekly-cleanup.last-success"
 mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE") 2>&1
+# Plain append — NOT `> >(tee …)`. Process substitution drops buffered
+# output when launchd reaps the process group on early exit, which is why
+# failures were invisible. `tail -f` the log for live output on manual runs.
+exec >> "$LOG_FILE" 2>&1
 
 # ── Helpers ───────────────────────────────────────────────────────────
 NEXUS_SOCK="/tmp/nexus-agent.sock"
@@ -85,6 +99,19 @@ size_kb() {
   du -sk "$1" 2>/dev/null | awk '{print $1}'
 }
 
+# ── Silent-abort guard ────────────────────────────────────────────────
+# The old script died after the header on every scheduled run with zero
+# diagnostics. This trap guarantees a dead reaper is now LOUD: any exit
+# that didn't reach the Phase-3 completion sentinel emits a failure banner.
+COMPLETED=0
+_on_exit() {
+  local rc=$?
+  (( COMPLETED == 1 )) && return
+  echo "=== ABORTED rc=$rc — did not reach completion sentinel ==="
+  notify "Weekly cleanup FAILED (rc=$rc) — aborted before finishing. Check ~/.local/state/weekly-cleanup.log"
+}
+trap _on_exit EXIT
+
 # ── Phase 1: snapshot bloat BEFORE cleanup ────────────────────────────
 echo
 echo "=== weekly-cleanup $(date -Iseconds) (dry_run=$DRY_RUN) ==="
@@ -111,8 +138,18 @@ echo "  bun cache:         $(human_kb "$BUN_KB")"
 [[ "$(uname -s)" == "Linux"  ]] && echo "  cargo cache:       $(human_kb "$CARGO_KB")"
 echo "  reclaimable est:   $(human_kb "$RECLAIMABLE_KB")"
 
-START_BANNER="Weekly cleanup starting"
-[[ $DRY_RUN -eq 1 ]] && START_BANNER="Weekly cleanup DRY-RUN"
+# Prior-run health: if the last success is missing or >8 days old, the
+# reaper was silently broken — surface it instead of letting it rot again.
+PRIOR_WARN=""
+if [[ ! -f "$HEARTBEAT" ]]; then
+  PRIOR_WARN="[NO PRIOR SUCCESS] "
+elif [[ -n "$(find "$HEARTBEAT" -mtime +8 2>/dev/null)" ]]; then
+  PRIOR_WARN="[LAST SUCCESS >8d AGO] "
+fi
+[[ -n "$PRIOR_WARN" ]] && echo "  WARN: ${PRIOR_WARN}reaper may have been failing silently"
+
+START_BANNER="${PRIOR_WARN}Weekly cleanup starting"
+[[ $DRY_RUN -eq 1 ]] && START_BANNER="${PRIOR_WARN}Weekly cleanup DRY-RUN"
 START_BANNER+=" — disk: $(human_kb "$START_FREE_KB") free ($START_FREE_PCT used) · target: ~$(human_kb "$RECLAIMABLE_KB")"
 [[ "$(uname -s)" == "Darwin" ]] && \
   START_BANNER+=" (xdg $(human_kb "$XDG_KB") · lib $(human_kb "$LIB_CACHES_KB") · npm $(human_kb "$NPM_KB") · bun $(human_kb "$BUN_KB"))"
@@ -149,10 +186,64 @@ run_cmd() {
   fi
 }
 
+# Truncate (not delete) runaway *.log files over a size threshold in a
+# safelist of log dirs. Truncation preserves the inode/fd so a running
+# writer (e.g. a gateway daemon) keeps logging — a 4.1G gateway.err.log
+# is the canonical offender this targets.
+truncate_logs() {
+  local threshold_mb=200 d f sz
+  for d in "$HOME/.local/state" "$HOME/.openclaw/logs" "$HOME/Library/Logs"; do
+    [[ -d "$d" ]] || continue
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      sz=$(du -h "$f" 2>/dev/null | awk '{print $1}')
+      if (( DRY_RUN )); then
+        printf '  DRY   %-18s would truncate %s (%s)\n' "log-truncate" "$f" "$sz"
+      else
+        printf '  trunc %-18s %s (%s)\n' "log-truncate" "$f" "$sz"
+        : > "$f" 2>/dev/null || true
+      fi
+    done < <(find "$d" -type f -name '*.log' -size "+${threshold_mb}M" 2>/dev/null)
+  done
+}
+
+# Sweep regenerable BUILD output under ~/dev — .turbo / .next dirs and
+# *.bun-build files — that have been untouched for >7 days. NEVER touches
+# node_modules or .git. Active projects rebuild instantly; stale clones
+# get reclaimed. This widens the historical "don't touch ~/dev" contract
+# (deliberate, signed off) — node_modules remains sacrosanct.
+sweep_build_caches() {
+  [[ -d "$HOME/dev" ]] || return
+  local age_days=7 target n=0
+  while IFS= read -r target; do
+    [[ -z "$target" ]] && continue
+    if (( DRY_RUN )); then
+      printf '  DRY   %-18s would rm %s\n' "build-cache" "$target"
+    else
+      rm -rf "$target" 2>/dev/null || true
+    fi
+    n=$((n + 1))
+  done < <(
+    find "$HOME/dev" \
+      \( -type d -name node_modules -prune \) -o \
+      \( -type d -name .git -prune \) -o \
+      \( -type d \( -name .turbo -o -name .next \) -mtime "+${age_days}" -prune -print \) -o \
+      \( -type f -name '.*.bun-build' -mtime "+${age_days}" -print \) \
+      2>/dev/null
+  )
+  printf '  sweep %-18s %d stale build-cache target(s) (>%dd, dry=%d)\n' \
+    "build-cache" "$n" "$age_days" "$DRY_RUN"
+}
+
 clean_dir "xdg-cache" "$HOME/.cache"
-command -v npm  >/dev/null && run_cmd "npm-cache"   npm cache clean --force
-command -v pnpm >/dev/null && run_cmd "pnpm-prune"  pnpm store prune
-command -v bun  >/dev/null && run_cmd "bun-cache"   bun pm cache rm
+command -v npm    >/dev/null && run_cmd "npm-cache"   npm cache clean --force
+command -v pnpm   >/dev/null && run_cmd "pnpm-prune"  pnpm store prune
+command -v bun    >/dev/null && run_cmd "bun-cache"   bun pm cache rm
+command -v dotnet >/dev/null && run_cmd "nuget-clear" dotnet nuget locals all --clear
+
+# Cross-platform: runaway logs + stale ~/dev build output.
+truncate_logs
+sweep_build_caches
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   clean_dir "library-caches" "$HOME/Library/Caches"
@@ -175,6 +266,11 @@ SIGN="+"; (( DELTA_KB < 0 )) && SIGN="-" && DELTA_HUMAN=$(human_kb $((-DELTA_KB)
 
 echo "  free at end:       $(human_kb "$END_FREE_KB") ($END_FREE_PCT used)"
 echo "=== done. delta: ${SIGN}${DELTA_HUMAN} ==="
+
+# Completion sentinel — flips the _on_exit trap from "FAILED" to silent and
+# records a success heartbeat the next run's Phase-1 health check reads.
+COMPLETED=1
+date -Iseconds > "$HEARTBEAT" 2>/dev/null || true
 
 END_BANNER="Weekly cleanup done"
 [[ $DRY_RUN -eq 1 ]] && END_BANNER="Weekly cleanup DRY-RUN done"

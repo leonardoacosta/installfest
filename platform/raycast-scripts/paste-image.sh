@@ -125,6 +125,119 @@ inject_via_paste() {
 }
 
 # ---------------------------------------------------------------------------
+# Focus-driven pane selection helpers
+#
+# tty mtime is a bad proxy for "the pane the user is looking at" — any
+# background write (tail, dev server, CI logs) bumps it, so a noisy unfocused
+# SSH pane beats an idle focused local one. Ghostty's AXMain window title
+# (with shell-integration-features=title) reflects the FOCUSED surface: the
+# running command (e.g. "ssh homelab") or the cwd at the prompt. We use that
+# to pick the real focused shell, then run the existing ssh-child check on it.
+# ---------------------------------------------------------------------------
+
+# Title of Ghostty's FOCUSED tab in the FOCUSED window.
+#
+# A window-level AXTitle is just tab 1's title — it does NOT track which tab
+# is active (verified: a "ssh homelab" tab and a Claude tab, window title
+# stuck on "ssh homelab"). Ghostty models tabs as AXRadioButtons inside the
+# window's AXTabGroup; the active tab is the radio whose AXValue is true.
+# Window selection uses the app's AXFocusedWindow so multiple Ghostty windows
+# resolve correctly. Every step is guarded — any failure prints nothing and
+# the caller degrades to the tty-mtime heuristic (no regression).
+focused_ghostty_title() {
+  osascript 2>/dev/null <<'OSA' | head -1
+tell application "System Events" to tell process "Ghostty"
+  set theWin to missing value
+  try
+    set theWin to value of attribute "AXFocusedWindow"
+  end try
+  if theWin is missing value then
+    try
+      set theWin to (first window whose value of attribute "AXMain" is true)
+    end try
+  end if
+  if theWin is missing value then
+    try
+      set theWin to window 1
+    end try
+  end if
+  if theWin is missing value then return ""
+  -- Prefer the selected tab's title.
+  try
+    set tg to (first UI element of theWin whose role is "AXTabGroup")
+    repeat with t in (UI elements of tg whose role is "AXRadioButton")
+      try
+        if (value of attribute "AXValue" of t) is true then
+          return (value of attribute "AXTitle" of t)
+        end if
+      end try
+    end repeat
+  end try
+  -- No tab group (single surface) or no selected radio: window title.
+  try
+    return (value of attribute "AXTitle" of theWin)
+  end try
+  return ""
+end tell
+OSA
+}
+
+# Foreground command on a shell's controlling tty — the process group the
+# user is actually interacting with. STAT containing '+' = foreground pgrp.
+# Empty when it can't be resolved (caller falls back to cwd match).
+fg_cmd_for_shell() {
+  local pid="$1" tty
+  tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+  [[ -z "$tty" || "$tty" == "?"* ]] && return 0
+  ps -t "$tty" -o stat=,command= 2>/dev/null \
+    | awk '$1 ~ /\+/ { $1=""; sub(/^ +/,""); print; exit }'
+}
+
+# Local cwd of a shell pid (same lsof technique as the local CWD resolver).
+cwd_for_shell() {
+  local pid="$1"
+  lsof -a -d cwd -p "$pid" -Fn 2>/dev/null | awk '/^n/ {print substr($0,2); exit}'
+}
+
+# Reproduce the prompt-side title Ghostty's zsh integration emits:
+#   ${(%):-%(4~|…/%3~|%~)}   (Ghostty.app .../shell-integration/zsh/
+#   ghostty-integration:249) — i.e. $HOME -> ~, then if the ~-path has >= 4
+#   components show "…/" + last 3, else the full ~-path. Deterministic; not
+#   a heuristic — kept in lockstep with that source line.
+ghostty_title_for_cwd() {
+  local cwd="$1" rel
+  if [[ "$cwd" == "$HOME" ]]; then rel="~"
+  elif [[ "$cwd" == "$HOME/"* ]]; then rel="~/${cwd#"$HOME"/}"
+  else rel="$cwd"; fi
+  local -a parts comp=()
+  IFS='/' read -ra parts <<< "$rel"
+  local p
+  for p in "${parts[@]}"; do [[ -n "$p" ]] && comp+=("$p"); done
+  local n=${#comp[@]}
+  if (( n >= 4 )); then
+    printf '…/%s/%s/%s' \
+      "${comp[$((n-3))]}" "${comp[$((n-2))]}" "${comp[$((n-1))]}"
+  else
+    printf '%s' "$rel"
+  fi
+}
+
+# Does this candidate shell own the focused pane? Two source-defined cases:
+#   - command running : Ghostty preexec sets title = raw command line
+#                        -> title == foreground command (e.g. "ssh homelab")
+#   - at the prompt    : Ghostty precmd sets title = %(4~|…/%3~|%~)
+#                        -> title == ghostty_title_for_cwd(cwd)
+# A TUI (claude/nvim/lazygit/tmux) emits its OWN OSC 2 title, overriding both;
+# it matches neither, returns 1, and the caller degrades to tty-mtime. That
+# fail-closed path is intentional, not a gap.
+title_matches_shell() {
+  local title="$1" fg_cmd="$2" cwd="$3"
+  [[ -n "$fg_cmd" && "$title" == "$fg_cmd" ]] && return 0
+  [[ -n "$cwd" && "$title" == "$(ghostty_title_for_cwd "$cwd")" ]] && return 0
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # Branch A: Zed
 # ---------------------------------------------------------------------------
 handle_zed() {
@@ -204,24 +317,49 @@ handle_ghostty() {
   [[ ${#shells[@]} -eq 0 ]] && die "no shells found beneath Ghostty"
   echo "candidate shells: ${shells[*]}"
 
-  # Pick the shell whose tty has the most recent mtime
-  local best_pid="" best_mtime=0
-  local pid tty mtime
-  for pid in "${shells[@]}"; do
-    tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
-    [[ "$tty" != /dev/* ]] && tty="/dev/$tty"
-    mtime=$(stat -f '%m' "$tty" 2>/dev/null || echo 0)
-    echo "  candidate pid=$pid tty=$tty mtime=$mtime"
-    if [[ "$mtime" -gt "$best_mtime" ]]; then
-      best_mtime=$mtime
-      best_pid=$pid
-    fi
-  done
+  # ---- focus-driven active-shell selection ----
+  # Ask Ghostty which surface is focused, then pick the matching candidate
+  # shell. This is what makes "in ssh or tmux?" reflect the pane you're
+  # actually looking at, not whichever pane wrote to its tty last.
+  local focus_title
+  focus_title=$(focused_ghostty_title)
+  echo "focused ghostty title: '${focus_title:-<none>}'"
 
-  [[ -z "$best_pid" ]] && die "could not determine active shell by tty mtime"
-  echo "selected active shell: $best_pid (tty mtime=$best_mtime)"
+  local active_shell="" pid fg cwd
+  if [[ -n "$focus_title" ]]; then
+    for pid in "${shells[@]}"; do
+      fg=$(fg_cmd_for_shell "$pid")
+      cwd=$(cwd_for_shell "$pid")
+      echo "  shell pid=$pid fg='${fg}' cwd='${cwd}'"
+      if title_matches_shell "$focus_title" "$fg" "$cwd"; then
+        active_shell="$pid"
+        echo "  -> matched focused shell: $pid"
+        break
+      fi
+    done
+  fi
 
-  local active_shell="$best_pid"
+  # Fallback: previous tty-mtime heuristic. Degrade, don't regress — if the
+  # title match can't resolve (no AX perms, unmatched title shape) we are no
+  # worse off than before this change.
+  if [[ -z "$active_shell" ]]; then
+    echo "title match inconclusive; falling back to tty-mtime heuristic"
+    local best_pid="" best_mtime=0 tty mtime
+    for pid in "${shells[@]}"; do
+      tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+      [[ "$tty" != /dev/* ]] && tty="/dev/$tty"
+      mtime=$(stat -f '%m' "$tty" 2>/dev/null || echo 0)
+      echo "  candidate pid=$pid tty=$tty mtime=$mtime"
+      if [[ "$mtime" -gt "$best_mtime" ]]; then
+        best_mtime=$mtime
+        best_pid=$pid
+      fi
+    done
+    active_shell="$best_pid"
+  fi
+
+  [[ -z "$active_shell" ]] && die "could not determine active Ghostty shell"
+  echo "selected active shell: $active_shell"
 
   # Detect ssh as direct child of the active shell
   local ssh_pid
