@@ -22,6 +22,11 @@
 # finish (with delta) via nexus-agent's UNIX socket. A FAILED/aborted run
 # now emits a loud failure banner instead of dying silently (this script
 # was a no-op for weeks before that was fixed — see _on_exit trap).
+# Bloat radar: also scans adjacent dirs it deliberately does NOT auto-clean
+# (Xcode/CoreSimulator runtimes, Claude vm_bundles, colima, .nuget, big
+# ~/dev repos) AND runaway Chrome profile History files — the exact silent
+# failure that filled the disk — and speaks a dedicated warning if any are
+# over threshold. This is the early-warning that was missing.
 #
 # Run manually: weekly-cleanup [--dry-run]
 # Live output:  tail -f ~/.local/state/weekly-cleanup.log
@@ -98,6 +103,63 @@ human_kb() {
 size_kb() {
   [[ -d "$1" ]] || { echo 0; return; }
   du -sk "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# ── Bloat radar ───────────────────────────────────────────────────────
+# Early-warning for adjacent dirs the reaper deliberately does NOT auto-
+# delete (judgment-required) but that silently balloon. This detector was
+# missing when ~176G of Xcode runtimes + a 1.3G runaway Chrome History
+# filled the disk with zero warning. Findings go to the log AND a compact
+# list is spoken at end-of-run, with a dedicated loud TTS if anything trips.
+# Thresholds are GB (Chrome History is MB — it's the marquee case).
+BLOAT_WARN=""
+bloat_check() {   # label  path  threshold_gb  hint
+  local label="$1" path="$2" thr_gb="$3" hint="$4" kb thr_kb
+  [[ -e "$path" ]] || return
+  kb=$(du -sk "$path" 2>/dev/null | awk '{print $1}')
+  [[ -z "$kb" ]] && return
+  thr_kb=$(( thr_gb * 1048576 ))
+  if (( kb > thr_kb )); then
+    echo "  BLOAT  $label  $(human_kb "$kb") (> ${thr_gb}G) — $hint"
+    BLOAT_WARN+="${BLOAT_WARN:+; }$label $(human_kb "$kb")"
+  fi
+}
+
+bloat_radar() {
+  echo "  -- bloat radar (adjacent dirs NOT auto-cleaned) --"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    bloat_check "Xcode/Developer"   "/Library/Developer"                                  50 "xcrun simctl runtime delete <old>"
+    bloat_check "CoreSimulator"     "$HOME/Library/Developer/CoreSimulator"               20 "delete unused sim devices"
+    bloat_check "iOS DeviceSupport" "$HOME/Library/Developer/Xcode/iOS DeviceSupport"      5 "rm stale device-support dirs"
+    bloat_check "Claude vm_bundles" "$HOME/Library/Application Support/Claude/vm_bundles"   3 "rm if not using Claude local-VM"
+    bloat_check "colima"            "$HOME/.config/colima"                                  3 "colima delete if unused"
+    # Runaway Chrome profile History — the exact failure this all chased.
+    local h prof khb
+    for h in "$HOME/Library/Application Support/Google/Chrome/"*/History; do
+      [[ -f "$h" ]] || continue
+      khb=$(du -sk "$h" 2>/dev/null | awk '{print $1}')
+      [[ -z "$khb" ]] && continue
+      if (( khb > 307200 )); then        # > 300 MB
+        prof=$(basename "$(dirname "$h")")
+        echo "  BLOAT  Chrome '$prof' History  $(human_kb "$khb") (>300M) — runaway history, inspect/purge"
+        BLOAT_WARN+="${BLOAT_WARN:+; }Chrome '$prof' History $(human_kb "$khb")"
+      fi
+    done
+  fi
+  bloat_check ".nuget"     "$HOME/.nuget"        8 "nuget locals clear failing?"
+  bloat_check "pnpm store" "$HOME/Library/pnpm" 12 "pnpm store prune ineffective?"
+  # Oversized ~/dev repos (informational — node_modules-inclusive).
+  if [[ -d "$HOME/dev" ]]; then
+    local szk path
+    while IFS=$'\t' read -r szk path; do
+      [[ -z "$szk" ]] && continue
+      if (( szk > 8388608 )); then       # > 8 GB
+        echo "  BLOAT  dev/$(basename "$path")  $(human_kb "$szk") (>8G) — stale clone / build output?"
+        BLOAT_WARN+="${BLOAT_WARN:+; }dev/$(basename "$path") $(human_kb "$szk")"
+      fi
+    done < <(du -sk "$HOME"/dev/*/ 2>/dev/null)
+  fi
+  [[ -z "$BLOAT_WARN" ]] && echo "  (clear — nothing over threshold)"
 }
 
 # ── Silent-abort guard ────────────────────────────────────────────────
@@ -290,10 +352,24 @@ echo "=== done. delta: ${SIGN}${DELTA_HUMAN} ==="
 
 # Completion sentinel — flips the _on_exit trap from "FAILED" to silent and
 # records a success heartbeat the next run's Phase-1 health check reads.
+# Set BEFORE the radar so a slow `du` in bloat_radar can never trip the
+# failure trap or lose the success record.
 COMPLETED=1
 date -Iseconds > "$HEARTBEAT" 2>/dev/null || true
+
+# Scan adjacent-but-untouched dirs and populate BLOAT_WARN.
+bloat_radar
 
 END_BANNER="Weekly cleanup done"
 [[ $DRY_RUN -eq 1 ]] && END_BANNER="Weekly cleanup DRY-RUN done"
 END_BANNER+=" — freed ${SIGN}${DELTA_HUMAN} · disk now $(human_kb "$END_FREE_KB") free ($END_FREE_PCT used)"
+
+# Dedicated, loud TTS for adjacent bloat — this is the early-warning the
+# disk-fill incident lacked. Spoken separately so it isn't lost in the
+# routine summary; the summary then follows with the radar list appended.
+if [[ -n "$BLOAT_WARN" ]]; then
+  echo "  BLOAT SUMMARY: $BLOAT_WARN"
+  notify "Disk bloat warning — $BLOAT_WARN. Not auto-cleaned; needs your call."
+  END_BANNER+=" · BLOAT: $BLOAT_WARN"
+fi
 notify "$END_BANNER"
