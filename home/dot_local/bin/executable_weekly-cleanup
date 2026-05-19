@@ -16,6 +16,7 @@
 #   - Xcode simulator runtimes       (judgment call — prune manually)
 # DOES touch (new): .turbo / .next / *.bun-build under ~/dev when untouched
 #   for >7 days. Active projects rebuild these; stale clones get reclaimed.
+#   Also stray Cursor/Electron crash logs in $HOME (*.Default.w*.log, >7d).
 #
 # Notifications: emits a banner+TTS at start (with bloat snapshot) and at
 # finish (with delta) via nexus-agent's UNIX socket. A FAILED/aborted run
@@ -235,15 +236,35 @@ sweep_build_caches() {
     "build-cache" "$n" "$age_days" "$DRY_RUN"
 }
 
+# Cursor/Electron renderer crash logs get dumped straight into $HOME as
+# <ts>.Default.wXtYpZ.<uuid>.<pid>.<n>.log — ~80 accumulated in weeks.
+# These are per-session crash dumps (not append logs): delete, don't
+# truncate. Age-gated >7d so a fresh crash log under investigation stays.
+sweep_stray_home_logs() {
+  local age_days=7 f n=0
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if (( DRY_RUN )); then
+      printf '  DRY   %-18s would rm %s\n' "home-stray-log" "$(basename "$f")"
+    else
+      rm -f "$f" 2>/dev/null || true
+    fi
+    n=$((n + 1))
+  done < <(find "$HOME" -maxdepth 1 -type f -name '*.Default.w*.log' -mtime "+${age_days}" 2>/dev/null)
+  printf '  sweep %-18s %d stray home-root log(s) (>%dd, dry=%d)\n' \
+    "home-stray-log" "$n" "$age_days" "$DRY_RUN"
+}
+
 clean_dir "xdg-cache" "$HOME/.cache"
 command -v npm    >/dev/null && run_cmd "npm-cache"   npm cache clean --force
 command -v pnpm   >/dev/null && run_cmd "pnpm-prune"  pnpm store prune
 command -v bun    >/dev/null && run_cmd "bun-cache"   bun pm cache rm
 command -v dotnet >/dev/null && run_cmd "nuget-clear" dotnet nuget locals all --clear
 
-# Cross-platform: runaway logs + stale ~/dev build output.
+# Cross-platform: runaway logs + stale ~/dev build output + stray $HOME logs.
 truncate_logs
 sweep_build_caches
+sweep_stray_home_logs
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   clean_dir "library-caches" "$HOME/Library/Caches"
