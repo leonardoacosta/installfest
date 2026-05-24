@@ -133,53 +133,112 @@ inject_via_paste() {
 # (with shell-integration-features=title) reflects the FOCUSED surface: the
 # running command (e.g. "ssh homelab") or the cwd at the prompt. We use that
 # to pick the real focused shell, then run the existing ssh-child check on it.
+#
+# TUI gap: when the focused surface runs a TUI (Claude, nvim, lazygit, tmux,
+# or ssh→remote-TUI), the OSC 2 title is the TUI's emission, which matches
+# neither fg_cmd nor the prompt template. Single-pass matching cannot resolve
+# this. We therefore enumerate ALL surfaces, match the resolvable ones first,
+# and fall remaining TUI surfaces out by elimination against TUI-capable
+# shells (shells whose descendants include claude/nvim/ssh/etc).
 # ---------------------------------------------------------------------------
 
-# Title of Ghostty's FOCUSED tab in the FOCUSED window.
+# Enumerate every Ghostty surface (window or tab) the user could be looking at.
+# Emits one line per surface, NUL-delimited tuples, format:
 #
-# A window-level AXTitle is just tab 1's title — it does NOT track which tab
-# is active (verified: a "ssh homelab" tab and a Claude tab, window title
-# stuck on "ssh homelab"). Ghostty models tabs as AXRadioButtons inside the
-# window's AXTabGroup; the active tab is the radio whose AXValue is true.
-# Window selection uses the app's AXFocusedWindow so multiple Ghostty windows
-# resolve correctly. Every step is guarded — any failure prints nothing and
-# the caller degrades to the tty-mtime heuristic (no regression).
-focused_ghostty_title() {
-  osascript 2>/dev/null <<'OSA' | head -1
+#   <focused>\t<win_idx>\t<tab_idx>\t<title>\n
+#
+# focused: "1" for the surface that has key focus, "0" otherwise.
+# tab_idx: "-" when the window has no AXTabGroup (single-surface window).
+#
+# AXFocusedWindow gives the focused window even when multiple Ghostty windows
+# exist; AXTabGroup + AXValue=true tab gives the focused tab within it.
+enumerate_ghostty_surfaces() {
+  osascript 2>/dev/null <<'OSA'
 tell application "System Events" to tell process "Ghostty"
-  set theWin to missing value
+  set focusedWin to missing value
   try
-    set theWin to value of attribute "AXFocusedWindow"
+    set focusedWin to value of attribute "AXFocusedWindow"
   end try
-  if theWin is missing value then
+  set out to ""
+  set wins to windows
+  set wi to 0
+  repeat with w in wins
+    set wi to wi + 1
+    set isFocusedWin to false
     try
-      set theWin to (first window whose value of attribute "AXMain" is true)
+      if w is focusedWin then set isFocusedWin to true
     end try
-  end if
-  if theWin is missing value then
+    set tabFound to false
     try
-      set theWin to window 1
+      set tg to (first UI element of w whose role is "AXTabGroup")
+      set ti to 0
+      repeat with t in (UI elements of tg whose role is "AXRadioButton")
+        set ti to ti + 1
+        set tabTitle to ""
+        try
+          set tabTitle to (value of attribute "AXTitle" of t)
+        end try
+        set isFocusedTab to false
+        try
+          if (value of attribute "AXValue" of t) is true then set isFocusedTab to true
+        end try
+        set marker to "0"
+        if isFocusedWin and isFocusedTab then set marker to "1"
+        set out to out & marker & tab & wi & tab & ti & tab & tabTitle & linefeed
+        set tabFound to true
+      end repeat
     end try
-  end if
-  if theWin is missing value then return ""
-  -- Prefer the selected tab's title.
-  try
-    set tg to (first UI element of theWin whose role is "AXTabGroup")
-    repeat with t in (UI elements of tg whose role is "AXRadioButton")
+    if not tabFound then
+      set winTitle to ""
       try
-        if (value of attribute "AXValue" of t) is true then
-          return (value of attribute "AXTitle" of t)
-        end if
+        set winTitle to (value of attribute "AXTitle" of w)
       end try
-    end repeat
-  end try
-  -- No tab group (single surface) or no selected radio: window title.
-  try
-    return (value of attribute "AXTitle" of theWin)
-  end try
-  return ""
+      set marker to "0"
+      if isFocusedWin then set marker to "1"
+      set out to out & marker & tab & wi & tab & "-" & tab & winTitle & linefeed
+    end if
+  end repeat
+  return out
 end tell
 OSA
+}
+
+# Back-compat wrapper: title of just the focused surface. Kept so the fallback
+# code path (mtime) can still log what AX returned for debugging.
+focused_ghostty_title() {
+  enumerate_ghostty_surfaces | awk -F'\t' '$1=="1" {print $4; exit}'
+}
+
+# Does a shell PID host (transitively) a TUI process? Returns the TUI command
+# name on stdout, or empty if none. Walks descendants up to 4 levels deep
+# (zsh → tmux → tmux-pane-shell → claude is the deepest realistic case).
+#
+# "TUI" here includes ssh, since a remote TUI tunneled through ssh produces
+# the same title-opacity problem locally.
+tui_descendant_for_shell() {
+  local pid="$1" depth=0 max_depth=4
+  local -a frontier=("$pid") next
+  while (( depth < max_depth )); do
+    next=()
+    for p in "${frontier[@]}"; do
+      for c in $(pgrep -P "$p" 2>/dev/null); do
+        [[ -z "$c" ]] && continue
+        local cmd
+        cmd=$(ps -o comm= -p "$c" 2>/dev/null | tr -d ' ' | sed 's|^-||')
+        case "$cmd" in
+          */ssh|ssh|*/tmux|tmux|*/nvim|nvim|*/vim|vim|*/claude|claude|*/lazygit|lazygit|*/htop|htop|*/btop|btop|*/less|less|*/man|man)
+            basename "$cmd"
+            return 0
+            ;;
+        esac
+        next+=("$c")
+      done
+    done
+    [[ ${#next[@]} -eq 0 ]] && break
+    frontier=("${next[@]}")
+    depth=$((depth + 1))
+  done
+  return 0
 }
 
 # Foreground command on a shell's controlling tty — the process group the
@@ -318,44 +377,111 @@ handle_ghostty() {
   echo "candidate shells: ${shells[*]}"
 
   # ---- focus-driven active-shell selection ----
-  # Ask Ghostty which surface is focused, then pick the matching candidate
-  # shell. This is what makes "in ssh or tmux?" reflect the pane you're
-  # actually looking at, not whichever pane wrote to its tty last.
-  local focus_title
-  focus_title=$(focused_ghostty_title)
-  echo "focused ghostty title: '${focus_title:-<none>}'"
+  # Strategy: enumerate ALL Ghostty surfaces (windows × tabs), match each to
+  # a candidate shell, then return the shell mapped to the focused surface.
+  # Multi-pass to handle TUI-overridden titles via elimination.
+  local surfaces
+  surfaces=$(enumerate_ghostty_surfaces)
+  echo "ghostty surfaces:"
+  echo "$surfaces" | awk -F'\t' 'NF>=4 {printf "  %s win=%s tab=%s title=\"%s\"\n", ($1=="1"?"[FOCUSED]":"         "), $2, $3, $4}'
 
-  local active_shell="" pid fg cwd
-  if [[ -n "$focus_title" ]]; then
-    for pid in "${shells[@]}"; do
-      fg=$(fg_cmd_for_shell "$pid")
-      cwd=$(cwd_for_shell "$pid")
-      echo "  shell pid=$pid fg='${fg}' cwd='${cwd}'"
-      if title_matches_shell "$focus_title" "$fg" "$cwd"; then
+  local focused_title=""
+  focused_title=$(echo "$surfaces" | awk -F'\t' '$1=="1" {print $4; exit}')
+  echo "focused surface title: '${focused_title:-<none>}'"
+
+  # Build shell profiles: pid|fg|cwd|tui_descendant
+  local -a profiles=()
+  local pid fg cwd tui
+  for pid in "${shells[@]}"; do
+    fg=$(fg_cmd_for_shell "$pid")
+    cwd=$(cwd_for_shell "$pid")
+    tui=$(tui_descendant_for_shell "$pid")
+    echo "  shell pid=$pid fg='${fg}' cwd='${cwd}' tui='${tui}'"
+    profiles+=("${pid}|${fg}|${cwd}|${tui}")
+  done
+
+  # Pass 1: direct match — focused surface title against each shell's
+  # (fg_cmd, prompt-title-of-cwd). First match wins. Handles the common
+  # non-TUI case: title is "ssh homelab" or "…/repo/sub/leaf".
+  local active_shell="" prof
+  if [[ -n "$focused_title" ]]; then
+    for prof in "${profiles[@]}"; do
+      IFS='|' read -r pid fg cwd tui <<< "$prof"
+      if title_matches_shell "$focused_title" "$fg" "$cwd"; then
         active_shell="$pid"
-        echo "  -> matched focused shell: $pid"
+        echo "  -> pass-1 direct match: pid=$pid"
         break
       fi
     done
   fi
 
-  # Fallback: previous tty-mtime heuristic. Degrade, don't regress — if the
-  # title match can't resolve (no AX perms, unmatched title shape) we are no
-  # worse off than before this change.
+  # Pass 2: TUI elimination. The focused title is opaque (TUI emission).
+  # Resolve other surfaces directly first; whatever shells remain unmatched
+  # are the TUI-hosting ones. If exactly one TUI-capable shell remains
+  # unclaimed, that's the focused one. Uses a space-padded string set
+  # instead of associative arrays for macOS bash 3.2 compat.
   if [[ -z "$active_shell" ]]; then
-    echo "title match inconclusive; falling back to tty-mtime heuristic"
-    local best_pid="" best_mtime=0 tty mtime
-    for pid in "${shells[@]}"; do
+    echo "pass-1 inconclusive; trying TUI-elimination"
+    local other_titles
+    other_titles=$(echo "$surfaces" | awk -F'\t' '$1=="0" && NF>=4 {print $4}')
+    local claimed=" "   # " pid1 pid2 ... " — membership via [[ "$claimed" == *" $pid "* ]]
+    local other_title
+    while IFS= read -r other_title; do
+      [[ -z "$other_title" ]] && continue
+      for prof in "${profiles[@]}"; do
+        IFS='|' read -r pid fg cwd tui <<< "$prof"
+        [[ "$claimed" == *" $pid "* ]] && continue
+        if title_matches_shell "$other_title" "$fg" "$cwd"; then
+          claimed="${claimed}${pid} "
+          echo "  surface title '$other_title' -> claims pid=$pid"
+          break
+        fi
+      done
+    done <<< "$other_titles"
+    local -a unclaimed_tui=() unclaimed_any=()
+    for prof in "${profiles[@]}"; do
+      IFS='|' read -r pid fg cwd tui <<< "$prof"
+      [[ "$claimed" == *" $pid "* ]] && continue
+      unclaimed_any+=("$pid")
+      [[ -n "$tui" ]] && unclaimed_tui+=("$pid")
+    done
+    echo "  unclaimed: any=(${unclaimed_any[*]:-}) tui=(${unclaimed_tui[*]:-})"
+    if [[ ${#unclaimed_tui[@]} -eq 1 ]]; then
+      active_shell="${unclaimed_tui[0]}"
+      echo "  -> pass-2 unique-TUI match: pid=$active_shell"
+    elif [[ ${#unclaimed_any[@]} -eq 1 ]]; then
+      active_shell="${unclaimed_any[0]}"
+      echo "  -> pass-2 unique-unclaimed match: pid=$active_shell"
+    fi
+  fi
+
+  # Final fallback: tty-mtime among the still-unmatched candidates.
+  # Bias toward TUI-hosting shells when picking — tty mtime can be hot for
+  # background log spew, but a TUI tab redraws on every keystroke, so a
+  # TUI-hosting shell with recent mtime is the most likely actual focus.
+  if [[ -z "$active_shell" ]]; then
+    echo "pass-2 inconclusive; falling back to tty-mtime heuristic"
+    local best_pid="" best_mtime=0 best_tui_pid="" best_tui_mtime=0 tty mtime
+    for prof in "${profiles[@]}"; do
+      IFS='|' read -r pid fg cwd tui <<< "$prof"
       tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
       [[ "$tty" != /dev/* ]] && tty="/dev/$tty"
       mtime=$(stat -f '%m' "$tty" 2>/dev/null || echo 0)
-      echo "  candidate pid=$pid tty=$tty mtime=$mtime"
+      echo "  candidate pid=$pid tty=$tty mtime=$mtime tui='${tui}'"
       if [[ "$mtime" -gt "$best_mtime" ]]; then
-        best_mtime=$mtime
-        best_pid=$pid
+        best_mtime=$mtime; best_pid=$pid
+      fi
+      if [[ -n "$tui" && "$mtime" -gt "$best_tui_mtime" ]]; then
+        best_tui_mtime=$mtime; best_tui_pid=$pid
       fi
     done
-    active_shell="$best_pid"
+    if [[ -n "$best_tui_pid" ]]; then
+      active_shell="$best_tui_pid"
+      echo "  -> fallback picked TUI-hosting shell: $active_shell"
+    else
+      active_shell="$best_pid"
+      echo "  -> fallback picked most-recent shell: $active_shell"
+    fi
   fi
 
   [[ -z "$active_shell" ]] && die "could not determine active Ghostty shell"
