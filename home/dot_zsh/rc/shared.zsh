@@ -47,7 +47,7 @@ bindkey -e
 # Common Aliases
 # ============================================================
 
-alias claude="claude --dangerously-skip-permissions"
+alias claude="claude --dangerously-skip-permissions --fallback-model claude-sonnet-4-6"
 alias cs="~/dev/ccswitch.sh --switch"
 alias ll="ls -lah"
 alias la="ls -A"
