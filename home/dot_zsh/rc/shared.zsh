@@ -89,19 +89,15 @@ alias reload="source ~/.zshrc"
 # Project-aware wrappers for CLIs that need different auth/config
 # per project. Add new projects as case branches.
 
-# Azure CLI — bypass BB admin wrapper + SOCKS proxy for personal projects
-az() {
-  case "$PWD" in
-    */dev/ct|*/dev/ct/*)
-      # Civalent: personal Azure identity, no proxy
-      AZURE_CONFIG_DIR="$HOME/.azure-civalent" \
-        "$HOME/.local/share/pipx/venvs/azure-cli/bin/python" \
-        -m azure.cli "$@" ;;
-    *)
-      # Default: BB admin wrapper at ~/.local/bin/az
-      command az "$@" ;;
-  esac
-}
+# Azure CLI identity is workspace-driven, not a shell function.
+#   - Global default `az` resolves to ~/.local/bin/az (BBAdmin + SOCKS proxy;
+#     supports --as-admin / --as-o365 / --as-personal).
+#   - In the b-and-b workspace, `wsenv` prepends ~/.config/workspace/b-and-b/wrappers
+#     to PATH so that same wrapper is used explicitly per-workspace.
+#   - Civalent (ct) work: `az --as-personal` (-> ~/.azure-civalent, no proxy).
+# The old az() function that hardcoded ct=civalent was a documented arg-mangling
+# foot-gun (it word-split --as-admin etc.) and has been removed. Per-org default
+# identity now flows from the workspace profile env.sh, not this file.
 
 # SSH — notify on connection failure via nexus TTS
 ssh() {
