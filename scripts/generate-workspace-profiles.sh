@@ -86,6 +86,16 @@ for org in $ORGS; do
   rm -rf "$dst.old" 2>/dev/null || true
 done
 
+# Populate per-org wrapper sets. These shadow native CLIs ONLY when the org's
+# workspace is active (wsenv prepends <org>/wrappers/ to PATH). Phase 3.3 scope:
+# the bbadmin+SOCKS-proxy `az` belongs to b-and-b — relocated here so the global
+# default can become native (priceless) az with no wrapper/guard.
+BBADMIN_AZ="$HOME/.local/bin/az"
+if [[ -x "$BBADMIN_AZ" ]] && grep -q 'azure-bbadmin' "$BBADMIN_AZ" 2>/dev/null; then
+  install -m 0755 "$BBADMIN_AZ" "$PROFILE_ROOT/b-and-b/wrappers/az"
+  echo "installed b-and-b/wrappers/az (bbadmin + SOCKS proxy)"
+fi
+
 # Prune stale org dirs (present on disk but no longer in the registry).
 if [[ -d "$PROFILE_ROOT" ]]; then
   for existing in "$PROFILE_ROOT"/*/; do
