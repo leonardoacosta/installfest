@@ -26,8 +26,18 @@ PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
 
 [[ -f "$REGISTRY" ]] || { echo "generate-workspace-profiles: registry not found: $REGISTRY" >&2; exit 1; }
 
+# Resolve a python3 with tomllib (stdlib only in 3.11+; ambient python3 may be older,
+# e.g. macOS /usr/bin/python3 == 3.9). Probe known-good interpreters in order.
+WS_PY=""
+for _py in python3.14 python3.13 python3.12 python3.11 python3; do
+  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
+    WS_PY="$_py"; break
+  fi
+done
+[[ -n "$WS_PY" ]] || { echo "generate-workspace-profiles: no python3 with tomllib (need >= 3.11)" >&2; exit 1; }
+
 # Distinct org set from the registry.
-ORGS=$(python3 - "$REGISTRY" <<'PY'
+ORGS=$("$WS_PY" - "$REGISTRY" <<'PY'
 import sys, tomllib
 d = tomllib.load(open(sys.argv[1], "rb"))
 cats = sorted({p.get("category", "personal") for p in d.get("projects", [])})

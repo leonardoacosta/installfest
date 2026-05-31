@@ -64,9 +64,23 @@ if [[ ! -f "$REGISTRY" ]]; then
   exit 1
 fi
 
+# Resolve a python3 that has tomllib (stdlib only in 3.11+). The ambient `python3`
+# can be too old — e.g. macOS interactive shells resolve /usr/bin/python3 (3.9, no
+# tomllib) ahead of Homebrew's. Probe known-good interpreters in order.
+WS_PY=""
+for _py in python3.14 python3.13 python3.12 python3.11 python3; do
+  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
+    WS_PY="$_py"; break
+  fi
+done
+if [[ -z "$WS_PY" ]]; then
+  echo "wsenv: no python3 with tomllib found (need Python >= 3.11)" >&2
+  exit 1
+fi
+
 # Resolve code from cwd if not given (match a project whose path is a suffix of $PWD).
 if [[ -z "$CODE" && "$MODE" != "list" ]]; then
-  CODE=$(python3 - "$REGISTRY" "$PWD" <<'PY'
+  CODE=$("$WS_PY" - "$REGISTRY" "$PWD" <<'PY'
 import sys, tomllib, os
 reg, pwd = sys.argv[1], os.path.realpath(sys.argv[2])
 data = tomllib.load(open(reg, "rb"))
@@ -89,7 +103,7 @@ fi
 
 # --list: dump code -> org for every project.
 if [[ "$MODE" == "list" ]]; then
-  python3 - "$REGISTRY" <<'PY'
+  "$WS_PY" - "$REGISTRY" <<'PY'
 import sys, tomllib
 data = tomllib.load(open(sys.argv[1], "rb"))
 cat2org = {"b-and-b": "b-and-b", "priceless": "priceless", "personal": "personal"}
@@ -100,7 +114,7 @@ PY
 fi
 
 # Resolve org from code.
-ORG=$(python3 - "$REGISTRY" "$CODE" <<'PY'
+ORG=$("$WS_PY" - "$REGISTRY" "$CODE" <<'PY'
 import sys, tomllib
 reg, code = sys.argv[1], sys.argv[2]
 data = tomllib.load(open(reg, "rb"))
