@@ -76,6 +76,11 @@ fi
 # cmux workspaces
 alias mux="$DOTFILES/scripts/cmux-workspaces.sh"
 
+# workspace auto-activation: cd into a registered ~/dev/<code> repo -> activate its
+# org workspace (env + wrappers PATH) via wsenv. Sticky; also fires once at startup.
+[[ -f "$DOTFILES/packages/workspace/integrations/chpwd.zsh" ]] \
+  && source "$DOTFILES/packages/workspace/integrations/chpwd.zsh"
+
 # Search aliases — forgive muscle-memory typos for ripgrep
 alias rgrep="rg"
 
