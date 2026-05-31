@@ -142,15 +142,22 @@ find_workspace_uuid() {
 #   CC hooks can call back to cmux-bridge on the Mac over Tailscale.
 # Local mode: cd directly, then run (Ghostty auto-sets CMUX_* env vars)
 pane_exec() {
-  local ws="$1" surface="$2" full_path="$3" cmd="$4"
+  local ws="$1" surface="$2" full_path="$3" cmd="$4" code="${5:-}"
+  # Workspace activation: source the org profile (env + wrappers PATH) so every
+  # pane (nvim/claude/lazygit) inherits the correct identity. wsenv resolves the
+  # org from $code via projects.toml; harmless no-op if the profile is absent.
+  local ws_activate=""
+  if [[ -n "$code" ]]; then
+    ws_activate="eval \"\$(\$HOME/.claude/scripts/bin/wsenv $code 2>/dev/null)\" && "
+  fi
   if [[ "$MODE" == "ssh" ]]; then
     local env_exports="export CMUX_WORKSPACE_ID=$ws CMUX_SURFACE_ID=$surface"
     if [[ -n "$MAC_TAILSCALE_IP" ]]; then
       env_exports+=" CMUX_BRIDGE_HOST=$MAC_TAILSCALE_IP"
     fi
-    send_to "$ws" "$surface" "ssh -t $SSH_HOST -- zsh -lc '$env_exports && cd $full_path && $cmd'"
+    send_to "$ws" "$surface" "ssh -t $SSH_HOST -- zsh -lc '$env_exports && cd $full_path && ${ws_activate}$cmd'"
   else
-    send_to "$ws" "$surface" "cd $full_path && $cmd"
+    send_to "$ws" "$surface" "cd $full_path && ${ws_activate}$cmd"
   fi
 }
 
@@ -248,7 +255,7 @@ populate_workspace() {
   sleep 0.2
 
   # Left pane: nvim
-  pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ."
+  pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ." "$code"
   sleep 0.3
 
   # Split right: Claude Code
@@ -258,7 +265,9 @@ populate_workspace() {
   claude_surface=$(parse_surface "$split_out")
   sleep 0.3
 
-  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "claude"
+  # Claude pane: also inject org launch flags (--add-dir/--mcp-config/etc.) so
+  # workspace-specific CC features layer onto the global ~/.claude.
+  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "claude \$(\$HOME/.claude/scripts/bin/wsenv --flags $code 2>/dev/null)" "$code"
   sleep 0.3
 
   # Split down from Claude pane: lazygit
@@ -268,7 +277,7 @@ populate_workspace() {
   git_surface=$(parse_surface "$split_out2")
   sleep 0.3
 
-  pane_exec "$ws_uuid" "$git_surface" "$full_path" "lazygit"
+  pane_exec "$ws_uuid" "$git_surface" "$full_path" "lazygit" "$code"
 
   echo "  ✓ $code ready"
 }
