@@ -265,9 +265,12 @@ populate_workspace() {
   claude_surface=$(parse_surface "$split_out")
   sleep 0.3
 
-  # Claude pane: also inject org launch flags (--add-dir/--mcp-config/etc.) so
-  # workspace-specific CC features layer onto the global ~/.claude.
-  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "claude \$(wsenv --flags $code 2>/dev/null)" "$code"
+  # Claude pane: launch via ws-claude, which wraps claude in a PERSISTENT per-workspace
+  # zellij session (ws-<code>) that survives SSH disconnect and reattaches on reconnect.
+  # ws-claude bakes the workspace activation + org launch flags into the zellij pane, so
+  # identity is correct regardless of the zellij server's env. nvim/lazygit stay plain
+  # cmux panes (only the long-running claude session needs persistence).
+  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "ws-claude $code" "$code"
   sleep 0.3
 
   # Split down from Claude pane: lazygit

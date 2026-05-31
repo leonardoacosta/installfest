@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# ws-claude — launch a workspace-scoped, persistent Claude Code session.
+#
+# Wraps `claude` in a per-workspace zellij session so it SURVIVES SSH disconnect:
+# the session runs on the homelab's zellij server, not as a child of sshd. On
+# reconnect, the same `ws-<code>` session is re-attached instead of spawning a
+# fresh claude.
+#
+# Usage:  ws-claude <code>
+#   <code> = project short code (oo, ws, cc, ...). Resolved to its workspace via wsenv.
+#
+# Called by cmux-workspaces.sh in the Claude pane. Standalone-runnable too:
+#   ws-claude ws        # attach-or-create the b-and-b 'ws' session
+#
+# Why a generated layout: zellij has no `-- command` form; a session takes its
+# command via a layout file passed to `-n/--new-session-with-layout`. The workspace
+# activation MUST run inside the pane command — a pre-existing zellij server spawns
+# panes from the SERVER's env, not this client's — so baking `eval $(wsenv ...)` into
+# the pane is the only way identity is guaranteed correct (the env-staleness gotcha).
+#
+# NOTE: NOT `set -e` — `zellij list-sessions` exits non-zero when no sessions exist,
+# which is a normal "create it then" condition, not an error.
+set -uo pipefail
+
+CODE="${1:?ws-claude: missing project code (usage: ws-claude <code>)}"
+SESSION="ws-${CODE}"
+
+# zellij needs its config dir to exist to create a session.
+mkdir -p "${ZELLIJ_CONFIG_DIR:-$HOME/.config/zellij}"
+
+# If the session already exists, reattach (survives disconnect; resumes in-flight claude).
+# list-sessions returns non-zero when none exist — that's fine, the grep just won't match.
+if zellij list-sessions -s 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -qx "$SESSION"; then
+  exec zellij attach "$SESSION"
+fi
+
+# New session: generate a layout whose pane activates the workspace then execs claude.
+# A login zsh (-l) so PATH/.zshenv (-> wsenv on PATH) loads; then eval the workspace
+# activation and exec claude with the org flags. Baked into the pane = server-env-independent.
+LAYOUT_DIR="${XDG_RUNTIME_DIR:-/tmp}/ws-claude"
+mkdir -p "$LAYOUT_DIR"
+LAYOUT="$LAYOUT_DIR/${SESSION}.kdl"
+
+cat > "$LAYOUT" <<EOF
+layout {
+    pane {
+        command "zsh"
+        args "-lic" "eval \"\$(wsenv ${CODE} 2>/dev/null)\"; exec claude \$(wsenv --flags ${CODE} 2>/dev/null)"
+    }
+}
+EOF
+
+# -n / --new-session-with-layout: create a NEW named session running the layout.
+# (-l adds a tab to an EXISTING session and errors when none is active — wrong here.)
+exec zellij -s "$SESSION" -n "$LAYOUT"
