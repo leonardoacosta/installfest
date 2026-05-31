@@ -41,11 +41,13 @@ LAYOUT_DIR="${XDG_RUNTIME_DIR:-/tmp}/ws-claude"
 mkdir -p "$LAYOUT_DIR"
 LAYOUT="$LAYOUT_DIR/${SESSION}.kdl"
 
+# COLORTERM=truecolor is exported in-pane: zellij sets TERM=xterm-256color for panes
+# but does NOT propagate COLORTERM, so claude (and other apps) downgrade to monochrome.
 cat > "$LAYOUT" <<EOF
 layout {
     pane {
         command "zsh"
-        args "-lic" "eval \"\$(wsenv ${CODE} 2>/dev/null)\"; exec claude \$(wsenv --flags ${CODE} 2>/dev/null)"
+        args "-lic" "export COLORTERM=truecolor; eval \"\$(wsenv ${CODE} 2>/dev/null)\"; exec claude \$(wsenv --flags ${CODE} 2>/dev/null)"
     }
 }
 EOF
