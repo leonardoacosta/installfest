@@ -123,8 +123,8 @@ get_color() {
 
 # Layout:
 #   ┌──────────────┬──────────────┐
-#   │              │  Claude Code  │
-#   │   nvim .     ├──────────────┤
+#   │              │   nvim .      │
+#   │  Claude Code ├──────────────┤
 #   │              │   lazygit     │
 #   └──────────────┴──────────────┘
 
@@ -272,35 +272,34 @@ populate_workspace() {
   local full_path
   full_path=$(resolve_path "$project")
 
-  local editor_surface
-  editor_surface=$(wait_for_surface "$ws_uuid") || {
+  local claude_surface
+  claude_surface=$(wait_for_surface "$ws_uuid") || {
     echo "  ✗ $code — no surface found, skipping populate" >&2
     return 1
   }
   sleep 0.2
 
-  # Left pane: nvim
-  pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ." "$code"
-  sleep 0.3
-
-  # Split right: Claude Code
-  local split_out
-  split_out=$($CMUX new-split right --workspace "$ws_uuid" --surface "$editor_surface" 2>&1)
-  local claude_surface
-  claude_surface=$(parse_surface "$split_out")
-  sleep 0.3
-
-  # Claude pane: launch via ws-claude, which wraps claude in a PERSISTENT per-workspace
-  # zellij session (ws-<code>) that survives SSH disconnect and reattaches on reconnect.
-  # ws-claude bakes the workspace activation + org launch flags into the zellij pane, so
-  # identity is correct regardless of the zellij server's env. nvim/lazygit stay plain
-  # cmux panes (only the long-running claude session needs persistence).
+  # Left pane: Claude Code — launch via ws-claude, which wraps claude in a PERSISTENT
+  # per-workspace zellij session (ws-<code>) that survives SSH disconnect and reattaches
+  # on reconnect. ws-claude bakes the workspace activation + org launch flags into the
+  # zellij pane, so identity is correct regardless of the zellij server's env.
+  # nvim/lazygit stay plain cmux panes (only the long-running claude session persists).
   pane_exec "$ws_uuid" "$claude_surface" "$full_path" "ws-claude $code" "$code"
   sleep 0.3
 
-  # Split down from Claude pane: lazygit
+  # Split right: nvim (editor / terminal pane)
+  local split_out
+  split_out=$($CMUX new-split right --workspace "$ws_uuid" --surface "$claude_surface" 2>&1)
+  local editor_surface
+  editor_surface=$(parse_surface "$split_out")
+  sleep 0.3
+
+  pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ." "$code"
+  sleep 0.3
+
+  # Split down from the editor pane: lazygit
   local split_out2
-  split_out2=$($CMUX new-split down --workspace "$ws_uuid" --surface "$claude_surface" 2>&1)
+  split_out2=$($CMUX new-split down --workspace "$ws_uuid" --surface "$editor_surface" 2>&1)
   local git_surface
   git_surface=$(parse_surface "$split_out2")
   sleep 0.3
@@ -369,8 +368,8 @@ Examples:
 
 Layout per workspace:
   ┌──────────────┬──────────────┐
-  │   nvim .     │  claude       │
-  │              ├──────────────┤
+  │              │  nvim .       │
+  │  claude      ├──────────────┤
   │              │  lazygit      │
   └──────────────┴──────────────┘
 HELP
