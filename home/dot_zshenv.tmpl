@@ -96,6 +96,41 @@ export PNPM_HOME="$HOME/.local/share/pnpm"
 [[ -d "$HOME/.dotnet/tools" ]] && export PATH="$PATH:$HOME/.dotnet/tools"
 
 # ============================================================
+# Build tool memory caps
+# ============================================================
+# Prevents runaway memory in ESLint (V8 heap) and Roslyn's VBCSCompiler
+# (.NET GC heap). Caps are per-process — concurrent builders multiply this.
+# Tune per-invocation with `NODE_OPTIONS=--max-old-space-size=N pnpm <cmd>`
+# if you hit OOM on a legitimately large build (Next.js prod, large vitest).
+
+# MSBuild: don't keep VBCSCompiler / dotnet build nodes alive between invocations.
+# Trade-off: ~1-2s cold-start per build. Worth it to avoid 1.5GB lingering processes.
+# Applies to Mac, homelab, Arch — universal.
+export MSBUILDDISABLENODEREUSE=1
+
+{{ if eq .chezmoi.os "darwin" -}}
+# Mac (16GB): conservative cap that stops ESLint runaway dead.
+# Override per-command if Next.js prod build needs more: NODE_OPTIONS=--max-old-space-size=8192 pnpm build
+export NODE_OPTIONS="--max-old-space-size=4096"
+
+{{ else if eq .machine "homelab" -}}
+# Homelab (tight RAM, shared with Docker stack): hard caps prevent OOM that kills the box.
+# Historical incident: ESLint + VBCSCompiler combined pushed past ~600MB headroom → swap thrash → SSH unreachable.
+export NODE_OPTIONS="--max-old-space-size=1024"
+
+# .NET runtime GC hard limit: 512MB. Clean OOM at the cap instead of unbounded growth.
+# Value is hex bytes: 0x20000000 = 536870912 = 512MB. Bump to 0x40000000 for 1GB if needed.
+export DOTNET_GCHeapHardLimit=0x20000000
+
+# Aggressive GC mode (0-9, default 0). Higher = smaller working set, slightly more CPU.
+export DOTNET_GCConserveMemory=9
+
+{{ else if eq .chezmoi.os "linux" -}}
+# Generic Linux fallback (Arch desktop, etc) — moderate caps.
+export NODE_OPTIONS="--max-old-space-size=2048"
+
+{{ end -}}
+# ============================================================
 # Local overrides (secrets, machine-specific tokens)
 # ============================================================
 
