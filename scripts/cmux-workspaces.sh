@@ -6,7 +6,7 @@
 # Usage:
 #   mux oo tc           # Launch specific projects
 #   mux b               # Launch all B&B projects
-#   mux c               # Launch all Client projects
+#   mux c               # Launch all Priceless projects
 #   mux p               # Launch all Personal projects
 #   mux --local oo      # Launch locally instead of SSH
 #   mux --list          # List available projects
@@ -32,7 +32,7 @@ fi
 
 # Category colors
 COLOR_BB="#F59E0B"       # amber
-COLOR_CLIENT="#10B981"   # green
+COLOR_PRICELESS="#10B981"   # green
 COLOR_PERSONAL="#3B82F6" # blue
 
 # Parse projects.toml with Python and emit shell variable assignments
@@ -47,10 +47,10 @@ with open(toml_file, "rb") as f:
 projects = data["projects"]
 
 # Category label mapping
-cat_labels = {"b-and-b": "B&B", "client": "Client", "personal": "Personal"}
+cat_labels = {"b-and-b": "B&B", "priceless": "Priceless", "personal": "Personal"}
 
 # Build parallel arrays by category
-groups = {"b-and-b": [], "client": [], "personal": []}
+groups = {"b-and-b": [], "priceless": [], "personal": []}
 for p in projects:
     cat = p["category"]
     if cat in groups:
@@ -58,7 +58,7 @@ for p in projects:
 
 # Emit group arrays
 print("GROUP_BB=(" + " ".join(groups["b-and-b"]) + ")")
-print("GROUP_CLIENT=(" + " ".join(groups["client"]) + ")")
+print("GROUP_PRICELESS=(" + " ".join(groups["priceless"]) + ")")
 print("GROUP_PERSONAL=(" + " ".join(groups["personal"]) + ")")
 
 # Emit associative arrays
@@ -85,13 +85,13 @@ PYEOF
 
 eval "$(TOML_FILE="$TOML_FILE" load_projects)"
 
-# Canonical order (B&B → Clients → Personal)
-CANONICAL_ORDER=("${GROUP_BB[@]}" "${GROUP_CLIENT[@]}" "${GROUP_PERSONAL[@]}")
+# Canonical order (B&B → Priceless → Personal)
+CANONICAL_ORDER=("${GROUP_BB[@]}" "${GROUP_PRICELESS[@]}" "${GROUP_PERSONAL[@]}")
 
 get_color() {
   case "${CATEGORIES[$1]:-Personal}" in
     "B&B")      echo "$COLOR_BB" ;;
-    "Client")   echo "$COLOR_CLIENT" ;;
+    "Priceless")   echo "$COLOR_PRICELESS" ;;
     "Personal") echo "$COLOR_PERSONAL" ;;
   esac
 }
@@ -289,7 +289,7 @@ targets=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     b)  targets+=("${GROUP_BB[@]}"); shift ;;
-    c)  targets+=("${GROUP_CLIENT[@]}"); shift ;;
+    c)  targets+=("${GROUP_PRICELESS[@]}"); shift ;;
     p)  targets+=("${GROUP_PERSONAL[@]}"); shift ;;
     --local)  MODE="local"; shift ;;
     --ssh)    MODE="ssh"; shift ;;
@@ -302,8 +302,8 @@ while [[ $# -gt 0 ]]; do
         printf "    %-4s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
       done
       echo ""
-      echo "  Clients [c] (green):"
-      for code in "${GROUP_CLIENT[@]}"; do
+      echo "  Priceless [c] (green):"
+      for code in "${GROUP_PRICELESS[@]}"; do
         printf "    %-4s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
       done
       echo ""
@@ -317,14 +317,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --help|-h)
       bb_list=$(IFS=", "; echo "${GROUP_BB[*]}")
-      client_list=$(IFS=", "; echo "${GROUP_CLIENT[*]}")
+      priceless_list=$(IFS=", "; echo "${GROUP_PRICELESS[*]}")
       personal_list=$(IFS=", "; echo "${GROUP_PERSONAL[*]}")
       cat <<HELP
 Usage: mux [OPTIONS] [b|c|p|PROJECT...]
 
 Groups:
   b    B&B (amber)       — $bb_list
-  c    Clients (green)   — $client_list
+  c    Priceless (green) — $priceless_list
   p    Personal (blue)   — $personal_list
 
 Options:
@@ -335,7 +335,7 @@ Options:
 
 Examples:
   mux b              # Open all B&B projects
-  mux c              # Open all Client projects
+  mux c              # Open all Priceless projects
   mux oo mv          # Open specific projects
   mux b oo           # B&B group + oo
 
@@ -356,7 +356,7 @@ wait_for_cmux
 
 if [[ ${#targets[@]} -eq 0 ]]; then
   echo "Usage: mux [b|c|p|PROJECT...]"
-  echo "  b = B&B, c = Clients, p = Personal"
+  echo "  b = B&B, c = Priceless, p = Personal"
   echo "  Or specify project codes: mux oo tc mv"
   echo "  Run 'mux --list' for all projects"
   exit 0

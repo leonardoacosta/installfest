@@ -4,7 +4,7 @@
 # Fields:
 #   code      Short code used for script names and cmux workspaces
 #   name      Human-readable project name
-#   category  One of: "b-and-b", "client", "personal"
+#   category  One of: "b-and-b", "priceless", "personal"
 #   icon      Emoji icon for Raycast metadata
 #   path      Relative path from home dir (e.g. "dev/oo" or ".claude")
 #   tiers     Deployment tiers: "remote" (SSH homelab), "local" (Mac), "cloudpc" (SSH cloudpc)
@@ -102,7 +102,7 @@ tiers = ["remote"]
 [[projects]]
 code = "oo"
 name = "Otaku Odyssey"
-category = "client"
+category = "priceless"
 icon = "👘"
 path = "dev/oo"
 tiers = ["remote", "local"]
@@ -110,7 +110,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "mv"
 name = "Modern Visa"
-category = "client"
+category = "priceless"
 icon = "🌐"
 path = "dev/mv"
 tiers = ["remote", "local"]
@@ -118,7 +118,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "ct"
 name = "Civalent"
-category = "client"
+category = "priceless"
 icon = "🔥"
 path = "dev/ct"
 tiers = ["remote", "local"]
@@ -126,7 +126,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "tl"
 name = "Tavern Ledger"
-category = "client"
+category = "priceless"
 icon = "🍺"
 path = "dev/tl"
 tiers = ["remote", "local"]
@@ -134,7 +134,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "tc"
 name = "Tribal Cities"
-category = "client"
+category = "priceless"
 icon = "⛺"
 path = "dev/tc"
 tiers = ["remote", "local"]
@@ -142,7 +142,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "ss"
 name = "Styles by Silas"
-category = "client"
+category = "priceless"
 icon = "💇🏼"
 path = "dev/ss"
 tiers = ["remote", "local"]

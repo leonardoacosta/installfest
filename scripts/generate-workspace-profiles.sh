@@ -44,10 +44,10 @@ emit_env() {
 export AZURE_CONFIG_DIR="$HOME/.azure-bbadmin"
 EOF
       ;;
-    client)
+    priceless)
       cat <<'EOF'
-# Workspace env: client (generated)
-# (no shared client env yet — per-repo .env still applies)
+# Workspace env: priceless (generated)
+# (no shared priceless env yet — per-repo .env still applies)
 EOF
       ;;
     personal)
