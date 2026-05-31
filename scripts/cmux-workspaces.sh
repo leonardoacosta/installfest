@@ -148,7 +148,7 @@ pane_exec() {
   # org from $code via projects.toml; harmless no-op if the profile is absent.
   local ws_activate=""
   if [[ -n "$code" ]]; then
-    ws_activate="eval \"\$(\wsenv $code 2>/dev/null)\" && "
+    ws_activate="eval \"\$(wsenv $code 2>/dev/null)\" && "
   fi
   if [[ "$MODE" == "ssh" ]]; then
     local env_exports="export CMUX_WORKSPACE_ID=$ws CMUX_SURFACE_ID=$surface"
@@ -267,7 +267,7 @@ populate_workspace() {
 
   # Claude pane: also inject org launch flags (--add-dir/--mcp-config/etc.) so
   # workspace-specific CC features layer onto the global ~/.claude.
-  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "claude \$(\wsenv --flags $code 2>/dev/null)" "$code"
+  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "claude \$(wsenv --flags $code 2>/dev/null)" "$code"
   sleep 0.3
 
   # Split down from Claude pane: lazygit
