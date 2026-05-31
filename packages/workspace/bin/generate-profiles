@@ -18,8 +18,10 @@
 # empty env.sh stubs. Wrappers/skills/MCP/prompt are scaffolded empty for later phases.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REGISTRY="${WSENV_REGISTRY:-$SCRIPT_DIR/../home/projects.toml}"
+# Registry source of truth: IF's projects.toml (read in-place; chezmoi-ignored).
+# Package lives at ~/dev/if/packages/workspace/bin/, registry at ~/dev/if/home/.
+REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
+[[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
 PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
 
 [[ -f "$REGISTRY" ]] || { echo "generate-workspace-profiles: registry not found: $REGISTRY" >&2; exit 1; }

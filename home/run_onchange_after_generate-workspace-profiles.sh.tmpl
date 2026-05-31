@@ -3,5 +3,4 @@
 # Regenerate workspace profiles when projects.toml changes
 # Hash: {{ include "projects.toml" | sha256sum }}
 
-SCRIPT_DIR="{{ .chezmoi.workingTree }}/scripts"
-"$SCRIPT_DIR/generate-workspace-profiles.sh"
+"{{ .chezmoi.workingTree }}/packages/workspace/bin/generate-profiles"

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# wsenv — workspace environment resolver.
+#
+# Resolves a repo's short code (or the current directory) to its org-category
+# workspace, then emits either the shell to activate that workspace (env vars +
+# wrapper PATH) or the `claude` launch flags that layer org-specific config on
+# top of the global ~/.claude.
+#
+# Source of truth: projects.toml `category` field (b-and-b / client / personal).
+# Profile artifacts (generated separately): ~/.config/workspace/<org>/
+#   env.sh        sourced for env vars (e.g. AZURE_CONFIG_DIR)
+#   wrappers/     prepended to PATH
+#   claude/       --add-dir target (org-only skills)
+#   mcp.json      --mcp-config target (org-only MCP, additive)
+#   prompt.txt    --append-system-prompt-file target
+#   plugin/       --plugin-dir target (org-only hooks), if present
+#
+# wsenv NEVER fails hard on a missing profile — an org with no profile dir yet
+# resolves cleanly and emits nothing to activate. This lets wsenv ship before
+# the generator exists.
+#
+# Usage:
+#   wsenv <code>            # print eval-able shell to activate the workspace
+#   wsenv                   # same, resolving code from $PWD
+#   wsenv --org <code>      # print just the org slug (b-and-b|client|personal)
+#   wsenv --flags <code>    # print the `claude` launch flags for the org
+#   wsenv --activate <code> # alias for default (eval-able shell)
+#   wsenv --list            # list all code->org mappings
+#
+# Examples:
+#   eval "$(wsenv ws)"               # activate b-and-b workspace
+#   eval "$(wsenv)"                  # activate based on cwd
+#   claude $(wsenv --flags ws)       # launch claude with b-and-b profile
+#   wsenv --org oo                   # -> client
+#
+# Environment overrides:
+#   WSENV_REGISTRY   path to projects.toml (default: $DOTFILES/home/projects.toml,
+#                    falling back to ~/dev/if/home/projects.toml)
+#   WSENV_PROFILE_DIR  profile root (default: ~/.config/workspace)
+#
+set -euo pipefail
+
+MODE="activate"
+CODE=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --org)       MODE="org"; shift ;;
+    --flags)     MODE="flags"; shift ;;
+    --activate)  MODE="activate"; shift ;;
+    --list)      MODE="list"; shift ;;
+    -h|--help)   awk '/^# wsenv/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*)          echo "wsenv: unknown flag $1 (try --help)" >&2; exit 2 ;;
+    *)           CODE="$1"; shift ;;
+  esac
+done
+
+REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
+[[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
+PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
+
+if [[ ! -f "$REGISTRY" ]]; then
+  echo "wsenv: registry not found: $REGISTRY" >&2
+  exit 1
+fi
+
+# Resolve code from cwd if not given (match a project whose path is a suffix of $PWD).
+if [[ -z "$CODE" && "$MODE" != "list" ]]; then
+  CODE=$(python3 - "$REGISTRY" "$PWD" <<'PY'
+import sys, tomllib, os
+reg, pwd = sys.argv[1], os.path.realpath(sys.argv[2])
+data = tomllib.load(open(reg, "rb"))
+best = ("", 0)
+for p in data.get("projects", []):
+    rel = p.get("path", "").lstrip("/")
+    # path is relative to home (e.g. "dev/oo" or ".claude")
+    full = os.path.realpath(os.path.join(os.path.expanduser("~"), rel))
+    if pwd == full or pwd.startswith(full + os.sep):
+        if len(full) > best[1]:
+            best = (p.get("code", ""), len(full))
+print(best[0])
+PY
+)
+  if [[ -z "$CODE" ]]; then
+    echo "wsenv: could not resolve a project code from cwd ($PWD)" >&2
+    exit 1
+  fi
+fi
+
+# --list: dump code -> org for every project.
+if [[ "$MODE" == "list" ]]; then
+  python3 - "$REGISTRY" <<'PY'
+import sys, tomllib
+data = tomllib.load(open(sys.argv[1], "rb"))
+cat2org = {"b-and-b": "b-and-b", "priceless": "priceless", "personal": "personal"}
+for p in sorted(data.get("projects", []), key=lambda x: (x.get("category",""), x.get("code",""))):
+    print(f'{p.get("code",""):<6} {cat2org.get(p.get("category",""), "personal")}')
+PY
+  exit 0
+fi
+
+# Resolve org from code.
+ORG=$(python3 - "$REGISTRY" "$CODE" <<'PY'
+import sys, tomllib
+reg, code = sys.argv[1], sys.argv[2]
+data = tomllib.load(open(reg, "rb"))
+for p in data.get("projects", []):
+    if p.get("code") == code:
+        cat = p.get("category", "personal")
+        print({"b-and-b": "b-and-b", "priceless": "priceless", "personal": "personal"}.get(cat, "personal"))
+        sys.exit(0)
+sys.exit(3)
+PY
+) || { echo "wsenv: unknown code '$CODE' (not in registry)" >&2; exit 3; }
+
+PROFILE="$PROFILE_ROOT/$ORG"
+
+case "$MODE" in
+  org)
+    echo "$ORG"
+    ;;
+  flags)
+    # Emit claude launch flags for whichever profile artifacts exist.
+    FLAGS=()
+    [[ -f "$PROFILE/settings.json" ]] && FLAGS+=(--settings "$PROFILE/settings.json")
+    [[ -d "$PROFILE/claude" ]]        && FLAGS+=(--add-dir "$PROFILE/claude")
+    [[ -f "$PROFILE/mcp.json" ]]      && FLAGS+=(--mcp-config "$PROFILE/mcp.json")
+    [[ -f "$PROFILE/prompt.txt" ]]    && FLAGS+=(--append-system-prompt-file "$PROFILE/prompt.txt")
+    [[ -d "$PROFILE/plugin" ]]        && FLAGS+=(--plugin-dir "$PROFILE/plugin")
+    printf '%s ' "${FLAGS[@]}"
+    echo
+    ;;
+  activate)
+    # Emit eval-able shell: export WS context, source env.sh, prepend wrappers to PATH.
+    # First STRIP any previously-activated workspace wrappers from PATH so switching
+    # orgs in one shell never leaves a prior org's wrapper winning (wrong-identity bug).
+    echo "export WS_WORKSPACE=$ORG"
+    echo "export WS_CODE=$CODE"
+    echo "export PATH=\"\$(printf '%s' \"\$PATH\" | tr ':' '\\n' | grep -vF '$PROFILE_ROOT/' | paste -sd: -)\""
+    [[ -f "$PROFILE/env.sh" ]]   && echo "source $PROFILE/env.sh"
+    [[ -d "$PROFILE/wrappers" ]] && echo "export PATH=\"$PROFILE/wrappers:\$PATH\""
+    # Clear the shell's command-location cache so a switched wrapper resolves now.
+    echo "hash -r 2>/dev/null || true"
+    ;;
+esac
