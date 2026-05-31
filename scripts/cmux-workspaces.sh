@@ -3,6 +3,17 @@
 # Source of truth: ~/dev/if/scripts/cmux-workspaces.sh
 # Project data: ~/dev/if/home/projects.toml
 #
+# Requires bash 4+ (uses `declare -A`). macOS ships only bash 3.2 at /bin/bash and
+# interactive PATH often resolves it ahead of Homebrew's, so re-exec under a bash 4+
+# if we were started under an older one.
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  for _b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    [ -x "$_b" ] && exec "$_b" "$0" "$@"
+  done
+  echo "cmux-workspaces: needs bash >= 4 (install: brew install bash)" >&2
+  exit 1
+fi
+#
 # Usage:
 #   mux oo tc           # Launch specific projects
 #   mux b               # Launch all B&B projects
