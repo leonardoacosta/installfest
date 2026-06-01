@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# ado-ready — Azure DevOps work-item tracker adapter for the wk portfolio surface.
+#
+# Calls `az boards query` against the ADO project declared in the org's
+# profile.toml and emits a JSON array on stdout. Designed to be called by
+# bin/wk-ready.
+#
+# Usage:
+#   ado-ready <org>          # e.g. ado-ready b-and-b
+#
+# Output schema (one ADO work item per array entry):
+#   [
+#     {
+#       "id": "12345",                          <-- ADO work item id (stringified)
+#       "title": "Renew Civalent SP cert",
+#       "state": "Active",
+#       "priority": 2,
+#       "work_item_type": "User Story",
+#       "assigned_to": "BBAdminLAcosta@bbins.com",
+#       "url": "https://dev.azure.com/bbins/.../_workitems/edit/12345",
+#       "project_code": "ado",
+#       "project_path": "(ado)"
+#       ... (other ADO field keys preserved verbatim under `fields`)
+#     },
+#     ...
+#   ]
+#
+# Workarounds for upstream bugs (azure-devops extension 1.0.2):
+#   1. The extension's argparse splits `[Field.Name]` in --wiql on internal
+#      whitespace. Workaround: pass WIQL via `@/path/to/file` (file form).
+#   2. `--project "Name With Spaces"` also splits — Wholesale Architecture is
+#      the canonical b-and-b project. Workaround: use the project GUID,
+#      cached as project_id in profile.toml.
+#   3. `--query "value[?name=='X Y']"` splits on the space inside the
+#      JMESPath literal. Workaround: filter client-side in python.
+#
+# Authentication: requires either `AZURE_DEVOPS_EXT_PAT` set or a prior
+# `az devops login`. If neither, this script exits 0 with `[]` on stdout and
+# a one-line "auth not configured" warning on stderr. Partial results are
+# valid; the dispatcher decides whether empty counts as failure.
+#
+# Environment overrides:
+#   WSENV_PROFILE_DIR    profile root (default: ~/.config/workspace)
+#   ADO_WIQL_FILE        override the bundled WIQL template (advanced)
+#
+set -euo pipefail
+
+ORG="${1:?ado-ready: missing org argument (usage: ado-ready <org>)}"
+PROFILE_DIR="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}/$ORG"
+PROFILE_TOML="$PROFILE_DIR/profile.toml"
+
+if [[ ! -f "$PROFILE_TOML" ]]; then
+  echo "ado-ready: $ORG: profile.toml not found at $PROFILE_TOML" >&2
+  echo "[]"
+  exit 0
+fi
+
+# Probe a python3 with tomllib (same pattern as wsenv / generate-profiles / bd-ready).
+PY=""
+for _py in python3.14 python3.13 python3.12 python3.11 python3; do
+  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
+    PY="$_py"; break
+  fi
+done
+[[ -n "$PY" ]] || { echo "ado-ready: need python3 with tomllib (>=3.11)" >&2; echo "[]"; exit 0; }
+
+# Read tracker config from profile.toml.
+read -r ORG_URL PROJECT_ID < <(
+  "$PY" - "$PROFILE_TOML" <<'PY'
+import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], 'rb'))
+ado = (cfg.get('tracker', {}) or {}).get('ado', {}) if isinstance(cfg.get('tracker'), dict) else {}
+print(ado.get('org_url', '').strip() or '-', ado.get('project_id', '').strip() or '-')
+PY
+)
+
+_missing=()
+[[ "$ORG_URL" == "-" ]] && _missing+=("org_url")
+[[ "$PROJECT_ID" == "-" ]] && _missing+=("project_id")
+if (( ${#_missing[@]} > 0 )); then
+  printf -v _msg 'tracker.ado.%s' "${_missing[0]}"
+  for _m in "${_missing[@]:1}"; do printf -v _msg '%s, tracker.ado.%s' "$_msg" "$_m"; done
+  echo "ado-ready: $ORG: $_msg not set in $PROFILE_TOML (see README.md § ADO setup)" >&2
+  echo "[]"
+  exit 0
+fi
+
+if ! command -v az >/dev/null 2>&1; then
+  echo "ado-ready: az CLI not on PATH" >&2
+  echo "[]"
+  exit 0
+fi
+
+# Default WIQL: ready ADO work items assigned to me (or unassigned) in
+# active/new state. Override via ADO_WIQL_FILE for experimentation.
+WIQL_FILE="${ADO_WIQL_FILE:-}"
+WIQL_TMP=""
+if [[ -z "$WIQL_FILE" ]]; then
+  WIQL_TMP=$(mktemp -t ado-wiql.XXXXXX)
+  trap 'rm -f "$WIQL_TMP"' EXIT
+  cat > "$WIQL_TMP" <<'WIQL'
+SELECT [System.Id], [System.Title], [System.State], [Microsoft.VSTS.Common.Priority], [System.WorkItemType], [System.AssignedTo] FROM workitems WHERE [System.AssignedTo] = @Me AND [System.State] IN ('New', 'Active', 'Ready') ORDER BY [Microsoft.VSTS.Common.Priority] ASC, [System.ChangedDate] DESC
+WIQL
+  WIQL_FILE="$WIQL_TMP"
+fi
+
+# Run the query — note the @file form and project GUID workarounds.
+if ! RAW=$(az boards query \
+  --wiql "@$WIQL_FILE" \
+  --organization "$ORG_URL" \
+  --project "$PROJECT_ID" \
+  -o json 2>&1); then
+  # Distinguish auth failure from other errors.
+  if echo "$RAW" | grep -q 'requires user authentication\|TF400813\|VS30063'; then
+    echo "ado-ready: $ORG: ADO auth required — run 'az devops login' or set AZURE_DEVOPS_EXT_PAT" >&2
+  else
+    echo "ado-ready: $ORG: az boards query failed: ${RAW:0:200}" >&2
+  fi
+  echo "[]"
+  exit 0
+fi
+
+# Normalize: az returns a flat array where each item has `id`, `url`, `fields`.
+# Project the most useful fields to top level for table-friendly display.
+echo "$RAW" | "$PY" - "$ORG_URL" <<'PY'
+import sys, json
+org_url = sys.argv[1].rstrip('/')
+try:
+    data = json.loads(sys.stdin.read() or '[]')
+except Exception:
+    print('[]'); sys.exit(0)
+if not isinstance(data, list):
+    print('[]'); sys.exit(0)
+out = []
+for item in data:
+    fields = item.get('fields', {}) if isinstance(item, dict) else {}
+    out.append({
+        'id': str(item.get('id', '')),
+        'title': fields.get('System.Title', ''),
+        'state': fields.get('System.State', ''),
+        'priority': fields.get('Microsoft.VSTS.Common.Priority', 99),
+        'work_item_type': fields.get('System.WorkItemType', ''),
+        'assigned_to': (fields.get('System.AssignedTo') or {}).get('uniqueName', '') if isinstance(fields.get('System.AssignedTo'), dict) else str(fields.get('System.AssignedTo', '') or ''),
+        'url': item.get('url', ''),
+        'project_code': 'ado',
+        'project_path': '(ado)',
+        'fields': fields,
+    })
+out.sort(key=lambda x: (int(x.get('priority', 99) or 99), str(x.get('id', ''))))
+print(json.dumps(out))
+PY

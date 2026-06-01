@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# wk-ready — dispatch portfolio "ready work" query to the org's tracker adapter.
+#
+# Reads ~/.config/workspace/<org>/profile.toml to find the org's tracker
+# (beads | ado | none) and execs the corresponding adapter in
+# packages/workspace/lib/trackers/.
+#
+# Usage:
+#   wk-ready                 # resolve org from $PWD via wsenv
+#   wk-ready <org>           # explicit org (b-and-b | priceless | personal | ...)
+#   wk-ready --list          # list orgs that have a profile.toml
+#   wk-ready --json          # default; emit raw JSON from the adapter
+#   wk-ready --table         # piped via jq to a compact table
+#
+# Exit codes:
+#   0  ok (including [] from adapter)
+#   1  bad invocation / missing dependency
+#
+# The adapter contract is "never fail hard" — adapter errors land on stderr
+# and produce []. wk-ready surfaces those stderr lines unchanged so the
+# operator sees what went wrong.
+#
+# Environment overrides:
+#   WSENV_REGISTRY        path to projects.toml (default: $DOTFILES/home/projects.toml)
+#   WSENV_PROFILE_DIR     profile root         (default: ~/.config/workspace)
+#   WK_TRACKERS_DIR       tracker adapters dir (default: packages/workspace/lib/trackers
+#                         resolved relative to wsenv on PATH)
+#
+set -euo pipefail
+
+MODE="json"
+ORG=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json)  MODE="json"; shift ;;
+    --table) MODE="table"; shift ;;
+    --list)  MODE="list"; shift ;;
+    -h|--help)
+      awk '/^# wk-ready/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -*) echo "wk-ready: unknown flag $1 (try --help)" >&2; exit 1 ;;
+    *)  ORG="$1"; shift ;;
+  esac
+done
+
+PROFILE_DIR_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
+
+if [[ "$MODE" == "list" ]]; then
+  shopt -s nullglob
+  for d in "$PROFILE_DIR_ROOT"/*/profile.toml; do
+    org=$(basename "$(dirname "$d")")
+    printf '%s\n' "$org"
+  done
+  exit 0
+fi
+
+# Resolve trackers dir from wsenv's path on disk (script lives alongside wsenv).
+if [[ -z "${WK_TRACKERS_DIR:-}" ]]; then
+  if WSENV_BIN=$(command -v wsenv 2>/dev/null) && WSENV_BIN=$(readlink -f "$WSENV_BIN" 2>/dev/null); then
+    WK_TRACKERS_DIR="$(dirname "$(dirname "$WSENV_BIN")")/lib/trackers"
+  else
+    # Fallback: same script's neighborhood.
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    WK_TRACKERS_DIR="$(cd "$SCRIPT_DIR/../lib/trackers" && pwd 2>/dev/null)" || {
+      echo "wk-ready: cannot locate trackers dir (set WK_TRACKERS_DIR)" >&2; exit 1;
+    }
+  fi
+fi
+
+# Resolve org from $PWD if not given. Reuses wsenv --org which already maps
+# the repo's short code (or cwd) to its category in projects.toml.
+if [[ -z "$ORG" ]]; then
+  if ! ORG=$(wsenv --org 2>/dev/null) || [[ -z "$ORG" ]]; then
+    echo "wk-ready: cannot resolve org from \$PWD; pass <org> explicitly" >&2
+    exit 1
+  fi
+fi
+
+PROFILE_TOML="$PROFILE_DIR_ROOT/$ORG/profile.toml"
+if [[ ! -f "$PROFILE_TOML" ]]; then
+  echo "wk-ready: profile.toml not found for org '$ORG' at $PROFILE_TOML" >&2
+  exit 1
+fi
+
+# Probe python3 with tomllib.
+PY=""
+for _py in python3.14 python3.13 python3.12 python3.11 python3; do
+  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
+    PY="$_py"; break
+  fi
+done
+[[ -n "$PY" ]] || { echo "wk-ready: need python3 with tomllib (>=3.11)" >&2; exit 1; }
+
+# Read tracker name from profile.toml.
+TRACKER=$("$PY" - "$PROFILE_TOML" <<'PY'
+import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], 'rb'))
+t = cfg.get('tracker', 'none')
+# Allow both `tracker = "beads"` and `[tracker]\nkind = "beads"` styles.
+if isinstance(t, dict):
+    t = t.get('kind', 'none')
+print(str(t).strip().lower() or 'none')
+PY
+)
+
+ADAPTER="$WK_TRACKERS_DIR/${TRACKER}-ready"
+if [[ ! -x "$ADAPTER" ]]; then
+  echo "wk-ready: unknown tracker '$TRACKER' for org '$ORG' (no adapter at $ADAPTER)" >&2
+  exit 1
+fi
+
+# Dispatch. The adapter writes JSON to stdout and diagnostics to stderr; we
+# pass both through unchanged.
+if [[ "$MODE" == "table" ]]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "wk-ready: --table needs jq; falling back to --json" >&2
+    MODE="json"
+  fi
+fi
+
+if [[ "$MODE" == "table" ]]; then
+  "$ADAPTER" "$ORG" | jq -r '
+    if length == 0 then "(no ready items)"
+    else
+      ["PRI", "ID", "TITLE", "PROJECT"],
+      (.[] | [
+        (.priority // 99 | tostring),
+        (.id // "?" | tostring),
+        ((.title // "") | .[0:60]),
+        (.project_code // "?")
+      ]) | @tsv
+    end
+  ' | column -t -s$'\t'
+else
+  "$ADAPTER" "$ORG"
+fi

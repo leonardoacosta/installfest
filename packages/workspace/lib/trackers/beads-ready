@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# beads-ready — beads tracker adapter for the wk portfolio surface.
+#
+# Fans out `bd ready --json` across every project that belongs to <org>
+# (per home/projects.toml), tags each issue with its project code, and emits
+# one JSON array on stdout. Designed to be called by bin/wk-ready.
+#
+# Usage:
+#   beads-ready <org>           # e.g. beads-ready priceless
+#
+# Output schema (each item is a bd issue with two annotations):
+#   [
+#     {
+#       "id": "oo-x91",
+#       "title": "...",
+#       "priority": 2,
+#       "status": "open",
+#       "issue_type": "feature",
+#       "owner": "...",
+#       "updated_at": "...",
+#       "project_code": "oo",      <-- annotated by this script
+#       "project_path": "dev/oo"   <-- annotated by this script
+#       ... (all other bd fields preserved verbatim)
+#     },
+#     ...
+#   ]
+#
+# Empty array `[]` if no ready issues. Projects without a .beads/ dir are
+# skipped silently. Projects that error out (bd missing, permission denied)
+# are reported on stderr and excluded — partial results are valid.
+#
+# Parallelism: each project query runs in a background subshell into a
+# temp file, then results are merged. Wall time ≈ slowest single `bd` call.
+#
+# Environment overrides:
+#   WSENV_REGISTRY        path to projects.toml (default: $DOTFILES/home/projects.toml)
+#
+set -euo pipefail
+
+ORG="${1:?beads-ready: missing org argument (usage: beads-ready <org>)}"
+
+REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
+[[ -f "$REGISTRY" ]] || { echo "beads-ready: registry not found: $REGISTRY" >&2; exit 1; }
+
+# Resolve python3 with tomllib (>=3.11). Same probe pattern as wsenv.
+PY=""
+for _py in python3.14 python3.13 python3.12 python3.11 python3; do
+  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
+    PY="$_py"; break
+  fi
+done
+[[ -n "$PY" ]] || { echo "beads-ready: need python3 with tomllib (>=3.11)" >&2; exit 1; }
+
+# ----- inline python scripts captured via heredocs --------------------------
+# Captured into vars so we can pass them with `-c "$VAR"` while keeping stdin
+# free for data piping. Heredocs use the 'PY' delimiter to disable variable
+# expansion — bash leaves the python source verbatim.
+
+read -r -d '' LIST_PROJECTS <<'PY' || true
+import sys, tomllib
+reg = tomllib.load(open(sys.argv[1], "rb"))
+org = sys.argv[2]
+for p in reg.get("projects", []):
+    if p.get("category") == org:
+        code = p.get("code", "?")
+        path = p.get("path", "")
+        print(f"{code}\t{path}")
+PY
+
+read -r -d '' ANNOTATE <<'PY' || true
+import sys, json
+code, rel_path = sys.argv[1], sys.argv[2]
+try:
+    data = json.loads(sys.stdin.read() or "[]")
+except Exception:
+    data = []
+if not isinstance(data, list):
+    data = []
+for item in data:
+    item["project_code"] = code
+    item["project_path"] = rel_path
+print(json.dumps(data))
+PY
+
+read -r -d '' MERGE <<'PY' || true
+import sys, json, os, glob
+out_dir = sys.argv[1]
+merged = []
+for f in sorted(glob.glob(os.path.join(out_dir, "*.json"))):
+    try:
+        with open(f) as fh:
+            chunk = json.load(fh)
+        if isinstance(chunk, list):
+            merged.extend(chunk)
+    except Exception as e:
+        print(f"beads-ready: parse failure on {f}: {e}", file=sys.stderr)
+def _sort_key(x):
+    pri = x.get("priority", 99)
+    ts = "".join(c for c in str(x.get("updated_at", "0")) if c.isdigit())[:14]
+    return (pri, -int(ts or "0"))
+merged.sort(key=_sort_key)
+json.dump(merged, sys.stdout)
+PY
+# ----- end inline python ---------------------------------------------------
+
+PROJECTS=$("$PY" -c "$LIST_PROJECTS" "$REGISTRY" "$ORG")
+
+if [[ -z "$PROJECTS" ]]; then
+  echo "[]"
+  exit 0
+fi
+
+# Fan out: one background subshell per project, output to a temp file.
+TMPDIR_OUT=$(mktemp -d -t beads-ready.XXXXXX)
+trap 'rm -rf "$TMPDIR_OUT"' EXIT
+
+idx=0
+while IFS=$'\t' read -r code rel_path; do
+  [[ -z "$code" ]] && continue
+  abs_path="$HOME/$rel_path"
+  out_file="$TMPDIR_OUT/$idx-$code.json"
+  idx=$((idx + 1))
+
+  if [[ ! -d "$abs_path/.beads" ]]; then
+    echo "[]" > "$out_file"
+    continue
+  fi
+
+  (
+    cd "$abs_path" || { echo "[]" > "$out_file"; exit 0; }
+    if raw=$(bd ready --json 2>/dev/null); then
+      printf '%s' "$raw" | "$PY" -c "$ANNOTATE" "$code" "$rel_path" > "$out_file"
+    else
+      echo "[]" > "$out_file"
+      echo "beads-ready: $code: bd query failed" >&2
+    fi
+  ) &
+done <<< "$PROJECTS"
+
+wait
+
+"$PY" -c "$MERGE" "$TMPDIR_OUT"
