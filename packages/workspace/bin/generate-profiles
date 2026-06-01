@@ -54,6 +54,14 @@ emit_env() {
 # Workspace env: b-and-b (generated — edit generate-workspace-profiles.sh, not here)
 # Correct default Azure identity for Brown & Brown work (was globally civalent).
 export AZURE_CONFIG_DIR="$HOME/.azure-bbadmin"
+
+# Ensure the cloudpc SOCKS5 tunnel (127.0.0.1:1080) is up — Azure CAE bypass needs it.
+# Idempotent + quiet: skip if :1080 already listening, else start the user unit.
+# ALL output redirected — this file is sourced inside the eval'd `wsenv --activate`,
+# so any chatter on stdout would corrupt the activation shell. b-and-b ONLY.
+if ! command ss -tlnH 'sport = :1080' 2>/dev/null | command grep -q .; then
+  systemctl --user start cloudpc-tunnel.service >/dev/null 2>&1 || true
+fi
 EOF
       ;;
     priceless)
