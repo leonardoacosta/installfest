@@ -8,11 +8,28 @@ and keeps it all in sync across machines via chezmoi.
 
 ```
 packages/workspace/
-  bin/wsenv             resolver + activator (code/cwd -> org; emits env/PATH or claude flags)
-  bin/generate-profiles generator: reads the registry, emits ~/.config/workspace/<org>/
+  bin/
+    wk                  umbrella dispatcher (git-style: wk <name> -> wk-<name> on PATH)
+    wk-ready            portfolio "ready work" — dispatches per profile.toml tracker
+    wsenv               resolver + activator (code/cwd -> org; emits env/PATH or claude flags)
+    ws-claude           launch Claude with org profile inside a persistent zellij session
+    generate-profiles   generator: reads the registry, scaffolds packages/workspace/profiles/<org>/
+  lib/
+    trackers/           per-tracker adapters: beads-ready, ado-ready, none-ready (+ README)
+  profiles/<org>/
+    profile.toml        tracker config (consumed by wk-ready)
+    env.sh              sourced at activation by wsenv
+    claude/, wrappers/  scaffold dirs (--add-dir + PATH overlay)
   integrations/         consumer glue (cmux, etc.)
   README.md
 ```
+
+### Subcommand convention
+
+The `wk` dispatcher follows the git / kubectl / gh pattern: any executable named
+`wk-<subcommand>` on PATH is reachable as `wk <subcommand>`. There is no central
+registry — new subcommands appear the moment they land on PATH. Run `wk` (or
+`wk --list`) to see what's discovered. Today: `ready`.
 
 ## How it deploys (both machines, in sync)
 
@@ -34,10 +51,19 @@ this registry — IF becomes the single source of truth.
 ## Usage
 
 ```bash
-wsenv --org ws            # -> b-and-b
-wsenv --list              # all code -> org mappings
-eval "$(wsenv ws)"        # activate b-and-b in this shell (env + wrappers PATH)
+# Environment activation (existing)
+wsenv --org ws              # -> b-and-b
+wsenv --list                # all code -> org mappings
+eval "$(wsenv ws)"          # activate b-and-b in this shell (env + wrappers PATH)
 claude $(wsenv --flags ws)  # launch claude with the org's CC profile flags
+
+# Portfolio surface (new — W1)
+wk                          # list discovered subcommands
+wk ready priceless          # 60 ready beads issues across oo/tc/ss/ct/mv/tl
+wk ready personal           # 73 ready beads issues across the personal portfolio
+wk ready b-and-b            # ADO work items (requires az devops login + project_id)
+wk ready --table priceless  # column-aligned PRI/ID/TITLE/PROJECT
+wk ready                    # resolves org from $PWD via wsenv
 ```
 
 ## Per-org profiles (generated)

@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# wk — workspace command-center umbrella dispatcher.
+#
+# Follows the git / kubectl / gh convention: any executable named `wk-<name>`
+# on PATH becomes accessible as `wk <name>`. The dispatcher itself adds no
+# semantics — it just routes. This means W2+ subcommands appear automatically
+# the moment a new `wk-<name>` script lands on PATH; no central registry, no
+# build step, no version pinning.
+#
+# Usage:
+#   wk <subcommand> [args...]    # exec wk-<subcommand> with remaining args
+#   wk                           # list discovered subcommands + show help
+#   wk --list                    # same as bare `wk`, just the list
+#   wk -h | --help               # this help
+#
+# Examples (today):
+#   wk ready                     # -> wk-ready (portfolio ready work)
+#   wk ready priceless           # -> wk-ready priceless
+#   wk ready --table             # -> wk-ready --table
+#
+# Examples (future, when subcommands land):
+#   wk status                    # if wk-status exists on PATH
+#   wk open b-and-b              # if wk-open exists on PATH
+#
+# Discovery: scans every directory on PATH for executables named `wk-*` and
+# strips the prefix. Same algorithm git/kubectl use. Subcommands that shadow
+# each other across PATH entries are resolved by the first-on-PATH rule.
+#
+set -euo pipefail
+
+list_subcommands() {
+  # Scan PATH for wk-* executables; strip prefix; dedupe; preserve first-on-PATH order.
+  awk -v RS=':' '{print}' <<< "${PATH}" |
+    while IFS= read -r dir; do
+      [[ -d "$dir" ]] || continue
+      for f in "$dir"/wk-*; do
+        [[ -x "$f" && ! -d "$f" ]] || continue
+        printf '%s\n' "${f##*/wk-}"
+      done
+    done | awk '!seen[$0]++'
+}
+
+print_help() {
+  cat <<'HELP'
+wk — workspace command-center umbrella
+
+Usage:
+  wk <subcommand> [args...]    Run wk-<subcommand>
+  wk                           List discovered subcommands
+  wk --list                    Same
+  wk -h, --help                This help
+
+Discovered subcommands (executables named `wk-*` on PATH):
+HELP
+  list_subcommands | sed 's/^/  /'
+}
+
+case "${1:-}" in
+  ''|--list)
+    print_help
+    exit 0
+    ;;
+  -h|--help)
+    print_help
+    exit 0
+    ;;
+esac
+
+SUBCMD="$1"; shift
+
+# Locate wk-<subcmd> on PATH explicitly so the error message is precise.
+if ! TARGET=$(command -v "wk-$SUBCMD" 2>/dev/null); then
+  echo "wk: unknown subcommand '$SUBCMD' (no executable wk-$SUBCMD on PATH)" >&2
+  echo "wk: run 'wk --list' to see what's available" >&2
+  exit 127
+fi
+
+exec "$TARGET" "$@"
