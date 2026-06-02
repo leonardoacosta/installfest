@@ -2,6 +2,10 @@
 # (dirs outside home/ are invisible to chezmoi — no need to list them)
 projects.toml
 
+# SECRET: real Upstash MCP credentials. Only env.example (placeholders) is managed.
+# The operator copies env.example -> env on each machine and supplies the real key.
+.config/upstash-mcp/env
+
 # Platform-specific ignores
 {{ if ne .chezmoi.os "darwin" }}
 # Skip macOS-only files on Linux (patterns match TARGET paths, not source)

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Bootstrap the shared host-local Upstash MCP server (HTTP transport) so all
+# Claude Code sessions connect to ONE process instead of per-session stdio copies.
+# Re-runs whenever any referenced file changes — embedded sha256sums force
+# chezmoi to re-render the template when source content shifts.
+#
+#   service unit:    {{ include "dot_config/systemd/user/upstash-mcp.service" | sha256sum }}
+#   loopback wrapper:{{ include "dot_config/private_upstash-mcp/loopback-wrapper.cjs" | sha256sum }}
+#   env example:     {{ include "dot_config/private_upstash-mcp/env.example" | sha256sum }}
+
+set -euo pipefail
+
+# Linux-only: the systemd --user service has no macOS analog (Claude Code on
+# macOS can use the same HTTP endpoint but the launchd port differs; not modeled here).
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "upstash-mcp: non-Linux ($(uname -s)); skipping systemd bootstrap"
+  exit 0
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "upstash-mcp: systemctl not available; skipping"
+  exit 0
+fi
+
+ENV_FILE="$HOME/.config/upstash-mcp/env"
+WRAPPER="$HOME/.config/upstash-mcp/loopback-wrapper.cjs"
+
+# 1. Global-install the binary (pnpm-backed npm; lands in ~/.local/share/pnpm/).
+#    The wrapper require()s the dist path under ~/.local/share/pnpm/global/.
+if command -v npm >/dev/null 2>&1; then
+  echo "upstash-mcp: installing @upstash/mcp-server globally"
+  npm i -g @upstash/mcp-server >/dev/null 2>&1 || \
+    echo "upstash-mcp: WARN global install failed — service will fail until binary present"
+else
+  echo "upstash-mcp: WARN npm not available; cannot install @upstash/mcp-server"
+fi
+
+# 2. Warn (do NOT fail) if the secret env file is missing — the operator must
+#    supply it. Fresh machines: cp env.example env && chmod 600 env && fill in.
+if [ ! -f "$ENV_FILE" ]; then
+  echo "upstash-mcp: WARN $ENV_FILE missing — service will not start until you create it:"
+  echo "    cp '$HOME/.config/upstash-mcp/env.example' '$ENV_FILE' && chmod 600 '$ENV_FILE' && \$EDITOR '$ENV_FILE'"
+fi
+
+# 3. (Re)load + enable the unit so it survives logout (linger) and restarts.
+loginctl enable-linger "$USER" 2>/dev/null || true
+systemctl --user daemon-reload
+systemctl --user enable --now upstash-mcp.service || \
+  echo "upstash-mcp: WARN enable --now failed (env file missing or binary absent?)"
+
+systemctl --user status upstash-mcp.service --no-pager 2>/dev/null | head -5 || true
+echo "upstash-mcp: NOTE Claude config still needs: claude mcp add --scope user --transport http upstash http://localhost:3939/mcp"

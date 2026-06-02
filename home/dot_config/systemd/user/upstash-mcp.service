@@ -1,0 +1,38 @@
+[Unit]
+Description=Shared Upstash MCP server (HTTP transport) for Claude Code sessions
+Documentation=https://github.com/upstash/mcp-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Credentials live ONLY here (600), never in ~/.claude.json
+EnvironmentFile=%h/.config/upstash-mcp/env
+# Upstream binds *:PORT (no --host flag in v0.2.3). The loopback-wrapper.cjs
+# monkey-patches net.Server.listen to force bind 127.0.0.1 -> account creds not
+# LAN-exposed, while leaving outbound HTTPS to api.upstash.com unaffected.
+ExecStart=/usr/bin/node %h/.config/upstash-mcp/loopback-wrapper.cjs --transport http --port 3939 --email ${UPSTASH_EMAIL} --api-key ${UPSTASH_API_KEY} --disable-telemetry
+Restart=on-failure
+RestartSec=2
+# Upstream emits unconditional [DEBUG] lines on stdout that leak live Redis DB
+# passwords / REST tokens (the startup connection check). MCP rides HTTP here,
+# NOT stdio, so nulling stdout is safe. Real errors go to stderr -> journal.
+StandardOutput=null
+StandardError=journal
+
+# --- Hardening (defense in depth; process only needs outbound HTTPS to Upstash API) ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=%h/.config/upstash-mcp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=default.target
