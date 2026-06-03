@@ -522,7 +522,7 @@ bootstrap_databases() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 7: Observability — systemd-oomd + smartd + node_exporter + Vector
+# Step 7: Observability — systemd-oomd + smartd + node_exporter
 # ---------------------------------------------------------------------------
 #
 # Brings the homelab telemetry stack under chezmoi management so a btrfs
@@ -532,60 +532,18 @@ bootstrap_databases() {
 #   - systemd-oomd                 OOM killer, ships with systemd, just enable
 #   - smartd                       SMART disk monitoring (smartmontools)
 #   - prometheus-node-exporter     Host metrics (CPU/mem/net/disk)
-#   - vector                       journald → Better Stack ingest
-#
-# Vector pipeline:
-#   sources.journald → transforms.logs_remap → sinks.better_stack_logs
-#   Token comes from $VECTOR_BS_TOKEN, resolved by Vector at start time via
-#   its native env-var interpolation (the literal "${VECTOR_BS_TOKEN}" stays
-#   in vector.toml; Vector reads it from /etc/default/vector at boot).
-#
 # Idempotency:
 #   - pacman --needed skips already-installed packages.
 #   - systemctl is-enabled/is-active gate enable/start calls.
 #   - write_if_changed compares content before writing.
-#   - usermod -aG is a no-op if vector is already in systemd-journal.
 #
 # Failure isolation:
-#   - Missing $VECTOR_BS_TOKEN → log warning, skip vector unit setup, but
-#     still configure systemd-oomd / smartd / node_exporter.
-#   - Vector restart failures log warnings but do NOT abort harden.sh.
+#   - observability package install failures log warnings but do NOT abort.
 
-_hl_write_etc_default_vector() {
-    # /etc/default/vector contains the BS token, so it must be 0640 root:vector
-    # (vector daemon reads it as user 'vector'). write_if_changed forces
-    # root:root + 0644, so handle this file with a custom path.
-    local token="$1"
-    local target="/etc/default/vector"
-    local desired
-    desired=$(cat <<DEFAULT_EOF
-VECTOR_CONFIG=/etc/vector/vector.toml
-VECTOR_BS_TOKEN=${token}
-DEFAULT_EOF
-)
-
-    if [[ -f "$target" ]] && [[ "$(sudo cat "$target" 2>/dev/null)" == "$desired" ]]; then
-        return 0
-    fi
-
-    sudo install -d -m 0755 /etc/default
-    printf '%s\n' "$desired" | sudo tee "$target" >/dev/null
-    sudo chmod 0640 "$target"
-    # vector group is created by the vector package; fall back to root:root
-    # if for some reason the group doesn't exist yet.
-    if getent group vector &>/dev/null; then
-        sudo chown root:vector "$target"
-    else
-        warning "vector group missing — /etc/default/vector left as root:root"
-        sudo chown root:root "$target"
-    fi
-    success "wrote $target (mode 0640, root:vector)"
-    return 10
-}
 
 configure_observability() {
     # 1. Install packages.
-    local -a obs_pkgs=(smartmontools prometheus-node-exporter vector)
+    local -a obs_pkgs=(smartmontools prometheus-node-exporter)
     local -a obs_to_install=()
     for pkg in "${obs_pkgs[@]}"; do
         if ! pacman -Qi "$pkg" &>/dev/null; then
@@ -601,7 +559,6 @@ configure_observability() {
     fi
 
     # 2. Enable + start systemd-oomd, smartd, prometheus-node-exporter.
-    #    (vector is gated below on VECTOR_BS_TOKEN availability.)
     for unit in systemd-oomd smartd prometheus-node-exporter; do
         if ! sudo systemctl is-enabled "$unit" &>/dev/null; then
             sudo systemctl enable "$unit" \
@@ -614,93 +571,6 @@ configure_observability() {
         success "$unit enabled + active"
     done
 
-    # 3. Vector setup — gated on token availability.
-    local bs_token=""
-    bs_token=$(_hl_env_get VECTOR_BS_TOKEN || true)
-    if [[ -z "$bs_token" ]]; then
-        warning "VECTOR_BS_TOKEN missing from ~/.env — skipping Vector unit setup"
-        warning "  add VECTOR_BS_TOKEN=<token> to ~/.env and re-run to enable telemetry"
-        return 0
-    fi
-
-    # 4. Move aside the package's demo vector.yaml (Vector prefers .yaml by
-    #    default and would conflict with our .toml). Renaming is idempotent —
-    #    once the .demo-disabled file exists, the rename is a no-op.
-    if [[ -f /etc/vector/vector.yaml ]]; then
-        info "disabling demo /etc/vector/vector.yaml"
-        sudo mv /etc/vector/vector.yaml /etc/vector/vector.yaml.demo-disabled \
-            || warning "failed to rename vector.yaml — Vector may load wrong config"
-    fi
-
-    # 5. Write /etc/vector/vector.toml. ${VECTOR_BS_TOKEN} is a literal here;
-    #    Vector resolves env-var references natively at start time.
-    local vector_toml
-    vector_toml=$(cat <<'VECTOR_EOF'
-# Vector pipeline: homelab → Better Stack (source 2396841 / homelab)
-# Two sinks: journald logs + node_exporter metrics. Both POST to the same
-# ingest host with the same Bearer token; Better Stack discriminates by
-# payload shape.
-#
-# Managed by scripts/homelab/harden.sh — do NOT edit by hand. Source of
-# truth: configure_observability() in that script. The Bearer token is
-# resolved at start time from /etc/default/vector (VECTOR_BS_TOKEN).
-
-[sources.journald]
-type = "journald"
-current_boot_only = false
-
-[transforms.logs_remap]
-type = "remap"
-inputs = ["journald"]
-source = """
-.dt = del(.timestamp)
-.host = "homelab"
-"""
-
-[sinks.better_stack_logs]
-type = "http"
-method = "post"
-inputs = ["logs_remap"]
-uri = "https://s2396841.us-east-9.betterstackdata.com/"
-encoding.codec = "json"
-compression = "gzip"
-auth.strategy = "bearer"
-auth.token = "${VECTOR_BS_TOKEN}"
-VECTOR_EOF
-)
-
-    local vector_changed=0
-    write_if_changed /etc/vector/vector.toml "$vector_toml"
-    [[ $? -eq 10 ]] && vector_changed=1
-
-    _hl_write_etc_default_vector "$bs_token"
-    [[ $? -eq 10 ]] && vector_changed=1
-
-    # 6. Ensure vector user can read the journal (membership is idempotent).
-    if id vector &>/dev/null; then
-        if ! id -nG vector | tr ' ' '\n' | grep -qx 'systemd-journal'; then
-            info "adding vector to systemd-journal group"
-            sudo usermod -aG systemd-journal vector \
-                || warning "failed to add vector to systemd-journal"
-            vector_changed=1
-        fi
-    else
-        warning "vector user missing — package install may have failed"
-    fi
-
-    # 7. Enable + (re)start vector. Restart only when config changed; otherwise
-    #    just ensure enabled+active so re-runs after a reboot also re-start.
-    if ! sudo systemctl is-enabled vector &>/dev/null; then
-        sudo systemctl enable vector || warning "failed to enable vector"
-    fi
-    if [[ $vector_changed -eq 1 ]]; then
-        info "restarting vector to pick up new config"
-        sudo systemctl restart vector \
-            || warning "failed to restart vector — check 'systemctl status vector'"
-    elif ! sudo systemctl is-active vector &>/dev/null; then
-        sudo systemctl start vector || warning "failed to start vector"
-    fi
-    success "vector enabled + active"
 }
 
 # ---------------------------------------------------------------------------
