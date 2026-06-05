@@ -46,5 +46,13 @@
     "protocol": "TCP",
     "targetHosts": "*",
     "targetPorts": "*"
+  },
+  {
+    "action": "PROXY",
+    "enabled": true,
+    "processNames": "Code Helper (Plugin)",
+    "protocol": "TCP",
+    "targetHosts": "*",
+    "targetPorts": "*"
   }
 ]
