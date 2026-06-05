@@ -50,7 +50,7 @@
   {
     "action": "PROXY",
     "enabled": true,
-    "processNames": "Code Helper (Plugin)",
+    "processNames": "Code Helper*",
     "protocol": "TCP",
     "targetHosts": "*",
     "targetPorts": "*"
