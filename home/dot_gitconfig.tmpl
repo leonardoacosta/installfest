@@ -1,0 +1,13 @@
+# ~/.gitconfig — managed by chezmoi (home/dot_gitconfig.tmpl)
+#
+# Identity is pinned here so a freshly-restored machine commits as
+# leonardoacosta <leo@priceless.dev> instead of the macOS default
+# "<user>@<Hostname>.local" (the gap exposed by the 2026-06-14 restore,
+# where commits landed as @Leonardos-MacBook-Pro.local).
+[user]
+	name = leonardoacosta
+	email = leo@priceless.dev
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true

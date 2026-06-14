@@ -11,6 +11,7 @@ tap "stripe/stripe-cli"
 tap "ungive/media-control"
 tap "yakitrak/yakitrak"
 tap "resend/cli"
+tap "xcodesorg/made"
 
 # ============================================================
 # CLI Tools
@@ -122,6 +123,9 @@ brew "docker"
 brew "colima"
 # Generate Xcode project files from a spec file
 brew "xcodegen"
+# Install + switch Xcode versions from the CLI (used by bootstrap GATE 2:
+# `xcodes install --latest`) — required for cold-start Xcode provisioning.
+brew "xcodesorg/made/xcodes"
 # Command-line tools for fly.io services
 brew "flyctl"
 # Stripe CLI

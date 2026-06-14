@@ -1,0 +1,29 @@
+# platform/bootstrap-repos.toml — clone-URL overrides for bootstrap.sh.
+#
+# projects.toml is the project registry but has NO clone-URL field: the real
+# URLs are heterogeneous (GitHub under two orgs, plus Azure DevOps repos whose
+# URLs embed PATs that must never be committed). The bootstrap clone loop reads
+# this OPTIONAL file to know where to clone from, and warns+skips any project
+# code that has no entry here (it never guesses a URL).
+#
+# Only secret-free GitHub URLs live here. Azure DevOps repos (fb, ws, sc, se,
+# ba, bo, dc, ew, ic, lu) are intentionally omitted — clone those manually or
+# via `az repos` so PATs stay out of git. Add a code -> url line as needed.
+#
+# Format: a [repos] table of  <code> = "<git clone url>"  pairs. The code MUST
+# match a `code` in home/projects.toml.
+
+[repos]
+oo = "git@github.com:Priceless-Development/otaku-odyssey.git"
+mv = "git@github.com:Priceless-Development/modern-visa.git"
+ct = "https://github.com/Priceless-Development/civalent.git"
+tl = "git@github.com:Priceless-Development/tavern-ledger.git"
+tc = "git@github.com:Priceless-Development/tribal-cities.git"
+ss = "git@github.com:Priceless-Development/styles-silas.git"
+lv = "https://github.com/Priceless-Development/LasVegasClubPromotions.git"
+cx = "https://github.com/leonardoacosta/cortex.git"
+hl = "https://github.com/leonardoacosta/homelab.git"
+nx = "https://github.com/leonardoacosta/nexus.git"
+nv = "https://github.com/leonardoacosta/nv.git"
+xx = "https://github.com/leonardoacosta/xx.git"
+la = "https://github.com/leonardoacosta/leonardoacosta-nextjs.git"
