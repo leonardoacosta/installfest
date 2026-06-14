@@ -20,6 +20,15 @@ run_brew_bundle() {
         brewfile="$SCRIPT_DIR/../homebrew/Brewfile"
     fi
     if [ -f "$brewfile" ]; then
+        # Trust every third-party tap the Brewfile declares BEFORE any bundle
+        # operation. Homebrew refuses to load formulae from untrusted taps, and
+        # that trust is per-machine state wiped by a restore — so a fresh machine
+        # (or a newly-added tap) aborts `brew bundle`/`check` until trusted.
+        # Idempotent: `brew trust` no-ops on an already-trusted tap.
+        grep -E '^tap "' "$brewfile" | sed -E 's/^tap "([^"]+)".*/\1/' | while read -r _tap; do
+            brew trust "$_tap" >/dev/null 2>&1 || true
+        done
+
         # Run `brew bundle check`
         local check_output
         check_output=$(brew bundle check --file="$brewfile" 2>&1)
