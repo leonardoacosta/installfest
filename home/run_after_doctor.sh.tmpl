@@ -29,6 +29,12 @@ if command -v az >/dev/null 2>&1 && ! az extension show --name azure-devops >/de
   az extension add --name azure-devops >/dev/null 2>&1 && REPAIRED+=("az devops extension")
 fi
 
+# --- ensure mx-broker socket + log dirs exist BEFORE any tunnel LaunchAgent binds ---
+# (ssh -L won't mkdir the local endpoint; ExitOnForwardFailure makes a missing dir
+#  a hard bind failure. Create it before the bootstrap loop so the first bind wins.)
+mkdir -p "$HOME/.mx/broker" 2>/dev/null && chmod 700 "$HOME/.mx/broker" 2>/dev/null || true
+mkdir -p "$HOME/.local/logs" 2>/dev/null || true
+
 # --- auto-repair: load deployed-but-unloaded LaunchAgents (user domain, no sudo) ---
 for plist in "$HOME/Library/LaunchAgents/com.leonardoacosta."*.plist; do
   [ -f "$plist" ] || continue
@@ -48,6 +54,13 @@ command -v SwitchAudioSource >/dev/null 2>&1 || \
   GAPS+=("switchaudio-osx missing — mic-priority LaunchAgent will fail")
 [ -f "$HOME/.ssh/id_ed25519" ] || \
   GAPS+=("SSH mesh key ~/.ssh/id_ed25519 missing — copy from a mesh machine (see ssh-mesh/README.md)")
+
+# --- warn-only: mx-broker ADO token reachable over the forwarded socket ---
+if [ -S "$HOME/.mx/broker/broker.sock" ] && curl -s --max-time 3 --unix-socket "$HOME/.mx/broker/broker.sock" "http://localhost/token?resource=ado&identity=o365" 2>/dev/null | grep -q access_token; then
+  :  # serving — no gap
+else
+  GAPS+=("mx-broker ADO token unavailable — git->ADO will fall back to PAT (check mx-broker-tunnel LaunchAgent + homelab 'az --as-o365' session)")
+fi
 {{ else -}}
 # Linux (homelab): no platform-specific post-install repairs modeled yet.
 true

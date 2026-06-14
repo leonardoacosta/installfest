@@ -75,8 +75,12 @@ else
     success "ProxyBridge already installed"
 fi
 
+# Ensure mx-broker socket + log dirs exist before the tunnel LaunchAgent binds.
+mkdir -p "$HOME/.mx/broker" && chmod 700 "$HOME/.mx/broker"
+mkdir -p "$HOME/.local/logs"
+
 # Load LaunchAgents
-for plist_name in com.leonardoacosta.cloudpc-tunnel com.leonardoacosta.validate-proxy; do
+for plist_name in com.leonardoacosta.cloudpc-tunnel com.leonardoacosta.mx-broker-tunnel com.leonardoacosta.validate-proxy; do
     plist="$HOME/Library/LaunchAgents/${plist_name}.plist"
     if [[ -f "$plist" ]] && ! launchctl list | grep -q "$plist_name"; then
         launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || true
