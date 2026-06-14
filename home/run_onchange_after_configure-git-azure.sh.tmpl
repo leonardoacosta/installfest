@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# run_onchange_after_configure-git-azure.sh — idempotent git -> Azure DevOps auth wiring.
+#
+# Re-runs whenever this file's rendered content changes (run_onchange prefix), in
+# the AFTER stage so the credential helper + LaunchAgent are already deployed.
+#
+# Owns two restore-survivable invariants for the mx-broker ADO token path:
+#   1. The forwarded broker-socket parent dir (~/.mx/broker, 0700) must exist
+#      BEFORE the mx-broker-tunnel LaunchAgent binds the socket.
+#   2. git's credential helper chain for dev.azure.com: broker helper FIRST,
+#      osxkeychain (PAT) appended as a graceful fallback. Plus the CAE data-plane
+#      proxy (socks5h://127.0.0.1:1080 via the cloudpc tunnel) is preserved.
+#
+# ~/.gitconfig is NOT chezmoi-managed, so this script sets the config idempotently.
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+
+{{ if eq .chezmoi.os "darwin" -}}
+# 1. Socket parent dir must exist 0700 before the tunnel binds; the LaunchAgent
+#    also writes logs under ~/.local/logs, so ensure that exists too.
+mkdir -p "$HOME/.mx/broker"
+chmod 700 "$HOME/.mx/broker"
+mkdir -p "$HOME/.local/logs"
+
+# 2. git credential helper chain (multi-valued): broker helper first, PAT fallback.
+#    Unset-all then re-add so repeated runs converge to the same two-entry chain.
+git config --global --unset-all 'credential.https://dev.azure.com.helper' 2>/dev/null || true
+git config --global --add 'credential.https://dev.azure.com.helper' "$DOTFILES/scripts/git-credential-mxbroker.sh"
+git config --global --add 'credential.https://dev.azure.com.helper' "osxkeychain"
+
+# Keep the CAE data-plane proxy (note the trailing slash in the URL key).
+git config --global 'http.https://dev.azure.com/.proxy' "socks5h://127.0.0.1:1080"
+
+echo "configure-git-azure: helper chain set (mxbroker -> osxkeychain), socket dir ready, CAE proxy kept"
+{{ end -}}
