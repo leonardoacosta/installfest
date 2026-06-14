@@ -48,8 +48,6 @@ command -v SwitchAudioSource >/dev/null 2>&1 || \
   GAPS+=("switchaudio-osx missing — mic-priority LaunchAgent will fail")
 [ -f "$HOME/.ssh/id_ed25519" ] || \
   GAPS+=("SSH mesh key ~/.ssh/id_ed25519 missing — copy from a mesh machine (see ssh-mesh/README.md)")
-[ -x "$HOME/.claude/scripts/bin/cmux-bridge" ] || \
-  GAPS+=("cmux-bridge binary missing — build it in ~/dev/cc (gitignored artifact)")
 {{ else -}}
 # Linux (homelab): no platform-specific post-install repairs modeled yet.
 true
