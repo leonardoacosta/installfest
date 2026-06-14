@@ -4,20 +4,34 @@
 # lines. Both arms are harmless prints — never load-bearing logic — so the
 # A && B || C caveat does not apply. Suppressed file-wide rather than per-line.
 #
-# platform/bootstrap.sh — one-command cold-start orchestrator for a fresh machine.
+# platform/bootstrap.sh — PHASE 2 of the documented 2-phase cold-start.
+#
+# The 2-phase cold-start (see README.md § Quick Start):
+#   PHASE 1 (automated):  chezmoi init --apply leonardoacosta/if --source ~/dev/if
+#                         -> home/run_once_install-packages.sh.tmpl installs Homebrew,
+#                            runs `brew bundle` (apps + CLIs, incl. xcodes), deploys all
+#                            dotfiles/settings, runs generators. MUST be non-interactive
+#                            (chezmoi run_once cannot pause for a prompt).
+#   PHASE 2 (this script, interactive):  ~/dev/if/platform/bootstrap.sh
+#                         -> the supervised Apple gates (Remote Login, Xcode/2FA, signing
+#                            cert) + Tailscale hostname + Xcode first-launch + Metal
+#                            toolchain + gh auth + the projects.toml clone+install loop.
+#
+# WHY two phases: Phase 1's package install runs under chezmoi's run_once and MUST
+# complete without prompts, but the Apple steps REQUIRE interactive 2FA / a GUI
+# sign-in. Splitting them keeps Phase 1 fully automated and isolates the human-in-
+# the-loop steps into this script. bootstrap.sh therefore ASSUMES Phase 1 already
+# installed packages — it does NOT run `brew bundle` itself (that would duplicate it).
 #
 # macOS-primary (degrades gracefully on Linux). Idempotent + re-runnable: every
 # step detects its own completion and skips/refreshes rather than redoing work.
 #
 # Driven by the 2026-06-14 MacBook restore, which exposed every cold-start gap:
-# missing Homebrew bundle, no git identity (commits as @Host.local), no Tailscale
-# hostname, un-provisioned Xcode/Metal toolchain, missing signing cert, no gh auth,
-# and no project clones.
+# no git identity (commits as @Host.local), no Tailscale hostname, un-provisioned
+# Xcode/Metal toolchain, missing signing cert, no gh auth, and no project clones.
 #
 # This script ORCHESTRATES existing scaffolding — it does not reinvent it:
-#   - platform/homebrew/Brewfile        (declarative tool list)
 #   - scripts/utils.sh                  (info/success/warning/error helpers)
-#   - scripts/prerequisites.sh          (install_xcode / install_homebrew)
 #   - chezmoi apply                     (ssh config, authorized_keys, gitconfig)
 #   - home/projects.toml                (project registry for the clone loop)
 #
@@ -25,7 +39,7 @@
 # PAUSE for the operator (Apple-ID 2FA, signing cert minting, GitHub device flow).
 #
 # Usage:
-#   bash platform/bootstrap.sh          # full run
+#   bash platform/bootstrap.sh          # full run (after Phase 1)
 #   bash platform/bootstrap.sh --help
 #
 # NOT `set -e`: we want to continue past soft failures (one bad repo clone, an
@@ -37,7 +51,6 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BREWFILE="$REPO_ROOT/platform/homebrew/Brewfile"
 PROJECTS_TOML="$REPO_ROOT/home/projects.toml"
 # Optional companion file mapping project code -> clone URL. projects.toml has
 # no URL field by design (URLs are heterogeneous: GitHub under two orgs + Azure
@@ -92,18 +105,37 @@ gate() {
 }
 
 # ---------------------------------------------------------------------------
-section "Nexus cold-start bootstrap  ($OS, $(uname -m))"
+section "Cold-start PHASE 2 (interactive)  ($OS, $(uname -m))"
 # ---------------------------------------------------------------------------
-info "Repo:     $REPO_ROOT"
-info "Brewfile: $BREWFILE"
+info "Repo: $REPO_ROOT"
 if [[ $IS_MAC -eq 0 ]]; then
 	warning "Non-macOS host: macOS-only steps (Xcode, Metal, Tailscale.app CLI) are skipped."
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 1 precondition guard
+# ---------------------------------------------------------------------------
+# This script assumes Phase 1 (chezmoi init --apply) already installed packages
+# via `brew bundle` — it does NOT install them itself. On macOS, if Homebrew or
+# the xcodes CLI is missing, Phase 1 has not run (or did not complete), so the
+# Apple gates below would dead-end. Fail loudly and point back to Phase 1.
+if [[ $IS_MAC -eq 1 ]]; then
+	if ! command -v brew >/dev/null 2>&1 || ! command -v xcodes >/dev/null 2>&1; then
+		error "============================================================"
+		error "  Phase 1 has not completed: 'brew' and/or 'xcodes' missing."
+		error "  Run Phase 1 first (installs apps + all settings):"
+		error "      chezmoi init --apply leonardoacosta/if --source ~/dev/if"
+		error "  Then re-run this script (Phase 2)."
+		error "============================================================"
+		exit 1
+	fi
+	success "Phase 1 precondition met (brew + xcodes present)."
 fi
 
 # ===========================================================================
 # GATE 1 — Remote Login (SSH) so the mesh + remote deploy hooks work
 # ===========================================================================
-section "Step 1/9: Remote Login (SSH server)"
+section "Step 1/8: Remote Login (SSH server)"
 if [[ $IS_MAC -eq 1 ]]; then
 	if systemsetup -getremotelogin 2>/dev/null | grep -qi 'On'; then
 		success "Remote Login already enabled — skipping gate."
@@ -127,30 +159,11 @@ else
 fi
 
 # ===========================================================================
-# Step 2 — Homebrew bundle
+# Step 2 — chezmoi apply (ssh config, authorized_keys, gitconfig identity)
 # ===========================================================================
-section "Step 2/9: Homebrew bundle"
-if command -v brew >/dev/null 2>&1; then
-	if [[ -f "$BREWFILE" ]]; then
-		info "Running brew bundle (this can take a while on a fresh machine)..."
-		if brew bundle --file="$BREWFILE"; then
-			success "brew bundle complete."
-		else
-			warning "brew bundle returned non-zero (some casks may need manual install)."
-		fi
-	else
-		error "Brewfile not found at $BREWFILE — skipping."
-	fi
-else
-	warning "Homebrew not installed. Install it, then re-run this script:"
-	# shellcheck disable=SC2016  # literal command for the operator to copy, not expanded
-	warning '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-fi
-
-# ===========================================================================
-# Step 3 — chezmoi apply (ssh config, authorized_keys, gitconfig identity)
-# ===========================================================================
-section "Step 3/9: chezmoi apply (dotfiles + git identity)"
+# Phase 1 already ran `chezmoi apply` once; we re-run it here to pick up any
+# settings that changed since, and because Phase 2 may be invoked standalone.
+section "Step 2/8: chezmoi apply (dotfiles + git identity)"
 if command -v chezmoi >/dev/null 2>&1; then
 	if chezmoi apply; then
 		success "chezmoi apply complete — ~/.gitconfig now pins leonardoacosta <leo@priceless.dev>."
@@ -164,7 +177,7 @@ fi
 # ===========================================================================
 # Step 4 — Tailscale hostname
 # ===========================================================================
-section "Step 4/9: Tailscale hostname"
+section "Step 3/8: Tailscale hostname"
 TS_CLI=""
 if [[ $IS_MAC -eq 1 && -x "/Applications/Tailscale.app/Contents/MacOS/Tailscale" ]]; then
 	TS_CLI="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
@@ -186,7 +199,7 @@ fi
 # ===========================================================================
 # Step 5 — macOS Xcode provisioning (first-launch + Metal toolchain)
 # ===========================================================================
-section "Step 5/9: Xcode provisioning (first-launch + Metal toolchain)"
+section "Step 4/8: Xcode provisioning (first-launch + Metal toolchain)"
 if [[ $IS_MAC -eq 1 ]]; then
 	if [[ -d /Applications/Xcode.app ]]; then
 		info "Running 'sudo xcodebuild -runFirstLaunch' (installs required components)..."
@@ -208,7 +221,7 @@ fi
 # ===========================================================================
 # GATE 2 — Install Xcode (Apple-ID 2FA) when absent
 # ===========================================================================
-section "Step 6/9: Xcode install gate"
+section "Step 5/8: Xcode install gate"
 if [[ $IS_MAC -eq 1 && ! -d /Applications/Xcode.app ]]; then
 	gate "Install Xcode (Apple-ID 2FA required)" <<-'EOF'
 	Xcode.app is missing. Install it (xcodes is in the Brewfile):
@@ -226,7 +239,7 @@ fi
 # ===========================================================================
 # GATE 3 — Signing identity (Xcode account sign-in + Apple Development cert)
 # ===========================================================================
-section "Step 7/9: Code-signing identity gate"
+section "Step 6/8: Code-signing identity gate"
 if [[ $IS_MAC -eq 1 ]]; then
 	# `security find-identity` prints one "  1) <hash> "name"" line per cert,
 	# then a trailing "N valid identities found". Count the numbered cert lines.
@@ -251,7 +264,7 @@ fi
 # ===========================================================================
 # Step 8 — GitHub auth
 # ===========================================================================
-section "Step 8/9: GitHub authentication"
+section "Step 7/8: GitHub authentication"
 if command -v gh >/dev/null 2>&1; then
 	if gh auth status >/dev/null 2>&1; then
 		success "gh already authenticated."
@@ -276,7 +289,7 @@ fi
 # ===========================================================================
 # Step 9 — Clone + install project repos from projects.toml
 # ===========================================================================
-section "Step 9/9: Clone + install projects (from projects.toml)"
+section "Step 8/8: Clone + install projects (from projects.toml)"
 
 # Resolve a python3 with tomllib (stdlib in 3.11+). Mirrors the resolver in
 # scripts/cmux-workspaces.sh — macOS /usr/bin/python3 (3.9) lacks tomllib.

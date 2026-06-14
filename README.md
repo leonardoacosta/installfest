@@ -4,11 +4,43 @@ Personal dotfiles managed by [chezmoi](https://www.chezmoi.io/) for macOS and Ar
 
 ## Quick Start
 
-```bash
-# New machine (clones repo to ~/dev/if, deploys dotfiles to ~)
-chezmoi init --apply leonardoacosta/if --source ~/dev/if
+Cold-starting a fresh machine is a **two-phase** flow:
 
-# Existing clone
+### Phase 1 — automated (apps + settings)
+
+```bash
+# New machine: clones repo to ~/dev/if, installs apps (brew bundle), deploys
+# all dotfiles/settings, runs generators. Fully automated, no prompts.
+chezmoi init --apply leonardoacosta/if --source ~/dev/if
+```
+
+`chezmoi init --apply` runs `home/run_once_install-packages.sh.tmpl`, which installs
+Homebrew, runs `brew bundle` against `platform/homebrew/Brewfile` (apps + CLIs,
+including `xcodes`), and lays down every managed dotfile.
+
+### Phase 2 — interactive (Apple gates + project clones)
+
+```bash
+# After Phase 1 finishes:
+~/dev/if/platform/bootstrap.sh
+```
+
+`bootstrap.sh` runs the supervised steps that **cannot** be automated: the Apple-ID
+2FA gates (enable Remote Login, install Xcode via `xcodes install --latest`, mint an
+Apple Development signing certificate), sets the Tailscale hostname, provisions Xcode
+(`-runFirstLaunch` + Metal toolchain), authenticates the GitHub CLI, and clones +
+installs your project repos from `home/projects.toml`. It is idempotent — re-run it
+any time.
+
+**Why two phases?** Phase 1's package install runs under chezmoi's `run_once`, which
+**must complete without prompts**. The Apple steps in Phase 2 **require interactive
+2FA / a GUI sign-in**. Splitting them keeps Phase 1 fully automated and isolates the
+human-in-the-loop steps into Phase 2. Phase 2 assumes Phase 1 already installed
+packages and exits with an error pointing back to Phase 1 if `brew`/`xcodes` are missing.
+
+### Existing clone
+
+```bash
 chezmoi init --source ~/dev/if
 chezmoi apply
 ```

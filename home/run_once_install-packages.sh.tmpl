@@ -150,3 +150,11 @@ if [[ ! -f "$HOME/.ssh/id_ed25519" ]]; then
     info "  5. Copy SSH mesh keys: scp <source>:~/dev/if/ssh-mesh/keys/id_ed25519* ~/.ssh/"
 fi
 echo
+
+# === Phase 1 -> Phase 2 handoff (both platforms) ===
+# This run_once installer IS Phase 1 of the documented 2-phase cold-start.
+# Point the operator at the interactive Phase 2 (Apple-ID/2FA gates + project
+# clones) — see README.md § Quick Start. Just an echo: run_once stays
+# non-interactive and completes cleanly.
+success "Phase 1 complete. Next: run ~/dev/if/platform/bootstrap.sh for interactive setup (Xcode signing, project clones)."
+echo
