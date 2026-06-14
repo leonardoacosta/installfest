@@ -151,8 +151,6 @@ brew "ffmpeg"
 brew "yt-dlp"
 # Media player based on MPlayer and mplayer2
 brew "mpv"
-# Sound system for POSIX OSes
-brew "pulseaudio", restart_service: :changed
 # Dependency manager for Cocoa projects
 brew "cocoapods"
 
