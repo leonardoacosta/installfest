@@ -28,6 +28,12 @@ MARKER_BEGIN="# --- BEGIN IF-DEPLOY v1 ---"
 MARKER_END="# --- END IF-DEPLOY v1 ---"
 
 if [ -f "$BEADS_PREPUSH" ]; then
+    # Ensure git actually consults the beads hooks dir. Beads normally sets this
+    # during `bd init`, but a fresh clone/restore has the delegation file without
+    # the config — leaving core.hooksPath unset, so .git/hooks/ (empty) wins and
+    # the cross-machine deploy hook silently never runs. Set it idempotently.
+    git -C "$DOTFILES" config core.hooksPath .beads/hooks
+
     # Beads owns hooks — inject our deploy delegation idempotently.
     if ! grep -Fq "$MARKER_BEGIN" "$BEADS_PREPUSH"; then
         cat >> "$BEADS_PREPUSH" <<'HOOK'
