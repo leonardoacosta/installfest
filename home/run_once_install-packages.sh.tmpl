@@ -31,6 +31,7 @@ info "Detected macOS"
 
 # Core packages (non-interactive — chezmoi run_once must complete without prompts)
 install_xcode
+install_rosetta   # Apple Silicon: required before ProxyBridge (x86-only pkg) installs
 install_homebrew
 run_brew_bundle || warning "brew bundle had errors (some casks may need manual install)"
 

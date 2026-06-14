@@ -3,7 +3,7 @@
 {{- $machine := "unknown" -}}
 {{- $sshUser := .chezmoi.username -}}
 
-{{- if eq $hostname "leonardoacostas-MacBook-Pro" -}}
+{{- if or (eq $hostname "leonardoacostas-MacBook-Pro") (eq $hostname "Leonardos-MacBook-Pro") -}}
 {{-   $machine = "mac" -}}
 {{-   $sshUser = "leonardoacosta" -}}
 {{- else if eq $hostname "homelab" -}}

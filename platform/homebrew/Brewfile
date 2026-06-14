@@ -43,8 +43,8 @@ brew "jq"
 brew "mactop"
 # Control and observe media playback from the command-line
 brew "media-control"
-# Fast, highly customisable system info script
-brew "neofetch"
+# Fast, highly customisable system info script (neofetch discontinued upstream; fastfetch is the maintained successor)
+brew "fastfetch"
 # Port scanning utility for large networks
 brew "nmap"
 # Multipurpose relay (used by shell TTS/SSH notification pipeline)
@@ -238,6 +238,8 @@ cask "discord"
 cask "telegram"
 # Connect to Windows
 cask "windows-app"
+# Mesh VPN — carries the SSH mesh between Mac, Homelab, and CloudPC (see ssh-mesh/)
+cask "tailscale-app"
 
 # ============================================================
 # Casks - Media & Entertainment

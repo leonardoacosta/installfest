@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# run_after_doctor.sh — idempotent post-install health check + auto-repair.
+#
+# Runs on EVERY `chezmoi apply` (plain run_ prefix), in the AFTER stage so all
+# managed files (LaunchAgents, scripts) are already deployed.
+#
+# Why this exists: run_once_install-packages.sh is gated by chezmoi's run_once
+# state. If that installer is recorded as "run" but actually died partway
+# (e.g. on a fresh restore where only 1 package landed), chezmoi never retries
+# it and the rest of the install is silently skipped. This script re-verifies
+# the critical post-install actions every apply and:
+#   - REPAIRS the ones safe to fix unattended (no sudo, no GUI)
+#   - WARNS about the ones needing sudo / a GUI / a manual secret
+# Apply runs unattended via the post-merge git hook, so it never blocks on sudo.
+
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+REPAIRED=()
+GAPS=()
+
+{{ if eq .chezmoi.os "darwin" -}}
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
+
+# --- auto-repair: Azure DevOps CLI extension (no sudo) ---
+if command -v az >/dev/null 2>&1 && ! az extension show --name azure-devops >/dev/null 2>&1; then
+  az extension add --name azure-devops >/dev/null 2>&1 && REPAIRED+=("az devops extension")
+fi
+
+# --- auto-repair: load deployed-but-unloaded LaunchAgents (user domain, no sudo) ---
+for plist in "$HOME/Library/LaunchAgents/com.leonardoacosta."*.plist; do
+  [ -f "$plist" ] || continue
+  label="$(basename "$plist" .plist)"
+  if ! launchctl list 2>/dev/null | grep -q "$label"; then
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null && REPAIRED+=("loaded $label")
+  fi
+done
+
+# --- warn-only: needs sudo / GUI / a manual secret (cannot fix unattended) ---
+if [ "$(uname -m)" = "arm64" ] && ! /usr/bin/pgrep -q oahd; then
+  GAPS+=("Rosetta 2 missing — run: softwareupdate --install-rosetta --agree-to-license")
+fi
+[ -d /Applications/ProxyBridge.app ] || \
+  GAPS+=("ProxyBridge not installed (needs sudo) — see docs/cloudpc-proxy-setup.md")
+command -v SwitchAudioSource >/dev/null 2>&1 || \
+  GAPS+=("switchaudio-osx missing — mic-priority LaunchAgent will fail")
+[ -f "$HOME/.ssh/id_ed25519" ] || \
+  GAPS+=("SSH mesh key ~/.ssh/id_ed25519 missing — copy from a mesh machine (see ssh-mesh/README.md)")
+[ -x "$HOME/.claude/scripts/bin/cmux-bridge" ] || \
+  GAPS+=("cmux-bridge binary missing — build it in ~/dev/cc (gitignored artifact)")
+{{ else -}}
+# Linux (homelab): no platform-specific post-install repairs modeled yet.
+true
+{{ end -}}
+
+for r in "${REPAIRED[@]:-}"; do [ -n "$r" ] && success "doctor repaired: $r"; done
+for g in "${GAPS[@]:-}"; do [ -n "$g" ] && warning "doctor: $g"; done
+if [ ${#REPAIRED[@]} -eq 0 ] && [ ${#GAPS[@]} -eq 0 ]; then
+  success "doctor: all post-install checks passed"
+fi
+exit 0

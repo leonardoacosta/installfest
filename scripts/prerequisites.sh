@@ -7,12 +7,48 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 install_xcode() {
     info "Installing Apple's CLI tools (prerequisites for Git and Homebrew)..."
-    if xcode-select -p >/dev/null; then
-        warning "xcode is already installed"
+    if xcode-select -p >/dev/null 2>&1; then
+        warning "Xcode Command Line Tools already installed"
     else
-        xcode-select --install
-        sudo xcodebuild -license accept
+        # Headless CLT install. `xcode-select --install` only opens a GUI dialog
+        # and can't complete unattended, so drive softwareupdate directly: the
+        # placeholder file makes softwareupdate list the CLT package, which we
+        # then install without any prompt.
+        info "Installing Xcode Command Line Tools (headless via softwareupdate)..."
+        local placeholder="/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
+        touch "$placeholder"
+        local prod
+        prod=$(softwareupdate -l 2>/dev/null \
+            | grep -oE 'Command Line Tools for Xcode-[0-9.]+' \
+            | sort -V | tail -1)
+        if [ -n "$prod" ]; then
+            softwareupdate -i "$prod" --verbose || warning "CLT softwareupdate install failed"
+        else
+            warning "CLT label not found via softwareupdate; falling back to GUI installer"
+            xcode-select --install 2>/dev/null || true
+        fi
+        rm -f "$placeholder"
     fi
+    # Accept the license non-interactively only when full Xcode.app is present
+    # (CLT-only installs accept implicitly; `xcodebuild -license` errors without Xcode.app).
+    if [ -d /Applications/Xcode.app ]; then
+        sudo xcodebuild -license accept 2>/dev/null || warning "xcodebuild license accept failed"
+    fi
+}
+
+install_rosetta() {
+    # Apple Silicon only. x86-only packages (e.g. ProxyBridge) refuse to install
+    # without Rosetta 2, and a fresh macOS restore does NOT ship it. oahd is the
+    # Rosetta daemon — its presence means Rosetta is already installed.
+    if [ "$(uname -m)" != "arm64" ]; then
+        return 0
+    fi
+    if /usr/bin/pgrep -q oahd; then
+        warning "Rosetta 2 already installed"
+        return 0
+    fi
+    info "Installing Rosetta 2 (required for x86 packages on Apple Silicon)..."
+    softwareupdate --install-rosetta --agree-to-license
 }
 
 install_homebrew() {

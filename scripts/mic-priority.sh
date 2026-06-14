@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+# launchd login sessions get a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin) with no
+# Homebrew. SwitchAudioSource lives in the brew prefix, so prepend it here —
+# otherwise the LaunchAgent run exits 1 with "SwitchAudioSource not found".
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # Priority order (first available wins)
 PREFERRED_MICS=(
     "Studio Display Microphone"
