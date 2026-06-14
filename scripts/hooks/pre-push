@@ -23,10 +23,13 @@ deploy_remote() {
          bash scripts/hooks/remote-apply.sh \"\$pre_sha\"" &) 2>/dev/null
 }
 
-case "$(hostname)" in
+# Use the SHORT hostname (hostname -s) so a ".local" suffix never breaks the
+# match, and accept both the canonical and the macOS-restore-default Mac names
+# (a fresh restore renames the Mac to "Leonardos-MacBook-Pro").
+case "$(hostname -s)" in
     homelab)
         deploy_remote mac ;;
-    leonardoacostas-MacBook-Pro)
+    leonardoacostas-MacBook-Pro|Leonardos-MacBook-Pro)
         deploy_remote homelab ;;
 esac
 
