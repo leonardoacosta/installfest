@@ -1,0 +1,10 @@
+# Nexus SSH mesh — inbound authorized key (chezmoi-managed).
+#
+# Single shared ED25519 keypair across homelab / mac / cloudpc; this file is
+# the same pubkey on every machine. chezmoi lays it down at ~/.ssh/authorized_keys
+# (0600) on `chezmoi apply`, so a restored machine accepts inbound mesh SSH
+# immediately — no manual ssh-copy-id dance.
+#
+# Rotation: ssh-mesh/scripts/rotate-keys.sh regenerates the shared key AND
+# rewrites this file, so the two never drift. Do not hand-edit; rotate instead.
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOP7RHCSkw303hIZEewKU2r6yn4o6rdyceoEnbPCO7bd leo-mesh-20260325

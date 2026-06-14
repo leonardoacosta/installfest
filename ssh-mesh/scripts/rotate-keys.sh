@@ -130,6 +130,15 @@ fi
 echo ""
 echo "Scrubbing old key from git history..."
 cd "$(dirname "$0")/../.."
+
+# Sync the chezmoi-managed authorized_keys source so `chezmoi apply` on any
+# machine never reverts ~/.ssh/authorized_keys to a stale key after rotation.
+printf '%s\n' "$NEW_PUB" >> home/private_dot_ssh/private_authorized_keys.new
+# Preserve the comment header, replace only the key line.
+grep -v '^ssh-' home/private_dot_ssh/private_authorized_keys > home/private_dot_ssh/private_authorized_keys.hdr 2>/dev/null || true
+cat home/private_dot_ssh/private_authorized_keys.hdr <(printf '%s\n' "$NEW_PUB") > home/private_dot_ssh/private_authorized_keys
+rm -f home/private_dot_ssh/private_authorized_keys.new home/private_dot_ssh/private_authorized_keys.hdr
+echo "  chezmoi source: home/private_dot_ssh/private_authorized_keys synced to new key"
 if command -v bfg &>/dev/null; then
   bfg --replace-text <(echo 'b3BlbnNzaC1rZXktdjEA') . --no-blob-protection
   git reflog expire --expire=now --all
