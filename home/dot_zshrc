@@ -5,6 +5,10 @@
 # Ensure DOTFILES is set (should be set by .zshenv)
 export DOTFILES="${DOTFILES:-$HOME/dev/if}"
 
+# Collapse duplicate PATH entries (keep first occurrence). Constrains every
+# subsequent append from sourced rc files + mise activation to stay unique.
+typeset -U path PATH
+
 # Load local secrets (machine-specific tokens, API keys)
 if [[ -f "$HOME/.env" ]]; then
   set -a
