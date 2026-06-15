@@ -243,6 +243,15 @@ cask "windows-app"
 # Mesh VPN — carries the SSH mesh between Mac, Homelab, and CloudPC (see ssh-mesh/)
 cask "tailscale-app"
 
+# Microsoft work apps — proxied via ProxyBridge for CAE bypass.
+# Process names MUST match scripts/proxybridge-rules.json (Edge/Teams/Outlook).
+# Chromium browser
+cask "microsoft-edge"
+# Group chat and collaboration
+cask "microsoft-teams"
+# Email, calendar, and contacts
+cask "microsoft-outlook"
+
 # ============================================================
 # Casks - Media & Entertainment
 # ============================================================

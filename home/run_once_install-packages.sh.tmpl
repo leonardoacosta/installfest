@@ -75,6 +75,22 @@ else
     success "ProxyBridge already installed"
 fi
 
+# Import proxy rules into ProxyBridge. Only safe while ProxyBridge is NOT
+# running (it rewrites its plist on quit). On a fresh boot the app hasn't
+# launched yet, so this lands the rules before first launch. If ProxyBridge is
+# already running, the importer no-ops with guidance — run it manually after
+# quitting: bash "$DOTFILES/scripts/proxybridge-import-rules.sh"
+if [[ -f "$DOTFILES/scripts/proxybridge-import-rules.sh" ]]; then
+    if ! pgrep -f "ProxyBridge" >/dev/null 2>&1; then
+        bash "$DOTFILES/scripts/proxybridge-import-rules.sh" \
+            && success "ProxyBridge rules imported" \
+            || warning "ProxyBridge rule import failed (import manually)"
+    else
+        info "ProxyBridge running — skipping rule import."
+        info "  To import: quit ProxyBridge, run scripts/proxybridge-import-rules.sh, relaunch"
+    fi
+fi
+
 # Ensure mx-broker socket + log dirs exist before the tunnel LaunchAgent binds.
 mkdir -p "$HOME/.mx/broker" && chmod 700 "$HOME/.mx/broker"
 mkdir -p "$HOME/.local/logs"
