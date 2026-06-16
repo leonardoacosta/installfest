@@ -34,6 +34,13 @@ if [[ ! -t 0 || -n "${CI:-}" ]]; then
 	exit 0
 fi
 
+# ~/.zshenv exports GH_TOKEN/GITHUB_TOKEN from the keychain. When either is set,
+# `gh` authenticates with the env token and REFUSES `gh auth login`/`refresh`
+# ("first clear the value from the environment"). Clear them for this process so
+# every gh operation below targets the stored keyring credential instead; the
+# fresh token is re-stored to the keychain at the end and re-exported next shell.
+unset GH_TOKEN GITHUB_TOKEN
+
 # Scopes: repo+read:org+gist for GitKraken, read:packages so the same token
 # doubles as NPM_TOKEN for GitHub Packages (npm.pkg.github.com, e.g. @nessprim).
 SCOPES="repo,read:org,gist,read:packages"
