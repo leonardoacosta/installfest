@@ -18,6 +18,8 @@ tap "xcodesorg/made"
 # ============================================================
 # Download with resuming and segmented downloading
 brew "aria2"
+# 1Password CLI — `op read` for secret/SSH-key provisioning (op-ssh-provision.sh)
+cask "1password-cli"
 # Improved shell history for zsh, bash, fish and nushell
 brew "atuin"
 # Bourne-Again SHell, a UNIX command interpreter

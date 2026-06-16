@@ -141,7 +141,11 @@ fi
 
 # === SSH mesh setup (all platforms) ===
 # SSH config is managed by chezmoi (private_dot_ssh/config.tmpl)
-# Keys must be placed manually once — they are gitignored for security
+# Fetch the shared mesh key from 1Password if it's not already on disk; the
+# on-disk key is retained for the unattended tunnel LaunchAgents + headless node.
+. "$DOTFILES/scripts/op-ssh-provision.sh"
+provision_ssh_keys_from_op
+
 if [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
     # Set up authorized_keys for inbound SSH connections
     mkdir -p "$HOME/.ssh"
