@@ -1,226 +1,214 @@
 {
-  // ───────────────────────────────────────────────────────────────────────────
-  // VS Code / Cursor USER settings — applies to ALL workspaces.
-  // Deployed via chezmoi symlinks (Phase 2 of the editors migration):
-  //   macOS  ~/Library/Application Support/{Code,Cursor}/User/settings.json
-  //   Linux  ~/.config/{Code,Cursor}/User/settings.json
-  // Per-repo overrides live in <repo>/.vscode/settings.json (stack-specific).
-  // Sibling shared/vscode-workspace-settings.json is a DIFFERENT file —
-  // it's the $HOME workspace settings (used when opening ~ as a folder).
-  // ───────────────────────────────────────────────────────────────────────────
-
-  // === Editor ergonomics ====================================================
-  "editor.formatOnSave": true,
-  "editor.formatOnPaste": false,
-  "editor.tabSize": 2,
-  "editor.rulers": [100],
-  "editor.inlineSuggest.enabled": true,
-  "editor.suggestSelection": "first",
-  "editor.bracketPairColorization.enabled": true,
-  "editor.guides.bracketPairs": "active",
-  "editor.fontFamily": "'JetBrainsMono Nerd Font', 'CaskaydiaMono Nerd Font', monospace",
-  "editor.fontLigatures": true,
-  "editor.fontSize": 14,
-  "editor.renderWhitespace": "none",
-  "editor.accessibilitySupport": "off",
-  "editor.unicodeHighlight.ambiguousCharacters": false,
-  "editor.unicodeHighlight.invisibleCharacters": false,
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit",
-    "source.organizeImports": "never"
-  },
-  "diffEditor.ignoreTrimWhitespace": true,
-
-  // === File handling ========================================================
-  "files.trimTrailingWhitespace": true,
-  "files.insertFinalNewline": true,
-  "files.trimFinalNewlines": true,
-  "files.autoSave": "afterDelay",
-  "files.eol": "\n",
-  "explorer.confirmDelete": false,
-  "explorer.confirmDragAndDrop": false,
-  "explorer.confirmPasteNative": false,
-  "files.exclude": {
-    "**/.git": true,
-    "**/.DS_Store": true,
-    "**/node_modules": true,
-    "**/.next": true,
-    "**/.turbo": true,
-    "**/.vercel": true,
-    "**/dist": true,
-    "**/coverage": true
-  },
-  "search.exclude": {
-    "**/node_modules": true,
-    "**/.next": true,
-    "**/.turbo": true,
-    "**/dist": true,
-    "**/coverage": true,
-    "**/playwright-report": true,
-    "**/test-results": true,
-    "**/pnpm-lock.yaml": true,
-    "**/package-lock.json": true,
-    "**/yarn.lock": true,
-    // Same heavy trees as files.watcherExclude — keep Cmd+Shift+F fast.
-    "**/.steam": true,
-    "**/Steam": true,
-    "**/.nuget": true,
-    "**/.dotnet": true,
-    "**/.azure": true,
-    "**/.beads/embeddeddolt": true,
-    "**/openspec/changes/archive": true
-  },
-  // Linux dev-host trees added 2026-05-06 for parity with Zed's expanded
-  // exclusion list (see shared/zed-settings.json file_scan_exclusions). Without
-  // these, opening ~ or following a symlink chain (e.g. ~/dev/cc/skills/* →
-  // ~/.agents/skills/*) into Steam, NuGet, .dotnet, .azure, Dolt git-remote-
-  // cache, or oo's openspec/changes/archive trees can pin the file watcher.
-  // Cursor hadn't blown up the way Zed did, but it's the same vulnerability.
-  "files.watcherExclude": {
-    "**/.git/objects/**": true,
-    "**/.git/subtree-cache/**": true,
-    "**/node_modules/**": true,
-    "**/.next/**": true,
-    "**/.turbo/**": true,
-    "**/dist/**": true,
-    "**/.cursor-server/**": true,
-    "**/.vscode-server/**": true,
-    "**/.cargo/**": true,
-    "**/.cache/**": true,
-    "**/.npm/**": true,
-    "**/.bun/**": true,
-    "**/.pnpm-store/**": true,
-    "**/.steam/**": true,
-    "**/Steam/**": true,
-    "**/.nuget/**": true,
-    "**/.dotnet/**": true,
-    "**/.azure/**": true,
-    "**/.beads/embeddeddolt/**": true,
-    "**/openspec/changes/archive/**": true
-  },
-
-  // === Universal language formatters (per-language to avoid clobber) ========
-  "[typescript]":      { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[javascript]":      { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[javascriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[json]":            { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[jsonc]":           { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[markdown]":        { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[yaml]":            { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[css]":             { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[html]":            { "editor.defaultFormatter": "esbenp.prettier-vscode" },
-  "[csharp]":          { "editor.defaultFormatter": "csharpier.csharpier-vscode" },
-  "[github-actions-workflow]": { "editor.defaultFormatter": "redhat.vscode-yaml" },
-  "[dockercompose]": {
-    "editor.insertSpaces": true,
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": false,
     "editor.tabSize": 2,
-    "editor.autoIndent": "advanced",
-    "editor.defaultFormatter": "redhat.vscode-yaml"
-  },
-
-  // === Promoted globals (the six identical-everywhere keys) =================
-  "eslint.run": "onSave",
-  "eslint.format.enable": true,
-  "prettier.requireConfig": true,
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "javascript.updateImportsOnFileMove.enabled": "always",
-  "typescript.updateImportsOnFileMove.enabled": "always",
-  "git.confirmSync": false,
-  "git.autofetch": true,
-  "git.enableSmartCommit": true,
-
-  // === Markdown preview as default editor ===================================
-  "workbench.editorAssociations": {
-    "*.md": "vscode.markdown.preview.editor"
-  },
-  "workbench.colorTheme": "One Hunter Theme Vercel",
-  "workbench.iconTheme": "catppuccin-macchiato",
-  "viraTheme.contrastedTabs": true,
-  "viraTheme.showBorders": true,
-  "viraTheme.solidLineHighlight": true,
-  "viraTheme.useOutlinedIcons": true,
-  "chat.viewSessions.orientation": "stacked",
-  "window.commandCenter": true,
-
-  // === cSpell — picks up ~/.config/cspell/cspell.json + per-repo cspell.json
-  "cSpell.diagnosticLevel": "Hint",
-  "cSpell.allowCompoundWords": true,
-
-  // === TypeScript server memory cap ==========================================
-  // T3 turbo monorepos with 10+ packages routinely balloon tsserver to 2-3 GB
-  // without this cap. Mirrors the Zed setting at lsp.typescript-language-server
-  // .initialization_options.maxTsServerMemory in shared/zed-settings.json.
-  "typescript.tsserver.maxTsServerMemory": 1536,
-  "typescript.disableAutomaticTypeAcquisition": true,
-
-  // === Integrated terminal ==================================================
-  // env.linux/env.osx are platform-keyed; the wrong-OS one is silently ignored.
-  "terminal.integrated.env.linux": {
-    "LANG": "en_US.UTF-8",
-    "LC_ALL": "en_US.UTF-8"
-  },
-  "terminal.integrated.env.osx": {
-    "LANG": "en_US.UTF-8",
-    "LC_ALL": "en_US.UTF-8"
-  },
-  "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font', 'GeistMono Nerd Font', monospace",
-  "terminal.integrated.fontLigatures.enabled": true,
-  "terminal.integrated.fontSize": 13,
-  "terminal.integrated.fontWeight": "normal",
-  "terminal.integrated.fontWeightBold": "bold",
-  "terminal.integrated.enableMultiLinePasteWarning": "never",
-  "terminal.integrated.gpuAcceleration": "on",
-  "terminal.integrated.shellArgs.osx": ["-l", "-i"],
-
-  // === Remote / SSH platforms ===============================================
-  // Tailscale-routed targets reachable from every machine; static map.
-  "remote.SSH.remotePlatform": {
-    "homelab": "linux",
-    "cloudpc": "windows"
-  },
-  "remote.autoForwardPortsSource": "hybrid",
-
-  // === Misc ==================================================================
-  "liveServer.settings.donotShowInfoMsg": true,
-
-  // === GitLens ===============================================================
-  "gitlens.ai.generateCommits.customInstructions": "Use concise conventional commits",
-  "gitlens.ai.generateCommitMessage.customInstructions": "Use concise conventional commits messages",
-  "gitlens.ai.gitkraken.model": "gemini:gemini-2.0-flash",
-  "gitlens.ai.model": "gitkraken",
-  "gitlens.graph.layout": "editor",
-  "gitlens.graph.minimap.enabled": false,
-  "gitlens.graph.minimap.dataType": "lines",
-  "gitlens.graph.minimap.additionalTypes": ["localBranches", "remoteBranches", "pullRequests", "stashes", "tags"],
-
-  // === Markdown Preview Enhanced =============================================
-  "markdown-preview-enhanced.automaticallyShowPreviewOfMarkdownBeingEdited": true,
-  "markdown-preview-enhanced.breakOnSingleNewLine": true,
-  "markdown-preview-enhanced.codeBlockTheme": "default.css",
-  "markdown-preview-enhanced.liveUpdate": true,
-  "markdown-preview-enhanced.mathRenderingOption": "KaTeX",
-  "markdown-preview-enhanced.previewTheme": "github-dark.css",
-  "markdown-preview-enhanced.revealjsTheme": "white.css",
-  "markdown-preview-enhanced.scrollSync": true,
-  "markdown-preview-enhanced.singlePreview": true,
-  "markdown-preview-enhanced.usePandocParser": false,
-
-  // === Cursor IDE — silently ignored by VS Code (unknown-key warning is cosmetic) ===
-  "cursor.composer.queueMessageDefaultBehavior": "queue",
-  "cursor.composer.shouldChimeAfterChatFinishes": true,
-  "cursor.composer.textSizeScale": 0.85,
-  "cursor.composer.usageSummaryDisplay": "always",
-  "cursor.cpp.disabledLanguages": ["plaintext"],
-  "cursor.general.emailPrivacyEnabled": true,
-  "cursor.general.glassShowWarningNotifications": true,
-  "cursor.terminal.usePreviewBox": true,
-
-  // === Claude Code (Cursor extension) — silently ignored by VS Code ==========
-  "claudeCode.allowDangerouslySkipPermissions": true,
-  "claudeCode.initialPermissionMode": "bypassPermissions",
-  "claudeCode.preferredLocation": "panel",
-  "claudeCode.useCtrlEnterToSend": true,
-  "claudeCode.useTerminal": true
+    "editor.rulers": [
+        100
+    ],
+    "editor.inlineSuggest.enabled": true,
+    "editor.suggestSelection": "first",
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": "active",
+    "editor.fontFamily": "'JetBrainsMono Nerd Font', 'CaskaydiaMono Nerd Font', monospace",
+    "editor.fontLigatures": true,
+    "editor.fontSize": 14,
+    "editor.renderWhitespace": "none",
+    "editor.accessibilitySupport": "off",
+    "editor.unicodeHighlight.ambiguousCharacters": false,
+    "editor.unicodeHighlight.invisibleCharacters": false,
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "explicit",
+        "source.organizeImports": "never"
+    },
+    "diffEditor.ignoreTrimWhitespace": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "files.autoSave": "afterDelay",
+    "files.eol": "\n",
+    "explorer.confirmDelete": false,
+    "explorer.confirmDragAndDrop": false,
+    "explorer.confirmPasteNative": false,
+    "files.exclude": {
+        "**/.git": true,
+        "**/.DS_Store": true,
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/.vercel": true,
+        "**/dist": true,
+        "**/coverage": true
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/.next": true,
+        "**/.turbo": true,
+        "**/dist": true,
+        "**/coverage": true,
+        "**/playwright-report": true,
+        "**/test-results": true,
+        "**/pnpm-lock.yaml": true,
+        "**/package-lock.json": true,
+        "**/yarn.lock": true,
+        "**/.steam": true,
+        "**/Steam": true,
+        "**/.nuget": true,
+        "**/.dotnet": true,
+        "**/.azure": true,
+        "**/.beads/embeddeddolt": true,
+        "**/openspec/changes/archive": true
+    },
+    "files.watcherExclude": {
+        "**/.git/objects/**": true,
+        "**/.git/subtree-cache/**": true,
+        "**/node_modules/**": true,
+        "**/.next/**": true,
+        "**/.turbo/**": true,
+        "**/dist/**": true,
+        "**/.cursor-server/**": true,
+        "**/.vscode-server/**": true,
+        "**/.cargo/**": true,
+        "**/.cache/**": true,
+        "**/.npm/**": true,
+        "**/.bun/**": true,
+        "**/.pnpm-store/**": true,
+        "**/.steam/**": true,
+        "**/Steam/**": true,
+        "**/.nuget/**": true,
+        "**/.dotnet/**": true,
+        "**/.azure/**": true,
+        "**/.beads/embeddeddolt/**": true,
+        "**/openspec/changes/archive/**": true
+    },
+    "[typescript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[typescriptreact]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[javascript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[javascriptreact]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[json]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[markdown]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[yaml]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[css]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[html]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[csharp]": {
+        "editor.defaultFormatter": "csharpier.csharpier-vscode"
+    },
+    "[github-actions-workflow]": {
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "[dockercompose]": {
+        "editor.insertSpaces": true,
+        "editor.tabSize": 2,
+        "editor.autoIndent": "advanced",
+        "editor.defaultFormatter": "redhat.vscode-yaml"
+    },
+    "eslint.run": "onSave",
+    "eslint.format.enable": true,
+    "prettier.requireConfig": true,
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "javascript.updateImportsOnFileMove.enabled": "always",
+    "typescript.updateImportsOnFileMove.enabled": "always",
+    "git.confirmSync": false,
+    "git.autofetch": true,
+    "git.enableSmartCommit": true,
+    "workbench.editorAssociations": {
+        "*.md": "vscode.markdown.preview.editor"
+    },
+    "workbench.colorTheme": "One Hunter Theme Vercel",
+    "workbench.iconTheme": "catppuccin-macchiato",
+    "viraTheme.contrastedTabs": true,
+    "viraTheme.showBorders": true,
+    "viraTheme.solidLineHighlight": true,
+    "viraTheme.useOutlinedIcons": true,
+    "chat.viewSessions.orientation": "stacked",
+    "window.commandCenter": true,
+    "cSpell.diagnosticLevel": "Hint",
+    "cSpell.allowCompoundWords": true,
+    "typescript.tsserver.maxTsServerMemory": 1536,
+    "typescript.disableAutomaticTypeAcquisition": true,
+    "terminal.integrated.env.linux": {
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
+    },
+    "terminal.integrated.env.osx": {
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8"
+    },
+    "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font', 'GeistMono Nerd Font', monospace",
+    "terminal.integrated.fontLigatures.enabled": true,
+    "terminal.integrated.fontSize": 13,
+    "terminal.integrated.fontWeight": "normal",
+    "terminal.integrated.fontWeightBold": "bold",
+    "terminal.integrated.enableMultiLinePasteWarning": "never",
+    "terminal.integrated.gpuAcceleration": "on",
+    "terminal.integrated.shellArgs.osx": [
+        "-l",
+        "-i"
+    ],
+    "remote.SSH.remotePlatform": {
+        "homelab": "linux",
+        "cloudpc": "windows"
+    },
+    "remote.autoForwardPortsSource": "hybrid",
+    "liveServer.settings.donotShowInfoMsg": true,
+    "gitlens.ai.generateCommits.customInstructions": "Use concise conventional commits",
+    "gitlens.ai.generateCommitMessage.customInstructions": "Use concise conventional commits messages",
+    "gitlens.ai.gitkraken.model": "gemini:gemini-2.0-flash",
+    "gitlens.ai.model": "gitkraken",
+    "gitlens.graph.layout": "editor",
+    "gitlens.graph.minimap.enabled": false,
+    "gitlens.graph.minimap.dataType": "lines",
+    "gitlens.graph.minimap.additionalTypes": [
+        "localBranches",
+        "remoteBranches",
+        "pullRequests",
+        "stashes",
+        "tags"
+    ],
+    "markdown-preview-enhanced.automaticallyShowPreviewOfMarkdownBeingEdited": true,
+    "markdown-preview-enhanced.breakOnSingleNewLine": true,
+    "markdown-preview-enhanced.codeBlockTheme": "default.css",
+    "markdown-preview-enhanced.liveUpdate": true,
+    "markdown-preview-enhanced.mathRenderingOption": "KaTeX",
+    "markdown-preview-enhanced.previewTheme": "github-dark.css",
+    "markdown-preview-enhanced.revealjsTheme": "white.css",
+    "markdown-preview-enhanced.scrollSync": true,
+    "markdown-preview-enhanced.singlePreview": true,
+    "markdown-preview-enhanced.usePandocParser": false,
+    "cursor.composer.queueMessageDefaultBehavior": "queue",
+    "cursor.composer.shouldChimeAfterChatFinishes": true,
+    "cursor.composer.textSizeScale": 0.85,
+    "cursor.composer.usageSummaryDisplay": "always",
+    "cursor.cpp.disabledLanguages": [
+        "plaintext"
+    ],
+    "cursor.general.emailPrivacyEnabled": true,
+    "cursor.general.glassShowWarningNotifications": true,
+    "cursor.terminal.usePreviewBox": true,
+    "claudeCode.allowDangerouslySkipPermissions": true,
+    "claudeCode.initialPermissionMode": "bypassPermissions",
+    "claudeCode.preferredLocation": "panel",
+    "claudeCode.useCtrlEnterToSend": true,
+    "claudeCode.useTerminal": true
 }
