@@ -134,4 +134,19 @@ export NODE_OPTIONS="--max-old-space-size=2048"
 # Local overrides (secrets, machine-specific tokens)
 # ============================================================
 
+# GitHub token — read from the OS keychain (stored by
+# run_onchange_after_github-auth.sh). Keeps the PAT out of the repo/plaintext.
+# Note: setting GH_TOKEN makes `gh` use this token directly (bypasses keyring
+# account switching) — intended for a single-account setup.
+{{ if eq .chezmoi.os "darwin" -}}
+__gh_pat="$(security find-generic-password -w -s github-pat -a "$USER" 2>/dev/null)"
+{{ else if eq .chezmoi.os "linux" -}}
+__gh_pat="$(command -v secret-tool >/dev/null 2>&1 && secret-tool lookup service github-pat account "$USER" 2>/dev/null)"
+{{ end -}}
+if [[ -n "${__gh_pat:-}" ]]; then
+  export GH_TOKEN="$__gh_pat"
+  export GITHUB_TOKEN="$__gh_pat"
+fi
+unset __gh_pat
+
 [[ -f ~/.zshenv.local ]] && source ~/.zshenv.local

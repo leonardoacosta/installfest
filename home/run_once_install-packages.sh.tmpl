@@ -29,11 +29,21 @@ info "Detected macOS"
 . "$DOTFILES/scripts/osx-defaults.sh"
 . "$DOTFILES/scripts/terminal.sh"
 
+# Authorize sudo ONCE up front and keep it warm. Without this, every pkg-based
+# cask (windows-app, microsoft-teams, microsoft-outlook) + the rosetta and
+# ProxyBridge installers prompt for the password separately. No-ops in a
+# non-interactive run.
+sudo_keepalive_start
+
 # Core packages (non-interactive — chezmoi run_once must complete without prompts)
 install_xcode
 install_rosetta   # Apple Silicon: required before ProxyBridge (x86-only pkg) installs
 install_homebrew
 run_brew_bundle || warning "brew bundle had errors (some casks may need manual install)"
+
+# Enable TouchID for sudo now that pam-reattach is installed (from the Brewfile).
+# Future sudo prompts use the fingerprint reader, including inside tmux.
+setup_touchid_sudo
 
 # Global CLI tools installed via package manager (idempotent: pnpm add -g no-ops if installed)
 # live-server: Live Server replacement for static-file dev with auto-reload

@@ -54,6 +54,8 @@ brew "socat"
 brew "nowplaying-cli"
 # Paste PNG into files
 brew "pngpaste"
+# PAM module so TouchID-for-sudo (pam_tid) works inside tmux/screen sessions
+brew "pam-reattach"
 # Search tool like grep and The Silver Searcher
 brew "ripgrep"
 # CLI proxy to minimize LLM token consumption

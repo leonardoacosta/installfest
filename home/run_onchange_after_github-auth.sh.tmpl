@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# run_onchange_after_github-auth.sh — guided GitHub + GitKraken auth wiring.
+#
+# Re-runs whenever this file's rendered content changes (run_onchange prefix), in
+# the AFTER stage so Homebrew/pacman packages (gh, gk) and the global git identity
+# are already in place.
+#
+# Chains the full auth pipeline Leo asked for:
+#   1. Ensure the GitHub CLI (`gh`) is installed.
+#   2. Guide an interactive sign-in (web/device flow) with GitKraken-ready scopes.
+#   3. Derive the PAT via `gh auth token` and stash it in the OS keychain
+#      (macOS Keychain / Linux libsecret) — dot_zshenv.tmpl exports it from there.
+#   4. Wire global git credentials with BOTH helpers: `gh` first, native keychain
+#      helper as fallback (the multi-valued chain pattern from configure-git-azure).
+#   5. Sign in to the GitKraken CLI (`gk auth login`) and attach the GitHub token
+#      as a provider (`gk provider add github -t <PAT>`).
+#
+# TTY GUARD (critical): mesh deploys run `chezmoi apply` non-interactively and
+# force-reset this repo (see memory: "Mac is a deploy target"). The browser /
+# device-flow logins here MUST NOT block those deploys, so the script no-ops
+# unless stdin is a real terminal and CI is unset.
+
+set -uo pipefail
+
+# --- tiny logging helpers (ASCII only, no emojis) ---------------------------
+info()    { printf '  ->  %s\n' "$*"; }
+success() { printf '  OK  %s\n' "$*"; }
+warn()    { printf 'WARN  %s\n' "$*"; }
+
+# --- TTY guard --------------------------------------------------------------
+if [[ ! -t 0 || -n "${CI:-}" ]]; then
+	echo "github-auth: non-interactive shell — skipping guided login."
+	echo "github-auth: run 'chezmoi apply' (or this script) in a terminal to complete."
+	exit 0
+fi
+
+# GitKraken wants repo + org + gist; this matches Leo's existing gh token scopes.
+SCOPES="repo,read:org,gist"
+
+{{ if eq .chezmoi.os "darwin" -}}
+# --- macOS platform bindings ------------------------------------------------
+ensure_gh() { brew list gh >/dev/null 2>&1 || brew install gh; }
+keychain_store() {
+	# -U updates in place if the item already exists.
+	security add-generic-password -U -a "$USER" -s github-pat -w "$1" >/dev/null 2>&1
+}
+GIT_FALLBACK_HELPER="osxkeychain"
+{{ else if eq .chezmoi.os "linux" -}}
+# --- Arch / Linux platform bindings -----------------------------------------
+ensure_gh() {
+	command -v gh >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm github-cli
+	# libsecret provides `secret-tool` + git-credential-libsecret (Arch ships the
+	# git helper compiled in). Needed for both keychain storage and the git fallback.
+	command -v secret-tool >/dev/null 2>&1 || sudo pacman -S --needed --noconfirm libsecret
+}
+keychain_store() {
+	if command -v secret-tool >/dev/null 2>&1; then
+		printf '%s' "$1" | secret-tool store --label="github-pat" service github-pat account "$USER"
+	else
+		warn "secret-tool not found — token left in gh keyring only (no env export)."
+		return 1
+	fi
+}
+# Prefer libsecret; fall back to a 24h credential cache if the helper is absent.
+if [[ -x /usr/lib/git-core/git-credential-libsecret ]]; then
+	GIT_FALLBACK_HELPER="libsecret"
+else
+	GIT_FALLBACK_HELPER="cache --timeout=86400"
+fi
+{{ end -}}
+
+# --- 1. ensure gh -----------------------------------------------------------
+if ! ensure_gh; then
+	warn "could not install gh — aborting auth setup."
+	exit 0
+fi
+
+# --- 2. gh sign-in ----------------------------------------------------------
+if gh auth status >/dev/null 2>&1; then
+	success "gh already authenticated as $(gh api user -q .login 2>/dev/null || echo '?')"
+else
+	info "Opening GitHub sign-in (web flow, scopes: $SCOPES) ..."
+	if ! gh auth login -h github.com -p https -w -s "$SCOPES"; then
+		warn "gh auth login did not complete — re-run this script when ready."
+		exit 0
+	fi
+fi
+
+# --- 3. derive + store the PAT ----------------------------------------------
+TOKEN="$(gh auth token 2>/dev/null || true)"
+if [[ -z "$TOKEN" ]]; then
+	warn "gh auth token returned empty — cannot continue."
+	exit 0
+fi
+if keychain_store "$TOKEN"; then
+	success "PAT stored in OS keychain (service: github-pat)."
+fi
+
+# --- 4. git credentials: gh helper first, native keychain fallback ----------
+# Unset-all then re-add so repeated runs converge to the same two-entry chain
+# (same idempotent pattern as configure-git-azure).
+git config --global --unset-all 'credential.https://github.com.helper' 2>/dev/null || true
+git config --global --add 'credential.https://github.com.helper' '!gh auth git-credential'
+git config --global --add 'credential.https://github.com.helper' "$GIT_FALLBACK_HELPER"
+success "git credential chain set (gh -> $GIT_FALLBACK_HELPER) for github.com."
+
+# --- 5. GitKraken CLI -------------------------------------------------------
+if command -v gk >/dev/null 2>&1; then
+	if gk whoami >/dev/null 2>&1; then
+		success "gk already signed in to the GitKraken platform."
+	else
+		info "Signing in to GitKraken (a browser window will open) ..."
+		gk auth login || warn "gk auth login skipped — provider attach may fail until you sign in."
+	fi
+	if gk provider add github -t "$TOKEN" >/dev/null 2>&1; then
+		success "gk: GitHub provider token attached."
+	else
+		warn "gk provider add github failed — sign in to gk first, then re-run."
+	fi
+else
+	warn "gk (GitKraken CLI) not on PATH — skipping. Expected from the Brewfile cask 'gitkraken-cli'."
+fi
+
+echo "github-auth: done. Open a new shell to pick up GH_TOKEN/GITHUB_TOKEN."
