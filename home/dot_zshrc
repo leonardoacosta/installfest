@@ -33,6 +33,7 @@ esac
 source "$HOME/.zsh/functions/setup-completions.zsh"  # compinit, fpath
 source "$HOME/.zsh/functions/load-plugins.zsh"       # syntax-hl, autosuggestions
 source "$HOME/.zsh/functions/load-tools.zsh"         # zoxide, atuin, fzf, etc.
+source "$HOME/.zsh/functions/onepassword.zsh"        # opsh: opt-in 1Password Environments loader
 source "$HOME/.zsh/functions/init-theme.zsh"         # apply theme colors to plugins/tools
 source "$HOME/.zsh/functions/init-starship.zsh"      # prompt (load last)
 

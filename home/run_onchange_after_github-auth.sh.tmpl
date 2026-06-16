@@ -34,8 +34,9 @@ if [[ ! -t 0 || -n "${CI:-}" ]]; then
 	exit 0
 fi
 
-# GitKraken wants repo + org + gist; this matches Leo's existing gh token scopes.
-SCOPES="repo,read:org,gist"
+# Scopes: repo+read:org+gist for GitKraken, read:packages so the same token
+# doubles as NPM_TOKEN for GitHub Packages (npm.pkg.github.com, e.g. @nessprim).
+SCOPES="repo,read:org,gist,read:packages"
 
 {{ if eq .chezmoi.os "darwin" -}}
 # --- macOS platform bindings ------------------------------------------------
@@ -78,6 +79,13 @@ fi
 # --- 2. gh sign-in ----------------------------------------------------------
 if gh auth status >/dev/null 2>&1; then
 	success "gh already authenticated as $(gh api user -q .login 2>/dev/null || echo '?')"
+	# Ensure the token carries read:packages (needed for NPM_TOKEN / GitHub
+	# Packages). gh auth refresh is additive + interactive (browser/device).
+	if ! gh auth status 2>&1 | grep -q "read:packages"; then
+		info "Adding read:packages scope to the GitHub token ..."
+		gh auth refresh -h github.com -s "$SCOPES" \
+			|| warn "scope refresh skipped — NPM_TOKEN may lack read:packages."
+	fi
 else
 	info "Opening GitHub sign-in (web flow, scopes: $SCOPES) ..."
 	if ! gh auth login -h github.com -p https -w -s "$SCOPES"; then

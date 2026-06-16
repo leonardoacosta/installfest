@@ -1,0 +1,8 @@
+# Managed by chezmoi (home/dot_npmrc -> ~/.npmrc).
+#
+# GitHub Packages read access for the @nessprim scope. The token is ${NPM_TOKEN},
+# which ~/.zshenv derives from your GitHub PAT (needs the read:packages scope,
+# requested at `gh auth login`). npm/pnpm expand ${NPM_TOKEN} from the env at
+# install time, so NO secret is stored in this file.
+@nessprim:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}

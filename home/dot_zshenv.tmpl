@@ -131,22 +131,52 @@ export NODE_OPTIONS="--max-old-space-size=2048"
 
 {{ end -}}
 # ============================================================
-# Local overrides (secrets, machine-specific tokens)
+# Secrets — two buckets, by ownership
 # ============================================================
+# priceless    Account-global secrets that belong to YOU and are reused across
+#              every repo. Stored in the OS keychain (seed once), never in the
+#              repo. Read + exported below. Note: exporting GH_TOKEN makes `gh`
+#              use it directly (bypasses keyring account switching) — intended
+#              for a single-account setup.
+#
+# per-project  Secrets scoped to ONE repo: POSTGRES_URL, STRIPE_*, TURBO_TOKEN,
+#              npm *publish* tokens, VERCEL_PROJECT_ID/ORG_ID, CLOUDFLARE_*,
+#              TAILSCALE_AUTHKEY, SENTRY_AUTH_TOKEN, AZURE_* access tokens.
+#              These live in each repo's .env / Terraform and MUST NOT be
+#              exported here — a global export leaks one project's secret into
+#              every shell. (AZURE_* are also short-lived; the mx-broker helper
+#              mints them on demand. AZURE_CONFIG_DIR in the `az` wrapper is a
+#              config pointer, not a secret.)
 
-# GitHub token — read from the OS keychain (stored by
-# run_onchange_after_github-auth.sh). Keeps the PAT out of the repo/plaintext.
-# Note: setting GH_TOKEN makes `gh` use this token directly (bypasses keyring
-# account switching) — intended for a single-account setup.
+# --- priceless: keychain-backed secrets -------------------------------------
+# Read one secret from the platform keychain by service name (echoes or empty).
 {{ if eq .chezmoi.os "darwin" -}}
-__gh_pat="$(security find-generic-password -w -s github-pat -a "$USER" 2>/dev/null)"
+__kc_read() { security find-generic-password -w -s "$1" -a "$USER" 2>/dev/null; }
 {{ else if eq .chezmoi.os "linux" -}}
-__gh_pat="$(command -v secret-tool >/dev/null 2>&1 && secret-tool lookup service github-pat account "$USER" 2>/dev/null)"
+__kc_read() { command -v secret-tool >/dev/null 2>&1 && secret-tool lookup service "$1" account "$USER" 2>/dev/null; }
 {{ end -}}
-if [[ -n "${__gh_pat:-}" ]]; then
-  export GH_TOKEN="$__gh_pat"
-  export GITHUB_TOKEN="$__gh_pat"
+# 'service-name:VAR[,VAR...]' — items not present in the keychain are skipped.
+# Seed one with: security add-generic-password -U -s <service> -a "$USER" -w '<value>'
+for __row in \
+  'github-pat:GH_TOKEN,GITHUB_TOKEN' \
+  'ai-gateway-key:AI_GATEWAY_API_KEY' \
+  'openai-key:OPENAI_API_KEY'; do
+  __val="$(__kc_read "${__row%%:*}")"
+  [[ -n "$__val" ]] || continue
+  __vars="${__row#*:}"
+  for __var in ${(s:,:)__vars}; do export "$__var=$__val"; done
+done
+unset __row __val __vars __var
+unfunction __kc_read 2>/dev/null
+
+# --- priceless derives: no secret of their own, computed from the above -----
+if [[ -n "${GH_TOKEN:-}" ]]; then
+  # Lift Homebrew's 60 req/hr unauthenticated GitHub API rate cap.
+  export HOMEBREW_GITHUB_API_TOKEN="$GH_TOKEN"
+  # GitHub Packages (npm.pkg.github.com, e.g. @nessprim) authenticates with the
+  # gh PAT itself — needs the 'read:packages' scope (added at gh auth login).
+  # ~/.npmrc references ${NPM_TOKEN} so npm/pnpm resolve it at install time.
+  export NPM_TOKEN="$GH_TOKEN"
 fi
-unset __gh_pat
 
 [[ -f ~/.zshenv.local ]] && source ~/.zshenv.local
