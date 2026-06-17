@@ -57,8 +57,14 @@ elif command -v wl-copy &>/dev/null; then
   alias pbpaste="wl-paste"
 fi
 
-# Open file manager
-alias open="xdg-open"
+# Open — on a headless box (homelab over SSH) there's no local browser, so route
+# URLs/files to the Mac via mac-open (scripts/mac-open.sh, symlinked onto PATH).
+# On a Linux desktop with a display, keep native xdg-open.
+if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]] && command -v mac-open &>/dev/null; then
+  alias open="mac-open"
+else
+  alias open="xdg-open"
+fi
 
 # Nexus CLI shortcut
 alias nx="nexus"
@@ -67,32 +73,14 @@ alias nx="nexus"
 # File server (cmux embedded browser)
 # ============================================================
 
-# fview - open file in cmux embedded browser via file server
+# fview - open a file in the cmux embedded browser.
+# Thin wrapper over mac-open --cmux (scripts/mac-open.sh), which serves the file
+# on the reserved port and dispatches to cmux (local socket or forwarded
+# cmux-bridge), falling through to the Mac's default browser if no cmux is present.
 # Usage: fview path/to/file.md
-#        fview path/to/file.md --split   (open as split pane)
 fview() {
-  local file="${1:?usage: fview <file> [--split]}"
-  local abs_path
-  abs_path=$(realpath "$file" 2>/dev/null || echo "$file")
-  local host
-  host=$(tailscale ip -4 2>/dev/null \
-    || ip -4 addr show tailscale0 2>/dev/null | grep -oP 'inet \K[\d.]+' \
-    || echo "localhost")
-  local port="${FILE_SERVER_PORT:-8787}"
-  local url="http://${host}:${port}${abs_path}"
-
-  if [ -S /tmp/cmux.sock ]; then
-    # Local Mac — use cmux CLI directly
-    cmux browser open-split "$url" >/dev/null 2>&1
-  elif [ -S "${CMUX_SOCKET_PATH:-/tmp/cmux-remote.sock}" ]; then
-    # Remote — forwarded socket from Mac via SSH -R
-    python3 "$DOTFILES/scripts/cmux-bridge.py" browser-open "$url" >/dev/null 2>&1
-  else
-    # Fallback — print OSC 8 clickable link
-    printf '\e]8;;%s\e\\%s\e]8;;\e\\\n' "$url" "$abs_path"
-    return
-  fi
-  echo "Opened: $abs_path"
+  : "${1:?usage: fview <file>}"
+  mac-open --cmux "$@"
 }
 
 # flink - print OSC 8 clickable hyperlink (for terminal output)

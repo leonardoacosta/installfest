@@ -32,8 +32,9 @@ export VISUAL="$EDITOR"
 # Code OAuth, docs links, MCP auth) to the Mac over Tailscale. For loopback OAuth
 # URLs the helper also reverse-tunnels the dynamic callback port back home, so the
 # full login flow completes without interruption; if the Mac is down it prints a
-# clickable URL. See scripts/cc-browser-open.sh (issue if-ox3).
-export BROWSER="$DOTFILES/scripts/cc-browser-open.sh"
+# clickable URL. `mac-open` is scripts/mac-open.sh symlinked onto PATH by chezmoi
+# (home/dot_local/bin/symlink_mac-open.tmpl). See if-ox3.
+export BROWSER="$HOME/.local/bin/mac-open"
 {{ end -}}
 
 # XDG Base Directories
