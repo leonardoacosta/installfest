@@ -65,10 +65,27 @@ else
 fi
 {{ end -}}
 
-# NOTE: GitKraken's CLI does NOT support Azure DevOps PATs ("azure pats not yet
-# supported", gk 3.1.x). Connect gk's ADO provider via the app GUI instead:
-# Preferences -> Integrations -> Azure DevOps -> "Connect to Azure DevOps" (OAuth).
-# This script only provisions AZURE_DEVOPS_EXT_PAT for the az devops / scripts/ado
-# CLIs; gk picks up ADO through its own OAuth, not this PAT.
+# GitKraken provider attach. The CLI currently rejects ADO PATs ("azure pats not
+# yet supported", gk 3.1.x) and the GUI token store (~/.gitkraken/secFile) is
+# encrypted — so this can't be fully scripted today. We try the CLI anyway (so it
+# auto-completes the day GitKraken ships ADO-PAT support), and on failure pre-stage
+# the one manual GUI step: copy the PAT to the clipboard + print the exact fields.
+ADO_HOST_DOMAIN="${ADO_HOST_DOMAIN:-dev.azure.com/brownandbrowninc}"
+if command -v gk >/dev/null 2>&1 && gk whoami >/dev/null 2>&1 \
+   && gk provider add azure -t "$PAT" >/dev/null 2>&1; then
+	success "gk: Azure DevOps provider attached via CLI."
+else
+	info "gk CLI can't attach ADO yet — pre-staging the GUI step."
+	{{ if eq .chezmoi.os "darwin" -}}
+	printf '%s' "$PAT" | pbcopy && info "ADO PAT copied to clipboard."
+	{{ end -}}
+	cat <<-EOF
+	  Connect GitKraken's Azure DevOps integration (one-time, in the app):
+	    1. The "Connect the Azure DevOps integration" prompt -> the provider form.
+	    2. Host Domain:           $ADO_HOST_DOMAIN
+	    3. Personal Access Token: paste (already on your clipboard).
+	    4. Connect. (PAT needs Code: Read & Write for git push/pull.)
+	EOF
+fi
 
 echo "ado-auth: done. Open a new shell to pick up AZURE_DEVOPS_EXT_PAT."
