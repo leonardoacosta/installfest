@@ -124,3 +124,13 @@ vercel() {
       command vercel "$@" ;;
   esac
 }
+
+# GitKraken CLI — (re)attach the GitHub provider token from the env.
+# gk has no native env auth; this bridges $GH_TOKEN -> `gk provider add github`.
+# Run after a PAT rotation (e.g. `gh auth refresh`) so gk drops the stale token.
+gkauth() {
+  [[ -n "$GH_TOKEN" ]] || { print -u2 "gkauth: GH_TOKEN not set (seed the keychain, open a new shell)."; return 1; }
+  command -v gk >/dev/null 2>&1 || { print -u2 "gkauth: gk (GitKraken CLI) not installed."; return 1; }
+  gk whoami >/dev/null 2>&1 || { print -u2 "gkauth: sign in to GitKraken first — run 'gk auth login'."; return 1; }
+  gk provider add github -t "$GH_TOKEN"
+}
