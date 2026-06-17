@@ -27,6 +27,15 @@ else
 fi
 export VISUAL="$EDITOR"
 
+{{ if eq .machine "homelab" -}}
+# Browser opener — the homelab is headless, so route every browser-open (Claude
+# Code OAuth, docs links, MCP auth) to the Mac over Tailscale. For loopback OAuth
+# URLs the helper also reverse-tunnels the dynamic callback port back home, so the
+# full login flow completes without interruption; if the Mac is down it prints a
+# clickable URL. See scripts/cc-browser-open.sh (issue if-ox3).
+export BROWSER="$DOTFILES/scripts/cc-browser-open.sh"
+{{ end -}}
+
 # XDG Base Directories
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
