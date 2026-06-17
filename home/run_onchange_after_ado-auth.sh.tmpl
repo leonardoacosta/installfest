@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# run_onchange_after_ado-auth.sh — wire GitKraken's Azure DevOps provider from a
+# 1Password-stored PAT, and cache the PAT in the OS keychain so ~/.zshenv exports
+# AZURE_DEVOPS_EXT_PAT (auto-auths GitKraken + `az devops` + scripts/ado).
+#
+# B&B (employment) credential — the source of truth lives in 1Password, NOT this
+# repo. This script fetches it via `op read` and caches it locally; ~/.zshenv
+# reads the keychain copy silently (no per-shell biometric prompt).
+#
+# PREREQUISITES (one-time):
+#   1. op (1Password CLI, Brewfile cask) + app integration:
+#      1Password 8 > Settings > Developer > "Integrate with 1Password CLI".
+#   2. An Azure DevOps PAT scoped to "All accessible organizations" (so it covers
+#      dev.azure.com/brownandbrowninc AND dev.azure.com/brownandbrown), stored in
+#      1Password at $OP_ADO_ITEM (default below; override by exporting it).
+#
+# TTY-guarded: non-interactive / mesh applies skip cleanly (op needs an unlock).
+
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+
+info()    { printf '  ->  %s\n' "$*"; }
+success() { printf '  OK  %s\n' "$*"; }
+warn()    { printf 'WARN  %s\n' "$*"; }
+
+if [[ ! -t 0 || -n "${CI:-}" ]]; then
+	echo "ado-auth: non-interactive shell — skipping (op needs an interactive unlock)."
+	exit 0
+fi
+
+# 1Password reference for the ADO PAT (B&B / Employee vault). Override by
+# exporting OP_ADO_ITEM before `chezmoi apply`. Form: op://<vault>/<item>/<field>.
+: "${OP_ADO_ITEM:=op://Employee/ado-pat/credential}"
+
+command -v op >/dev/null 2>&1 || {
+	warn "op (1Password CLI) not installed — run 'brew bundle' first. Skipping ADO wiring."
+	exit 0
+}
+if ! op whoami >/dev/null 2>&1; then
+	info "Signing in to the 1Password CLI (approve in the app / Touch ID)..."
+	op signin >/dev/null 2>&1 || {
+		warn "op signin failed — enable Settings > Developer > Integrate with 1Password CLI, then re-run."
+		exit 0
+	}
+fi
+
+PAT="$(op read "$OP_ADO_ITEM" 2>/dev/null || true)"
+if [[ -z "$PAT" ]]; then
+	warn "Could not read $OP_ADO_ITEM from 1Password."
+	warn "Create an ADO PAT (all-orgs scope), store it there, or set OP_ADO_ITEM to your ref."
+	exit 0
+fi
+
+# Cache in the OS keychain so ~/.zshenv exports AZURE_DEVOPS_EXT_PAT silently.
+{{ if eq .chezmoi.os "darwin" -}}
+security add-generic-password -U -a "$USER" -s ado-pat -w "$PAT" >/dev/null 2>&1 \
+	&& success "ADO PAT cached in keychain (service: ado-pat)."
+{{ else if eq .chezmoi.os "linux" -}}
+if command -v secret-tool >/dev/null 2>&1; then
+	printf '%s' "$PAT" | secret-tool store --label="ado-pat" service ado-pat account "$USER" \
+		&& success "ADO PAT cached in libsecret (service: ado-pat)."
+else
+	warn "secret-tool not found — AZURE_DEVOPS_EXT_PAT env export will be unavailable."
+fi
+{{ end -}}
+
+# Attach GitKraken's Azure DevOps provider (shared helper, same as `gkado`).
+. "$DOTFILES/scripts/gk-azure-auth.sh"
+if command -v gk >/dev/null 2>&1; then
+	gk whoami >/dev/null 2>&1 || warn "gk not signed in — run 'gk auth login', then 'gkado'."
+	if gk_attach_azure "$PAT"; then
+		success "gk: Azure DevOps provider token attached."
+	else
+		warn "gk provider add azure failed — sign in to gk first, then run 'gkado'."
+	fi
+else
+	warn "gk (GitKraken CLI) not on PATH — skipping provider attach (expected from Brewfile)."
+fi
+
+echo "ado-auth: done. Open a new shell to pick up AZURE_DEVOPS_EXT_PAT."

@@ -131,13 +131,18 @@ export NODE_OPTIONS="--max-old-space-size=2048"
 
 {{ end -}}
 # ============================================================
-# Secrets — two buckets, by ownership
+# Secrets — three buckets, by ownership
 # ============================================================
-# priceless    Account-global secrets that belong to YOU and are reused across
-#              every repo. Stored in the OS keychain (seed once), never in the
-#              repo. Read + exported below. Note: exporting GH_TOKEN makes `gh`
-#              use it directly (bypasses keyring account switching) — intended
-#              for a single-account setup.
+# priceless    Account-global secrets that belong to YOU (Priceless / personal)
+#              and are reused across every repo. Stored in the OS keychain (seed
+#              once), never in the repo. Note: exporting GH_TOKEN makes `gh` use
+#              it directly (bypasses keyring account switching) — single-account.
+#
+# b-and-b      Brown & Brown employment credentials, account-global within work
+#              (e.g. AZURE_DEVOPS_EXT_PAT — one all-orgs PAT for brownandbrowninc
+#              + brownandbrown). Source of truth is 1Password (B&B/Employee
+#              vault); the ado-auth bootstrap caches it in the keychain so the
+#              shell export below stays silent (no per-shell biometric prompt).
 #
 # per-project  Secrets scoped to ONE repo: POSTGRES_URL, STRIPE_*, TURBO_TOKEN,
 #              npm *publish* tokens, VERCEL_PROJECT_ID/ORG_ID, CLOUDFLARE_*,
@@ -161,6 +166,17 @@ for __row in \
   'github-pat:GH_TOKEN,GITHUB_TOKEN' \
   'ai-gateway-key:AI_GATEWAY_API_KEY' \
   'openai-key:OPENAI_API_KEY'; do
+  __val="$(__kc_read "${__row%%:*}")"
+  [[ -n "$__val" ]] || continue
+  __vars="${__row#*:}"
+  for __var in ${(s:,:)__vars}; do export "$__var=$__val"; done
+done
+unset __row __val __vars __var
+
+# --- b-and-b: keychain-backed work secrets (seeded from 1Password) ----------
+# Cached from the B&B/Employee 1Password vault by run_onchange_after_ado-auth.sh.
+for __row in \
+  'ado-pat:AZURE_DEVOPS_EXT_PAT'; do
   __val="$(__kc_read "${__row%%:*}")"
   [[ -n "$__val" ]] || continue
   __vars="${__row#*:}"
