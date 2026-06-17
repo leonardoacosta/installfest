@@ -22,6 +22,8 @@
 
 set -uo pipefail
 
+DOTFILES="{{ .chezmoi.workingTree }}"
+
 # --- tiny logging helpers (ASCII only, no emojis) ---------------------------
 info()    { printf '  ->  %s\n' "$*"; }
 success() { printf '  OK  %s\n' "$*"; }
@@ -127,10 +129,13 @@ if command -v gk >/dev/null 2>&1; then
 		info "Signing in to GitKraken (a browser window will open) ..."
 		gk auth login || warn "gk auth login skipped — provider attach may fail until you sign in."
 	fi
-	if gk provider add github -t "$TOKEN" >/dev/null 2>&1; then
+	# Attach the GitHub provider token via the shared helper (same code path as
+	# the `gkauth` shell function, so bootstrap + manual re-attach never drift).
+	. "$DOTFILES/scripts/gk-github-auth.sh"
+	if gk_attach_github "$TOKEN"; then
 		success "gk: GitHub provider token attached."
 	else
-		warn "gk provider add github failed — sign in to gk first, then re-run."
+		warn "gk provider add github failed — sign in to gk first, then re-run 'gkauth'."
 	fi
 else
 	warn "gk (GitKraken CLI) not on PATH — skipping. Expected from the Brewfile cask 'gitkraken-cli'."

@@ -126,11 +126,11 @@ vercel() {
 }
 
 # GitKraken CLI — (re)attach the GitHub provider token from the env.
-# gk has no native env auth; this bridges $GH_TOKEN -> `gk provider add github`.
-# Run after a PAT rotation (e.g. `gh auth refresh`) so gk drops the stale token.
+# Thin wrapper over the shared gk_attach_github helper (also used by the chezmoi
+# github-auth bootstrap), so the two never drift. Run after a PAT rotation
+# (e.g. `gh auth refresh`) so gk drops the stale token.
 gkauth() {
-  [[ -n "$GH_TOKEN" ]] || { print -u2 "gkauth: GH_TOKEN not set (seed the keychain, open a new shell)."; return 1; }
-  command -v gk >/dev/null 2>&1 || { print -u2 "gkauth: gk (GitKraken CLI) not installed."; return 1; }
-  gk whoami >/dev/null 2>&1 || { print -u2 "gkauth: sign in to GitKraken first — run 'gk auth login'."; return 1; }
-  gk provider add github -t "$GH_TOKEN"
+  source "${DOTFILES:-$HOME/dev/if}/scripts/gk-github-auth.sh" 2>/dev/null \
+    || { print -u2 "gkauth: helper missing at \$DOTFILES/scripts/gk-github-auth.sh"; return 1; }
+  gk_attach_github "$GH_TOKEN"
 }
