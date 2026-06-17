@@ -134,11 +134,6 @@ gkauth() {
     || { print -u2 "gkauth: helper missing at \$DOTFILES/scripts/gk-github-auth.sh"; return 1; }
   gk_attach_github "$GH_TOKEN"
 }
-
-# GitKraken CLI — (re)attach the Azure DevOps provider from the env PAT.
-# Thin wrapper over gk_attach_azure (also used by the chezmoi ado-auth bootstrap).
-gkado() {
-  source "${DOTFILES:-$HOME/dev/if}/scripts/gk-azure-auth.sh" 2>/dev/null \
-    || { print -u2 "gkado: helper missing at \$DOTFILES/scripts/gk-azure-auth.sh"; return 1; }
-  gk_attach_azure "$AZURE_DEVOPS_EXT_PAT"
-}
+# Note: no gkado — GitKraken's CLI doesn't support Azure DevOps PATs ("azure pats
+# not yet supported"). Connect gk's ADO provider via the app GUI (OAuth) instead.
+# AZURE_DEVOPS_EXT_PAT (from ~/.zshenv) still auto-auths the az devops / ado CLIs.

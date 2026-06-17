@@ -29,9 +29,9 @@ if [[ ! -t 0 || -n "${CI:-}" ]]; then
 	exit 0
 fi
 
-# 1Password reference for the ADO PAT (B&B / Employee vault). Override by
-# exporting OP_ADO_ITEM before `chezmoi apply`. Form: op://<vault>/<item>/<field>.
-: "${OP_ADO_ITEM:=op://Employee/ado-pat/credential}"
+# 1Password reference for the ADO PAT. Override by exporting OP_ADO_ITEM before
+# `chezmoi apply`. Form: op://<vault>/<item>/<field>.
+: "${OP_ADO_ITEM:=op://Private/ado-pat/credential}"
 
 command -v op >/dev/null 2>&1 || {
 	warn "op (1Password CLI) not installed — run 'brew bundle' first. Skipping ADO wiring."
@@ -65,17 +65,10 @@ else
 fi
 {{ end -}}
 
-# Attach GitKraken's Azure DevOps provider (shared helper, same as `gkado`).
-. "$DOTFILES/scripts/gk-azure-auth.sh"
-if command -v gk >/dev/null 2>&1; then
-	gk whoami >/dev/null 2>&1 || warn "gk not signed in — run 'gk auth login', then 'gkado'."
-	if gk_attach_azure "$PAT"; then
-		success "gk: Azure DevOps provider token attached."
-	else
-		warn "gk provider add azure failed — sign in to gk first, then run 'gkado'."
-	fi
-else
-	warn "gk (GitKraken CLI) not on PATH — skipping provider attach (expected from Brewfile)."
-fi
+# NOTE: GitKraken's CLI does NOT support Azure DevOps PATs ("azure pats not yet
+# supported", gk 3.1.x). Connect gk's ADO provider via the app GUI instead:
+# Preferences -> Integrations -> Azure DevOps -> "Connect to Azure DevOps" (OAuth).
+# This script only provisions AZURE_DEVOPS_EXT_PAT for the az devops / scripts/ado
+# CLIs; gk picks up ADO through its own OAuth, not this PAT.
 
 echo "ado-auth: done. Open a new shell to pick up AZURE_DEVOPS_EXT_PAT."
