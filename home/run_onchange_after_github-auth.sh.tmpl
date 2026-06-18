@@ -121,6 +121,15 @@ git config --global --add 'credential.https://github.com.helper' '!gh auth git-c
 git config --global --add 'credential.https://github.com.helper' "$GIT_FALLBACK_HELPER"
 success "git credential chain set (gh -> $GIT_FALLBACK_HELPER) for github.com."
 
+# Force HTTPS for every github.com clone (gk workspaces, `git clone`, `gh repo
+# clone`). If a remote ever hands back an SSH URL, git rewrites it to HTTPS so
+# the credential chain above applies and the keychain PAT is reused. Unset-all
+# then re-add both SSH spellings so repeated runs converge (idempotent).
+git config --global --unset-all 'url.https://github.com/.insteadof' 2>/dev/null || true
+git config --global --add 'url.https://github.com/.insteadOf' 'git@github.com:'
+git config --global --add 'url.https://github.com/.insteadOf' 'ssh://git@github.com/'
+success "git url rewrite set (ssh -> https) for github.com."
+
 # --- 5. GitKraken CLI -------------------------------------------------------
 if command -v gk >/dev/null 2>&1; then
 	if gk whoami >/dev/null 2>&1; then
