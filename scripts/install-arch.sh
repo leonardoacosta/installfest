@@ -30,6 +30,7 @@ install_arch_packages() {
         zoxide
         atuin
         bat
+        glow
         eza
         ripgrep
         fd
