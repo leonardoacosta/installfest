@@ -113,11 +113,19 @@ resolve_target() {
       callback_port="$(loopback_port "$target")"
       ;;
     *)
-      local abs rel ip
+      local abs rel ip groot
       abs="$(realpath -- "$target" 2>/dev/null || printf '%s' "$target")"
       if [ ! -e "$abs" ]; then
-        echo "mac-open: not a URL and not an existing path: $target" >&2
-        exit 1
+        # Relative path didn't resolve against $PWD — retry against the git repo
+        # root, so `open docs/diagrams/x.html` works from anywhere in the repo
+        # (not just the toplevel). Falls through to the error if still missing.
+        groot="$(git rev-parse --show-toplevel 2>/dev/null)"
+        if [ -n "$groot" ] && [ -e "$groot/$target" ]; then
+          abs="$(realpath -- "$groot/$target")"
+        else
+          echo "mac-open: not a URL and not an existing path: $target" >&2
+          exit 1
+        fi
       fi
       case "$abs" in
         "$FILE_ROOT"/*) rel="${abs#"$FILE_ROOT"/}" ;;
