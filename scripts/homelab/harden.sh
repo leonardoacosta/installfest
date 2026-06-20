@@ -9,6 +9,8 @@
 #   4. Limine menu timeout = 5s   (regeneration-proof via /etc/default/limine)
 #   5. Tailscale                  (install + enable tailscaled; optional auth-key)
 #   6. Bootstrap databases        (shared postgres + nexus DB + drizzle migrations)
+#   7. Observability              (systemd-oomd + systemd-pstore + smartd + node-exporter)
+#   8. Crash recovery             (panic sysctls + hardware watchdog; ramoops via cmdline)
 #
 # Optional env vars:
 #   TAILSCALE_AUTHKEY       Non-interactive auth for fresh-install flows.
@@ -135,7 +137,7 @@ configure_tpm2_unlock() {
     info "detected LUKS UUID: $luks_uuid"
 
     local hooks_content='HOOKS=(base systemd plymouth autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck sd-btrfs-overlayfs)'
-    local cmdline_content="quiet splash rd.luks.name=${luks_uuid}=root rd.luks.options=${luks_uuid}=tpm2-device=auto root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs pcie_aspm=off"
+    local cmdline_content="quiet splash rd.luks.name=${luks_uuid}=root rd.luks.options=${luks_uuid}=tpm2-device=auto root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs pcie_aspm=off reserve_mem=2M:4096:oops ramoops.mem_name=oops"
 
     local limine_content
     limine_content=$(cat <<LIMINE_EOF
@@ -143,7 +145,7 @@ TARGET_OS_NAME="Omarchy"
 
 ESP_PATH="/boot"
 
-KERNEL_CMDLINE[default]="rd.luks.name=${luks_uuid}=root rd.luks.options=${luks_uuid}=tpm2-device=auto root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs pcie_aspm=off"
+KERNEL_CMDLINE[default]="rd.luks.name=${luks_uuid}=root rd.luks.options=${luks_uuid}=tpm2-device=auto root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs pcie_aspm=off reserve_mem=2M:4096:oops ramoops.mem_name=oops"
 KERNEL_CMDLINE[default]+="quiet splash"
 
 ENABLE_UKI=yes
@@ -571,6 +573,48 @@ configure_observability() {
         success "$unit enabled + active"
     done
 
+    # systemd-pstore: oneshot that archives /sys/fs/pstore -> /var/lib/systemd/pstore
+    # on boot (enable-only; it runs at boot, not a long-running service). The
+    # ramoops backend that fills pstore is wired via the kernel cmdline in
+    # configure_tpm2_unlock(); together they capture the next hard panic/oops.
+    if ! sudo systemctl is-enabled systemd-pstore.service &>/dev/null; then
+        sudo systemctl enable systemd-pstore.service \
+            || warning "failed to enable systemd-pstore"
+    fi
+    success "systemd-pstore enabled (crash-dump archive on boot)"
+}
+
+# ---------------------------------------------------------------------------
+# Step 8: Crash recovery (panic sysctls + systemd hardware watchdog)
+# ---------------------------------------------------------------------------
+#
+# After the 2026-06-19 hard hang (no panic logged, watchdog-style reset, RAM +
+# swap healthy at crash), make the box auto-recover fast and turn oopses into
+# panics. The ramoops crash *capture* itself is wired via the kernel cmdline in
+# configure_tpm2_unlock(); systemd-pstore (configure_observability) archives it.
+#
+# Idempotency: write_if_changed compares content; sysctl reload only on change.
+# The watchdog change only takes effect after daemon-reexec/reboot.
+configure_crash_recovery() {
+    local sysctl_content='# Boot resilience: crash recovery (managed by harden.sh)
+# Auto-reboot 10s after a panic instead of hanging.
+kernel.panic = 10
+# Promote a kernel oops to a panic for consistent state + recovery.
+kernel.panic_on_oops = 1'
+    write_if_changed /etc/sysctl.d/99-crash-recovery.conf "$sysctl_content"
+    if [[ $? -eq 10 ]]; then
+        sudo sysctl --system >/dev/null 2>&1 && info "applied crash-recovery sysctls"
+    fi
+
+    local watchdog_content='[Manager]
+# Hardware watchdog: reboot if the kernel hangs and stops petting it.
+RuntimeWatchdogSec=30
+RebootWatchdogSec=10min
+KExecWatchdogSec=30'
+    write_if_changed /etc/systemd/system.conf.d/watchdog.conf "$watchdog_content"
+    [[ $? -eq 10 ]] && warning "systemd watchdog set — effective after daemon-reexec/reboot"
+
+    success "crash recovery configured (panic sysctls + hardware watchdog)"
 }
 
 # ---------------------------------------------------------------------------
@@ -589,6 +633,7 @@ main() {
 
     ensure_snapshots_subvol
     configure_tpm2_unlock
+    configure_crash_recovery
     configure_snapper
     setup_tailscale
     bootstrap_databases
