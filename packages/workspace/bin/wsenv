@@ -23,6 +23,7 @@
 #   wsenv <code>            # print eval-able shell to activate the workspace
 #   wsenv                   # same, resolving code from $PWD
 #   wsenv --org <code>      # print just the org slug (b-and-b|client|personal)
+#   wsenv --code <code>     # print the resolved short code (echoes arg, or resolves from $PWD)
 #   wsenv --flags <code>    # print the `claude` launch flags for the org
 #   wsenv --activate <code> # alias for default (eval-able shell)
 #   wsenv --validate <code> # validate the resolved org profile (no launch); propagates exit
@@ -47,6 +48,7 @@ CODE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --org)       MODE="org"; shift ;;
+    --code)      MODE="code"; shift ;;
     --flags)     MODE="flags"; shift ;;
     --activate)  MODE="activate"; shift ;;
     --validate)  MODE="validate"; shift ;;
@@ -134,6 +136,9 @@ PROFILE="$PROFILE_ROOT/$ORG"
 case "$MODE" in
   org)
     echo "$ORG"
+    ;;
+  code)
+    echo "$CODE"
     ;;
   validate)
     # Explicit, opt-in launch-time guard for hand-edited profiles. Reuses the resolver

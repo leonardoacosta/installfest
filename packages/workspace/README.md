@@ -11,6 +11,7 @@ packages/workspace/
   bin/
     wk                  umbrella dispatcher (git-style: wk <name> -> wk-<name> on PATH)
     wk-ready            portfolio "ready work" — dispatches per profile.toml tracker
+    wk-doctor           provenance inspector — what config is active here + which layer set it
     wsenv               resolver + activator (code/cwd -> org; emits env/PATH or claude flags)
     ws-claude           launch Claude with org profile inside a persistent zellij session
     generate-profiles   generator: reads the registry, scaffolds packages/workspace/profiles/<org>/
@@ -29,7 +30,7 @@ packages/workspace/
 The `wk` dispatcher follows the git / kubectl / gh pattern: any executable named
 `wk-<subcommand>` on PATH is reachable as `wk <subcommand>`. There is no central
 registry — new subcommands appear the moment they land on PATH. Run `wk` (or
-`wk --list`) to see what's discovered. Today: `ready`.
+`wk --list`) to see what's discovered. Today: `ready`, `doctor`.
 
 ## How it deploys (both machines, in sync)
 
@@ -64,7 +65,38 @@ wk ready personal           # 73 ready beads issues across the personal portfoli
 wk ready b-and-b            # ADO work items (requires az devops login + project_id)
 wk ready --table priceless  # column-aligned PRI/ID/TITLE/PROJECT
 wk ready                    # resolves org from $PWD via wsenv
+
+# Provenance inspection (new)
+wk doctor                   # what config is active in $PWD + which layer set it
+wk doctor ws                # inspect a specific repo's org (b-and-b)
+wk doctor --json            # machine-readable provenance object
+wk doctor -i                # fzf drill-down: pick a layer, preview its source file
 ```
+
+### Provenance inspection (`wk doctor`)
+
+`wk doctor` answers the runtime question the contract validator does not: **what
+Claude-Code / shell config is active in this directory now, and which layer put it
+there?** It is strictly read-only and reuses the same plumbing as everything else —
+`wsenv` for code/cwd -> org resolution, and the cc-owned `workspace-profile-validate`
+for the CONTRACT row. It never reimplements resolution and never mutates.
+
+It shows the four stacked layers and what each contributes:
+
+- **GLOBAL** `~/.claude` — the always-on baseline (agents / skills / hooks / mcp).
+- **ORG** `~/.config/workspace/<org>/` — the per-org overlay `wsenv --flags` injects,
+  one row per injection surface (`claude/` `--add-dir`, `mcp.json` `--mcp-config`,
+  `prompt.txt` `--append-system-prompt-file`, `plugin/` `--plugin-dir` (the only
+  hook-carrying unit), `settings.json` `--settings`) plus the shell overlay applied by
+  `eval "$(wsenv)"` (`env.sh` exported vars, `wrappers/` PATH prepend). A `[x]`/`[ ]`
+  marks present vs absent, so you see at a glance why `wsenv --flags` emitted what it did.
+- **REPO** `<git-root>/.claude` — per-repo config, when present.
+- **CONTRACT** — `valid` / `INVALID — <reason>` from the cc validator (or "no profile"
+  when the org has no profile dir yet).
+
+`--json` emits the full object (consumable by other tooling); `-i` opens an fzf
+drill-down where selecting a layer previews its live source file (falls back to plain
+when fzf is absent).
 
 ## Per-org profiles (generated)
 

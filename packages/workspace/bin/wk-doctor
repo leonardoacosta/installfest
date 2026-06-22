@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# wk-doctor — workspace provenance inspector.
+#
+# Answers "what Claude-Code / shell config is active in THIS directory now, and
+# which layer put it there?" — the runtime companion to workspace-profile-validate
+# (which answers the orthogonal question "is the profile well-formed?").
+#
+# Four config layers stack in any dir; doctor shows what each contributes:
+#   1. GLOBAL  ~/.claude                     always-on baseline (agents/skills/hooks/mcp)
+#   2. ORG     ~/.config/workspace/<org>/    the per-org overlay `wsenv --flags` injects:
+#                claude/      --add-dir                     (extra skills)
+#                mcp.json     --mcp-config                  (additive MCP)
+#                prompt.txt   --append-system-prompt-file   (appended system prompt)
+#                plugin/      --plugin-dir                  (the ONLY hook-carrying unit)
+#                settings.json --settings
+#              plus the shell overlay applied by `eval "$(wsenv)"`:
+#                env.sh       sourced env vars
+#                wrappers/    prepended to PATH
+#   3. REPO    <git-root>/.claude            per-repo config (if present)
+#
+# Resolution and contract status are NOT reimplemented here — doctor subprocesses
+# `wsenv` (cwd/code -> org) and `workspace-profile-validate` (cc-owned contract).
+# It is strictly READ-ONLY: it inspects, never mutates.
+#
+# Usage:
+#   wk doctor                 # inspect the org resolved from $PWD
+#   wk doctor <code>          # inspect a specific repo's org (e.g. ws, oo)
+#   wk doctor --json          # machine-readable provenance object
+#   wk doctor -i | --interactive   # fzf drill-down (preview the live file per layer)
+#
+# Exit codes:
+#   0  inspected ok (regardless of contract validity — see CONTRACT row / .contract.valid)
+#   1  bad invocation / could not resolve org
+#
+# Environment overrides (shared with wsenv):
+#   WSENV_REGISTRY      path to projects.toml
+#   WSENV_PROFILE_DIR   profile root (default: ~/.config/workspace)
+#
+set -euo pipefail
+
+MODE="plain"
+ARG=""
+RESOLVED_VIA="cwd"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json)            MODE="json"; shift ;;
+    -i|--interactive)  MODE="interactive"; shift ;;
+    -h|--help)
+      awk '/^# wk-doctor/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -*) echo "wk-doctor: unknown flag $1 (try --help)" >&2; exit 1 ;;
+    *)  ARG="$1"; RESOLVED_VIA="code"; shift ;;
+  esac
+done
+
+command -v wsenv >/dev/null 2>&1 || { echo "wk-doctor: wsenv not on PATH" >&2; exit 1; }
+
+PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
+GLOBAL="$HOME/.claude"
+
+# Resolution single-source-of-truth: wsenv maps code/cwd -> org. Pass ARG only when
+# explicit (empty positional would still resolve from cwd, but this keeps it clean).
+if [[ -n "$ARG" ]]; then
+  ORG=$(wsenv --org "$ARG") || exit 1
+  CODE=$(wsenv --code "$ARG") || exit 1
+else
+  ORG=$(wsenv --org) || exit 1
+  CODE=$(wsenv --code) || exit 1
+fi
+PROFILE="$PROFILE_ROOT/$ORG"
+
+# Repo layer: the .claude of the current git repo (only meaningful for the cwd case).
+REPO_CLAUDE=""
+if REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
+  REPO_CLAUDE="$REPO_ROOT/.claude"
+fi
+
+# Contract status: reuse the cc-owned validator (fail-soft — absence is valid).
+VALIDATE="$GLOBAL/scripts/bin/workspace-profile-validate"
+if [[ -x "$VALIDATE" && -d "$PROFILE" ]]; then
+  CONTRACT_JSON=$("$VALIDATE" "$PROFILE" --json 2>/dev/null) || true
+fi
+[[ -n "${CONTRACT_JSON:-}" ]] || CONTRACT_JSON='{"valid":null,"violations":[]}'
+
+# Assemble the merged provenance object. Python is the inspector/data-producer
+# (per the scripts-as-data-producers convention); bash only renders.
+DOC=$(
+  WSD_CWD="$PWD" WSD_CODE="$CODE" WSD_ORG="$ORG" WSD_VIA="$RESOLVED_VIA" \
+  WSD_PROFILE="$PROFILE" WSD_GLOBAL="$GLOBAL" WSD_REPO_CLAUDE="$REPO_CLAUDE" \
+  WSD_FLAGS="$(wsenv --flags "$CODE" 2>/dev/null | sed 's/ *$//')" \
+  WSD_CONTRACT="$CONTRACT_JSON" \
+  python3 - <<'PY'
+import json, os
+
+env = os.environ
+profile = env["WSD_PROFILE"]
+exists = os.path.isdir(profile)
+
+def home_abbrev(p):
+    h = os.path.expanduser("~")
+    return "~" + p[len(h):] if p and p.startswith(h) else p
+
+def claude_detail():
+    d = os.path.join(profile, "claude")
+    if not os.path.isdir(d):
+        return False, None, "absent"
+    entries = [e for e in os.listdir(d) if e != ".gitkeep"]
+    return True, d, f"{len(entries)} skill" + ("" if len(entries) == 1 else "s")
+
+def file_surface(name):
+    p = os.path.join(profile, name)
+    present = os.path.isfile(p)
+    return present, (p if present else None), ("present" if present else "absent")
+
+def plugin_detail():
+    d = os.path.join(profile, "plugin")
+    if not os.path.isdir(d):
+        return False, None, "absent (hooks: none)"
+    # Hooks arrive either via plugin.json `hooks` or a hooks/ dir.
+    n = 0
+    man = os.path.join(d, ".claude-plugin", "plugin.json")
+    if os.path.isfile(man):
+        try:
+            n = len(json.load(open(man)).get("hooks", []) or [])
+        except Exception:
+            n = 0
+    hooks_dir = os.path.join(d, "hooks")
+    if os.path.isdir(hooks_dir):
+        n += len([f for f in os.listdir(hooks_dir) if not f.startswith(".")])
+    return True, d, f"hooks: {n}"
+
+def env_detail():
+    p = os.path.join(profile, "env.sh")
+    if not os.path.isfile(p):
+        return False, None, "absent"
+    vars_ = []
+    for line in open(p):
+        line = line.strip()
+        if line.startswith("export "):
+            name = line[len("export "):].split("=", 1)[0].strip()
+            if name and name not in vars_:
+                vars_.append(name)
+    return True, p, (", ".join(vars_) if vars_ else "(no exports)")
+
+def wrappers_detail():
+    d = os.path.join(profile, "wrappers")
+    if not os.path.isdir(d):
+        return False, None, "absent"
+    cmds = sorted(e for e in os.listdir(d) if not e.startswith("."))
+    return True, d, (", ".join(cmds) if cmds else "(empty)")
+
+c_present, c_path, c_detail = claude_detail()
+mcp_present, mcp_path, mcp_detail = file_surface("mcp.json")
+pr_present, pr_path, pr_detail = file_surface("prompt.txt")
+pl_present, pl_path, pl_detail = plugin_detail()
+st_present, st_path, st_detail = file_surface("settings.json")
+e_present, e_path, e_detail = env_detail()
+w_present, w_path, w_detail = wrappers_detail()
+
+repo_claude = env["WSD_REPO_CLAUDE"]
+repo_exists = bool(repo_claude) and os.path.isdir(repo_claude)
+
+doc = {
+    "cwd": env["WSD_CWD"],
+    "code": env["WSD_CODE"],
+    "org": env["WSD_ORG"],
+    "resolved_via": env["WSD_VIA"],
+    "profile": profile,
+    "profile_exists": exists,
+    "global": {"path": env["WSD_GLOBAL"], "always_on": True,
+               "baseline": ["agents", "skills", "hooks", "mcp", "settings"]},
+    "injection": [
+        {"key": "claude",   "label": "claude/",       "flag": "--add-dir",                    "present": c_present,  "path": c_path,  "detail": c_detail},
+        {"key": "mcp",      "label": "mcp.json",       "flag": "--mcp-config",                 "present": mcp_present,"path": mcp_path,"detail": mcp_detail},
+        {"key": "prompt",   "label": "prompt.txt",     "flag": "--append-system-prompt-file",  "present": pr_present, "path": pr_path, "detail": pr_detail},
+        {"key": "plugin",   "label": "plugin/",        "flag": "--plugin-dir",                 "present": pl_present, "path": pl_path, "detail": pl_detail},
+        {"key": "settings", "label": "settings.json",  "flag": "--settings",                   "present": st_present, "path": st_path, "detail": st_detail},
+    ],
+    "shell": [
+        {"key": "env",      "label": "env.sh",     "flag": "(shell env)",     "present": e_present, "path": e_path, "detail": e_detail},
+        {"key": "wrappers", "label": "wrappers/",  "flag": "(PATH overlay)",  "present": w_present, "path": w_path, "detail": w_detail},
+    ],
+    "repo": {"path": repo_claude or None, "exists": repo_exists},
+    "flags": env["WSD_FLAGS"],
+    "contract": json.loads(env["WSD_CONTRACT"]),
+}
+print(json.dumps(doc))
+PY
+)
+
+# ---- renderers -------------------------------------------------------------
+
+abbrev() { sed "s#$HOME#~#g"; }
+
+render_plain() {
+  local cwd code org via profile flags
+  cwd=$(jq -r '.cwd' <<<"$DOC"); code=$(jq -r '.code' <<<"$DOC")
+  org=$(jq -r '.org' <<<"$DOC"); via=$(jq -r '.resolved_via' <<<"$DOC")
+  profile=$(jq -r '.profile' <<<"$DOC"); flags=$(jq -r '.flags' <<<"$DOC")
+
+  printf 'WORKSPACE  %s  (cwd %s  ->  code %s  ->  org %s, via %s)\n' \
+    "$org" "$(printf '%s' "$cwd" | abbrev)" "$code" "$org" "$via"
+  printf 'GLOBAL     %-34s always-on baseline (%s)\n' \
+    "$(jq -r '.global.path' <<<"$DOC" | abbrev)" \
+    "$(jq -r '.global.baseline | join(", ")' <<<"$DOC")"
+  printf 'ORG        %s\n' "$(printf '%s' "$profile" | abbrev)"
+  jq -r '(.injection + .shell)[] | [(if .present then "x" else " " end), .label, .flag, .detail] | @tsv' <<<"$DOC" \
+    | while IFS=$'\t' read -r mark label flag detail; do
+        printf '  [%s] %-14s %-30s %s\n' "$mark" "$label" "$flag" "$detail"
+      done
+  local repo_path repo_exists
+  repo_path=$(jq -r '.repo.path // ""' <<<"$DOC")
+  repo_exists=$(jq -r '.repo.exists' <<<"$DOC")
+  if [[ -n "$repo_path" ]]; then
+    printf 'REPO       %-34s %s\n' "$(printf '%s' "$repo_path" | abbrev)" \
+      "$([[ "$repo_exists" == "true" ]] && echo "(present)" || echo "(none)")"
+  fi
+  printf 'FLAGS      %s\n' "${flags:-(none injected)}"
+  local cv
+  cv=$(jq -r '.contract.valid' <<<"$DOC")
+  case "$cv" in
+    true)  printf 'CONTRACT   valid\n' ;;
+    false) printf 'CONTRACT   INVALID — %s\n' "$(jq -r '[.contract.violations[] | (.detail // .kind // tostring)] | join("; ")' <<<"$DOC")" ;;
+    *)     printf 'CONTRACT   (no profile / not checked)\n' ;;
+  esac
+}
+
+render_interactive() {
+  if ! command -v fzf >/dev/null 2>&1; then
+    echo "wk-doctor: --interactive needs fzf; falling back to plain" >&2
+    render_plain; return
+  fi
+  # One selectable row per layer; preview shows the live file/dir behind it.
+  jq -r '(.injection + .shell)[] | [.label, (.path // "")] | @tsv' <<<"$DOC" \
+    | fzf --with-nth=1 --delimiter='\t' \
+          --header="wk doctor: $(jq -r '.org' <<<"$DOC") — Enter a layer to inspect its source" \
+          --preview='p={2}; if [ -z "$p" ]; then echo "(absent — nothing injected)"; elif [ -d "$p" ]; then ls -la "$p"; else cat "$p"; fi' \
+          >/dev/null || true
+}
+
+case "$MODE" in
+  json)        echo "$DOC" ;;
+  interactive) render_interactive ;;
+  plain)       render_plain ;;
+esac
