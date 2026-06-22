@@ -95,15 +95,44 @@ done <<< "$ORGS"
 
 mkdir -p "$PROFILE_ROOT"
 
+# Contract validator (cc-owned, referenced by stable absolute path — same convention
+# as the rest of ~/.claude/scripts/bin/*). Each org's STAGED profile is validated
+# BEFORE it is promoted; promotion is the existing atomic swap below.
+VALIDATE="$HOME/.claude/scripts/bin/workspace-profile-validate"
+
+# Per-org outcome tally for the three-state aggregate exit (rules/TOOLING.md fan-out
+# convention): 0 = all valid, 1 = all failed, 2 = partial.
+ORGS_OK=0
+ORGS_FAILED=0
+
 # Atomic per-org swap + prune orgs no longer present.
+#
+# Integration choice: STAGE -> VALIDATE -> PROMOTE-ON-PASS. The generator already
+# builds each org into "$TMP_ROOT/$org" and then atomically swaps it into place. We
+# validate the STAGED tmp dir against the contract first, and only perform the swap
+# when it passes. A failing org is left UN-promoted: its existing on-disk profile (if
+# any) is untouched and no invalid profile is ever finalized — per-org isolation, one
+# bad org never aborts the run. This fits the existing tmp-then-swap shape with no
+# restore logic and no chance of a half-written profile persisting.
 for org in $ORGS; do
   [[ -z "$org" ]] && continue
   src="$TMP_ROOT/$org"
   dst="$PROFILE_ROOT/$org"
+
+  # Validate the staged profile before promoting it.
+  if [[ -x "$VALIDATE" ]]; then
+    if ! "$VALIDATE" "$src"; then
+      echo "generate-profiles: contract validation FAILED for org '$org' -> NOT promoted (kept existing profile)" >&2
+      ORGS_FAILED=$((ORGS_FAILED + 1))
+      continue
+    fi
+  fi
+
   rm -rf "$dst.old" 2>/dev/null || true
   [[ -d "$dst" ]] && mv "$dst" "$dst.old"
   mv "$src" "$dst"
   rm -rf "$dst.old" 2>/dev/null || true
+  ORGS_OK=$((ORGS_OK + 1))
 done
 
 # Populate per-org wrapper sets. These shadow native CLIs ONLY when the org's
@@ -129,3 +158,15 @@ if [[ -d "$PROFILE_ROOT" ]]; then
 fi
 
 echo "workspace profiles generated under $PROFILE_ROOT: $(echo $ORGS | tr '\n' ' ')"
+
+# Three-state aggregate exit (rules/TOOLING.md fan-out convention) so a CI / chezmoi
+# caller can distinguish "nothing worked" from "most worked, one org drifted":
+#   0 = all orgs valid + promoted | 1 = all orgs failed | 2 = partial (some skipped).
+echo "generate-profiles: promoted=$ORGS_OK failed=$ORGS_FAILED"
+if [[ "$ORGS_FAILED" -eq 0 ]]; then
+  exit 0
+elif [[ "$ORGS_OK" -eq 0 ]]; then
+  exit 1
+else
+  exit 2
+fi

@@ -25,6 +25,7 @@
 #   wsenv --org <code>      # print just the org slug (b-and-b|client|personal)
 #   wsenv --flags <code>    # print the `claude` launch flags for the org
 #   wsenv --activate <code> # alias for default (eval-able shell)
+#   wsenv --validate <code> # validate the resolved org profile (no launch); propagates exit
 #   wsenv --list            # list all code->org mappings
 #
 # Examples:
@@ -48,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --org)       MODE="org"; shift ;;
     --flags)     MODE="flags"; shift ;;
     --activate)  MODE="activate"; shift ;;
+    --validate)  MODE="validate"; shift ;;
     --list)      MODE="list"; shift ;;
     -h|--help)   awk '/^# wsenv/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)          echo "wsenv: unknown flag $1 (try --help)" >&2; exit 2 ;;
@@ -132,6 +134,24 @@ PROFILE="$PROFILE_ROOT/$ORG"
 case "$MODE" in
   org)
     echo "$ORG"
+    ;;
+  validate)
+    # Explicit, opt-in launch-time guard for hand-edited profiles. Reuses the resolver
+    # above (CODE -> ORG -> PROFILE), then shells the cc-owned contract validator against
+    # the resolved profile dir and PROPAGATES its exit code. Does NOT launch claude and
+    # does NOT touch the --flags/--activate path (fail-OPEN at launch — validation is
+    # never forced into the default launch path).
+    VALIDATE="$HOME/.claude/scripts/bin/workspace-profile-validate"
+    if [[ ! -x "$VALIDATE" ]]; then
+      echo "wsenv: contract validator not found or not executable: $VALIDATE" >&2
+      exit 1
+    fi
+    if [[ ! -d "$PROFILE" ]]; then
+      echo "wsenv: no profile dir to validate for org '$ORG' ($PROFILE)" >&2
+      exit 1
+    fi
+    "$VALIDATE" "$PROFILE"
+    exit $?
     ;;
   flags)
     # Emit claude launch flags for whichever profile artifacts exist.
