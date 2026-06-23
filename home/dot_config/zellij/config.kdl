@@ -1,0 +1,30 @@
+// Leo's zellij config — chezmoi-managed (replaces the orphan `zellij setup --dump-config`).
+// ADDITIVE on zellij 0.44.3 defaults (no clear-defaults): every default mode + the
+// native status-bar cheat sheet stay intact; we only patch options + the Ctrl+b tmux mode
+// to match ~/.config/tmux/tmux.conf. Cmd/Super layer intentionally deferred (kitty proto
+// stays enabled so it's a one-block add later — Test A proved it carries over `cmux ssh`).
+
+default_mode "locked"                  // passive until you prefix (Ctrl+g unlock / Ctrl+b tmux) — safe for nvim + claude panes
+scroll_buffer_size 50000               // == tmux history-limit 50000
+copy_clipboard "system"                // == tmux set-clipboard on (OSC52 over SSH)
+copy_on_select true
+mouse_mode true                        // == tmux mouse on
+support_kitty_keyboard_protocol true   // enables the future Cmd/Super layer (Test A: Cmd+J -> CSI 106;9u over cmux ssh)
+session_serialization true             // ws-claude `zellij attach -c ws-<code>` reattach-by-name
+serialize_pane_viewport true           // restore scrollback TEXT on a resumed pane
+scrollback_lines_to_serialize 0        // 0 == full buffer
+pane_frames true
+show_startup_tips false
+
+keybinds {
+    // Patch the built-in `Ctrl+b` tmux mode to match YOUR tmux.conf (additive — keeps "/%/c/n/p/z/x/d/o/hjkl).
+    tmux {
+        bind "-" { NewPane "Down";  SwitchToMode "Normal"; }   // your `bind - split -v`
+        bind "|" { NewPane "Right"; SwitchToMode "Normal"; }   // your `bind | split -h`
+        bind "H" { Resize "Increase Left";  }                  // resize inside the prefix (real tmux mode lacks this)
+        bind "J" { Resize "Increase Down";  }
+        bind "K" { Resize "Increase Up";    }
+        bind "L" { Resize "Increase Right"; }
+        bind "Ctrl p" { EditScrollback; SwitchToMode "Normal"; }  // your `C-p capture-pane`, upgraded -> opens buffer in $EDITOR (nvim)
+    }
+}

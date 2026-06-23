@@ -24,6 +24,15 @@ fi
 
 set -euo pipefail
 
+# mux orchestrates the cmux GUI app, which is macOS-only. Running it from a remote
+# shell (e.g. inside a cmux-ssh tab on homelab) drives cmux through the relay and
+# creates broken nested workspaces (surfaces never enumerate). Fail loudly instead.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "Error: mux must run on the Mac (native cmux), not a remote/cmux-ssh tab." >&2
+  echo "       Detected $(uname -s). Open a Mac-native cmux tab and run mux there." >&2
+  exit 1
+fi
+
 CMUX="${CMUX_CLI:-cmux}"
 SSH_HOST="homelab"
 REMOTE_DEV="~/dev"
@@ -159,13 +168,12 @@ find_workspace_uuid() {
     }'
 }
 
-# Connect pane to remote/local and run command
-# SSH mode: atomic ssh + command (no sleep race condition)
-#   -t  = force TTY for interactive programs (nvim, claude, lazygit)
-#   zsh -lc = login shell so PATH/.zshenv is loaded
-#   Injects CMUX_WORKSPACE_ID, CMUX_SURFACE_ID, CMUX_BRIDGE_HOST so remote
-#   CC hooks can call back to cmux-bridge on the Mac over Tailscale.
-# Local mode: cd directly, then run (Ghostty auto-sets CMUX_* env vars)
+# Connect pane to its working dir and run command.
+# SSH mode: the workspace is created via `cmux ssh` (see create_workspace), so every
+#   pane already runs on $SSH_HOST — NO per-pane `ssh -t` wrapper. We still export
+#   CMUX_WORKSPACE_ID/CMUX_SURFACE_ID/CMUX_BRIDGE_HOST so remote CC hooks can drive the
+#   Mac's cmux browser over Tailscale, exactly as before.
+# Local mode: cd directly, then run (Ghostty auto-sets CMUX_* env vars).
 pane_exec() {
   local ws="$1" surface="$2" full_path="$3" cmd="$4" code="${5:-}"
   # Workspace activation: source the org profile (env + wrappers PATH) so every
@@ -180,7 +188,7 @@ pane_exec() {
     if [[ -n "$MAC_TAILSCALE_IP" ]]; then
       env_exports+=" CMUX_BRIDGE_HOST=$MAC_TAILSCALE_IP"
     fi
-    send_to "$ws" "$surface" "ssh -t $SSH_HOST -- zsh -lc '$env_exports && cd $full_path && ${ws_activate}$cmd'"
+    send_to "$ws" "$surface" "$env_exports && cd $full_path && ${ws_activate}$cmd"
   else
     send_to "$ws" "$surface" "cd $full_path && ${ws_activate}$cmd"
   fi
@@ -232,7 +240,14 @@ create_workspace() {
   fi
 
   local ws_uuid
-  ws_uuid=$($CMUX new-workspace 2>&1 | awk '{print $2}')
+  if [[ "$MODE" == "ssh" ]]; then
+    # Native SSH-backed workspace: cmux uploads cmuxd-remote and binds ALL panes to
+    # $SSH_HOST. Output: `OK workspace=workspace:N target=<host> state=connecting`.
+    ws_uuid=$($CMUX ssh "$SSH_HOST" --name "$code" --no-focus 2>&1 \
+      | grep -oE 'workspace=[^ ]+' | head -1 | cut -d'=' -f2)
+  else
+    ws_uuid=$($CMUX new-workspace 2>&1 | awk '{print $2}')
+  fi
   if [[ -z "$ws_uuid" ]]; then
     echo "  ✗ $code — failed to create workspace" >&2
     return 1
@@ -249,7 +264,9 @@ create_workspace() {
 
 # Wait for a surface to become available (retries)
 wait_for_surface() {
-  local ws_uuid="$1" retries=5
+  # cmux ssh needs ~3-5s to connect + spawn its first surface (first connect uploads
+  # cmuxd-remote), so poll patiently — local `new-workspace` still resolves on retry 1.
+  local ws_uuid="$1" retries=30
   local surface=""
   while [[ $retries -gt 0 ]]; do
     surface=$($CMUX list-pane-surfaces --workspace "$ws_uuid" 2>&1 \
