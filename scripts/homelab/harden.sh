@@ -10,7 +10,8 @@
 #   5. Tailscale                  (install + enable tailscaled; optional auth-key)
 #   6. Bootstrap databases        (shared postgres + nexus DB + drizzle migrations)
 #   7. Observability              (systemd-oomd + systemd-pstore + smartd + node-exporter)
-#   8. Crash recovery             (panic sysctls + hardware watchdog; ramoops via cmdline)
+#   8. Swap tiers                 (8G zram zstd pri=100 + 16G btrfs swapfile pri=10)
+#   9. Crash recovery             (panic sysctls + hardware watchdog; ramoops via cmdline)
 #
 # Optional env vars:
 #   TAILSCALE_AUTHKEY       Non-interactive auth for fresh-install flows.
@@ -585,7 +586,77 @@ configure_observability() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 8: Crash recovery (panic sysctls + systemd hardware watchdog)
+# Step 8: Swap tiers (zram + btrfs disk swapfile)
+# ---------------------------------------------------------------------------
+#
+# Two-tier swap to survive memory pressure without the fork/exec SIGABRT crash
+# seen on 2026-06-24, when a 4 GB zram device filled with NO disk overflow and
+# the kernel could no longer satisfy COW allocations for new processes.
+#
+# Tiers (priority is the load-balancing knob — higher = used first):
+#   - zram0   pri=100  8 GB zstd  (RAM-backed, compressed; fast first tier)
+#   - /swapfile pri=10 16 GB btrfs (disk overflow; only when zram is full)
+#
+# zram pri=100 is set by zram-generator; the disk swapfile is pinned to pri=10
+# so the slow disk tier is touched ONLY after the fast compressed tier is
+# exhausted.
+#
+# Idempotency:
+#   - zram conf via write_if_changed; restart ONLY when the content changed
+#     (an unconditional restart would needlessly swapoff the live device).
+#   - /swapfile created only when absent (btrfs mkswapfile handles NOCOW +
+#     no-compression + preallocation + mkswap in one shot).
+#   - swapon gated on `swapon --show`; fstab line appended only when absent.
+#
+# Failure isolation: every external call warns rather than aborting harden.sh.
+configure_swap() {
+    # 1. zram → 8 GB zstd (pri=100, set by zram-generator).
+    local zram_content='[zram0]
+zram-size = 8192
+compression-algorithm = zstd'
+    write_if_changed /etc/systemd/zram-generator.conf "$zram_content"
+    if [[ $? -eq 10 ]]; then
+        info "restarting systemd-zram-setup@zram0 (zram config changed)"
+        sudo systemctl restart systemd-zram-setup@zram0.service \
+            || warning "failed to restart systemd-zram-setup@zram0 — inspect manually"
+    else
+        success "zram config already current"
+    fi
+
+    # 2. 16 GB btrfs disk swapfile at /swapfile (pri=10, disk overflow tier).
+    if [[ ! -e /swapfile ]]; then
+        info "creating 16G btrfs swapfile at /swapfile"
+        # btrfs mkswapfile sets NOCOW + disables compression + preallocates +
+        # runs mkswap — do NOT fallocate/dd/chattr by hand on btrfs.
+        sudo btrfs filesystem mkswapfile --size 16G /swapfile \
+            || warning "btrfs mkswapfile failed — inspect manually"
+    else
+        success "/swapfile already exists"
+    fi
+
+    # Enable only if not already active.
+    if ! swapon --show=NAME --noheadings 2>/dev/null | grep -qx '/swapfile'; then
+        info "enabling /swapfile (pri=10)"
+        sudo swapon -p 10 /swapfile \
+            || warning "swapon /swapfile failed — inspect manually"
+    else
+        success "/swapfile already active"
+    fi
+
+    # 3. Persist in /etc/fstab at priority 10 (append once, never duplicate).
+    if ! grep -qE '^/swapfile[[:space:]]' /etc/fstab 2>/dev/null; then
+        info "adding /swapfile to /etc/fstab (pri=10)"
+        printf '%s\n' '/swapfile none swap defaults,pri=10 0 0' | sudo tee -a /etc/fstab >/dev/null \
+            && success "added /swapfile to /etc/fstab"
+    else
+        success "/swapfile already in /etc/fstab"
+    fi
+
+    success "swap tiers configured (zram pri=100 + /swapfile pri=10)"
+}
+
+# ---------------------------------------------------------------------------
+# Step 9: Crash recovery (panic sysctls + systemd hardware watchdog)
 # ---------------------------------------------------------------------------
 #
 # After the 2026-06-19 hard hang (no panic logged, watchdog-style reset, RAM +
@@ -638,6 +709,7 @@ main() {
     setup_tailscale
     bootstrap_databases
     configure_observability
+    configure_swap
 
     success "Homelab hardening complete"
 }
