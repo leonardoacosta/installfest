@@ -1,0 +1,19 @@
+[Unit]
+Description=Clear stale cmux relay/daemon session state on boot
+Documentation=https://github.com/manaflow-ai/cmux
+# cmux ssh spawns cmuxd-remote per-connection (auth + --slot from the Mac
+# client). Those sessions are PTY processes that die at reboot, but the relay
+# slot files (~/.cmux/relay/<port>.{slot,auth,daemon_path}) and per-session
+# daemon dirs survive on disk. On the next reconnect the Mac pins a dead slot
+# and cmux reports "Remote proxy unavailable". This oneshot wipes that stale
+# state at boot so the next `mux <code>` bootstraps a fresh serve cleanly.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'rm -rf "$HOME/.cmux/relay"/* 2>/dev/null; find "$HOME/.cmux/daemon" -mindepth 2 -maxdepth 2 -name "ssh-*" -exec rm -rf {} + 2>/dev/null; echo "cmux-relay-cleanup: cleared stale relay/daemon state"'
+StandardOutput=append:%h/.local/state/cmux-relay-cleanup.log
+StandardError=append:%h/.local/state/cmux-relay-cleanup.log
+Restart=no
+
+[Install]
+WantedBy=default.target

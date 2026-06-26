@@ -12,6 +12,7 @@
 #   weekly-cleanup service:   {{ include "dot_config/systemd/user/weekly-cleanup.service" | sha256sum }}
 #   weekly-cleanup timer:     {{ include "dot_config/systemd/user/weekly-cleanup.timer" | sha256sum }}
 #   nexus-listener service:   {{ include "dot_config/systemd/user/nexus-listener.service" | sha256sum }}
+#   cmux-relay-cleanup svc:   {{ include "dot_config/systemd/user/cmux-relay-cleanup.service" | sha256sum }}
 {{- end }}
 
 set -euo pipefail
@@ -65,6 +66,11 @@ case "$(uname -s)" in
       systemctl --user enable --now "$unit"
       echo "scheduler: enabled ${unit}"
     done
+    # Boot-only oneshot: enable for boot but NOT --now — running it mid-deploy
+    # would wipe relay state for any live cmux ssh session. It fires at the
+    # next boot (clearing reboot-orphaned slots); start manually if needed.
+    systemctl --user enable cmux-relay-cleanup.service
+    echo "scheduler: enabled cmux-relay-cleanup.service (runs at boot)"
     systemctl --user list-timers weekly-cleanup.timer --no-pager 2>/dev/null || true
     systemctl --user status nexus-listener.service --no-pager 2>/dev/null | head -5 || true
     ;;
