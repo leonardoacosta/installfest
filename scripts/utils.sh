@@ -1,10 +1,15 @@
 #!/bin/bash
 
-default_color=$(tput sgr 0)
-red="$(tput setaf 1)"
-yellow="$(tput setaf 3)"
-green="$(tput setaf 2)"
-blue="$(tput setaf 4)"
+# tput exits 2 when $TERM is unset (non-interactive chezmoi/mesh deploy over
+# SSH). Under a sourcing script that has `set -e` (e.g. install-arch.sh), that
+# nonzero status aborts the whole apply before any work runs. Swallow the
+# failure and fall back to empty (no-color) so these assignments are always
+# exit-0 regardless of TERM. 2>/dev/null also keeps the deploy log clean.
+default_color=$(tput sgr 0 2>/dev/null || true)
+red="$(tput setaf 1 2>/dev/null || true)"
+yellow="$(tput setaf 3 2>/dev/null || true)"
+green="$(tput setaf 2 2>/dev/null || true)"
+blue="$(tput setaf 4 2>/dev/null || true)"
 
 info() {
     printf "%s==> %s%s\n" "$blue" "$1" "$default_color"
