@@ -21,7 +21,9 @@ quadruplicated bootstrap installers, 4x `~/.mx/broker` dir creation).
 
 ## Motivation
 Session-history mining (30 days) ranked the friction: (1) AADSTS70043 sign-in-frequency
-expiries dominate ws work — roughly 20 auth interruptions per session; (2) mesh/Tailscale
+expiries dominate ws work — forensics (design.md) showed ~3 true expiry events amplified
+into thousands of error lines by retry storms, so the fix is a day-55 nudge plus
+fail-fast, not frequent re-auth; (2) mesh/Tailscale
 flakiness (~150 hits) degrades every homelab-dependent project and has zero monitoring;
 (3) the audit found three cmux-bridge implementations, four bootstrap entry points, a dead
 `nexus-dashboard.service` pointing at a directory deleted 2026-05-17, and the
@@ -36,15 +38,24 @@ consuming broker tokens over the existing socket.
 ## Requirements
 
 ### Req-1: Proactive re-auth nudge (`az-reauth-nudge`)
-A systemd user timer (homelab) runs `scripts/az-reauth-nudge.sh` periodically. The script:
+A daily systemd user timer (homelab) runs `scripts/az-reauth-nudge.sh`. The script:
 - Reads MSAL token cache metadata (timestamps only — never token values) for
-  `~/.azure-bbadmin` and `~/.azure-o365` to compute time since last interactive auth.
-- Compares against the CA sign-in-frequency window (configurable, default from
-  `design.md` forensics; conservative fallback 12h) minus a lead margin (default 30m).
-- When inside the margin, notifies once per window via nexus-agent (`nx_notify`) with the
-  exact re-login command (`az login --use-device-code` + identity flag). Deduped by a
-  state file per identity so it never nags repeatedly.
+  `~/.azure-bbadmin` and `~/.azure-o365` to determine each identity's token issue date
+  (independent clocks — see design.md).
+- Compares age against the CA window (60 days, proven — design.md D1) minus a lead
+  margin (default 5 days; both env-configurable).
+- From day ~55, notifies once per identity per window via nexus-agent (`nx_notify`)
+  with the exact re-login command (`az login --use-device-code` + identity flag).
+  Deduped by a state file per identity so it never nags repeatedly.
 - Exits 0 always; absent caches or unreadable metadata degrade to silence.
+
+### Req-5: Fail-fast on AADSTS70043 in the az wrapper
+`home/dot_local/bin/executable_az` detects AADSTS70043 in a failing call's stderr,
+emits ONE notify with the re-login command, and sets a per-identity state marker; while
+the marker exists, subsequent calls for that identity short-circuit with a one-line
+"re-auth required" error instead of retrying against Azure. Marker clears when a
+`login` invocation for that identity exits 0. Converts the observed retry storms into
+a single actionable failure (design.md D2).
 
 ### Req-2: Broker token helper (`mx-token`)
 A thin client `home/dot_local/bin/executable_mx-token <resource> [identity]` wrapping the

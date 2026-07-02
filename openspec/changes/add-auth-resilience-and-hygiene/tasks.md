@@ -4,10 +4,11 @@
 
 ## Auth Batch
 
-- [ ] [1.1] [P-1] Create `scripts/az-reauth-nudge.sh` — reads MSAL cache metadata (timestamps only) for `~/.azure-bbadmin` + `~/.azure-o365`, computes time-since-interactive-auth, notifies via `nx_notify` once per window when within lead margin of the CA sign-in-frequency wall. Window + margin configurable via env; default window from design.md forensics (fallback 12h), margin 30m. Dedup state in `~/.local/state/az-reauth-nudge/`. Exit 0 always. [owner:general-purpose] [beads:if-oc0]
-- [ ] [1.2] [P-1] Create `home/dot_config/systemd/user/az-reauth-nudge.{service,timer}` (timer: every 15m, Persistent=true) and register both in `run_onchange_after_install-user-schedulers.sh.tmpl` (Linux block; embed sha256sums per house pattern) [owner:general-purpose] [beads:if-r4t]
+- [ ] [1.1] [P-1] Create `scripts/az-reauth-nudge.sh` — reads MSAL cache metadata (timestamps only) for `~/.azure-bbadmin` + `~/.azure-o365`, computes per-identity token age (independent clocks), notifies via `nx_notify` once per identity per window when within lead margin of the 60d CA wall. Window 60d + margin 5d, env-configurable (design.md D1). Dedup state in `~/.local/state/az-reauth-nudge/`. Exit 0 always. [owner:general-purpose] [beads:if-oc0]
+- [ ] [1.2] [P-1] Create `home/dot_config/systemd/user/az-reauth-nudge.{service,timer}` (timer: OnCalendar=daily, Persistent=true — design.md D1) and register both in `run_onchange_after_install-user-schedulers.sh.tmpl` (Linux block; embed sha256sums per house pattern) [owner:general-purpose] [beads:if-r4t]
 - [ ] [1.3] [P-1] Create `home/dot_local/bin/executable_mx-token` — broker socket token client per Req-2, mirroring `git-credential-mxbroker.sh` hardening (ownership check, --max-time 5, silent-fail exit 0, no token logging) [owner:general-purpose] [beads:if-yhr]
 - [ ] [1.4] [P-2] Extend `home/run_after_doctor.sh.tmpl` — warn when MSAL cache age is already past the CA window (login will fail on next az call) alongside the existing broker-socket check [owner:general-purpose] [beads:if-ean]
+- [ ] [1.5] [P-1] Fail-fast on AADSTS70043 in `home/dot_local/bin/executable_az` — detect 70043 in stderr of a failing call, notify once with the re-login command, set per-identity marker in `~/.local/state/az-reauth-nudge/`; while marker exists, short-circuit that identity's calls with a one-line error; clear marker on successful `login` invocation (design.md D2) [owner:general-purpose] [beads:if-xga]
 
 ## Heartbeat Batch
 
