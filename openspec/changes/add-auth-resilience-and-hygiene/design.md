@@ -67,3 +67,25 @@ Edge/ProxyBridge through cloudpc), click "Add sign-in method" and check whether
 
 Expectation: not offered. This probe exists to convert that expectation into a
 confirmed fact with one click, not to build on an assumption.
+
+**RESULT (2026-07-02): software-OATH / hardware-token code IS allowed** (confirmed by
+Leo at security-info). TOTP is enrollable → a script-derivable code is available. This
+unlocks a hands-free path, but forks into two designs with different security cost — az
+device-code login also requires username+password entry before MFA, so "fully tapless"
+means automating the whole sign-in, not just the code.
+
+- **D5-A (recommended) — TOTP replaces the phone, human stays at the browser.**
+  `az-reauth` runs `oathtool --totp -b <seed>` and clipboards the code to the Mac next
+  to the device code; Leo pastes it into the already-open Edge login (password via SSO).
+  No password storage, no headless browser. Removes the real friction (phone reach +
+  number matching) and keeps both factors from co-locating. Within the Req-6 boundary.
+- **D5-B — fully tapless, headless browser + stored password.** Playwright on homelab
+  drives device code → username → stored password → oathtool TOTP, zero interaction.
+  Cost: BB password + TOTP seed both on homelab → two factors collapse to one on that
+  host; automates the complete sign-in the CA policy keeps periodic-and-human; brittle
+  vs login-page changes. Defensible on Leo's own org-permitted account, but maximal
+  surface for a bi-monthly event.
+- Seed hygiene (both): enroll software OATH once, store base32 seed in 1Password
+  (`op`/`opsh`), never plaintext in the repo. az-reauth reads it via `op` at runtime.
+
+Decision pending Leo (A vs B). Implementation tasks not yet filed.
