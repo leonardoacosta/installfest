@@ -100,3 +100,22 @@ with a stored corporate password, and saves only ~2 min/yr over A.
 **B revives ONLY if** the re-auth window can open when no human is ever present (truly
 unattended server) OR it becomes an IT-sanctioned service account under a PAM program.
 Neither holds for Leo's interactive identity today.
+
+## D6 — Testing without a 60-day wait (sandbox)
+
+The re-auth E2E does NOT require a real AADSTS70043 expiry — the 60d window is only the
+trigger; the flow it triggers is on-demand. `az login --use-device-code` always starts a
+fresh auth (it does not short-circuit on a valid cached token), so `az-reauth` can be
+exercised end-to-end anytime.
+
+- **Orchestration harness:** run `az-reauth` against the `--as-personal`/`~/.azure-civalent`
+  identity — no CA policy, no cloudpc proxy (`USE_PROXY=false`) — for unlimited free,
+  repeatable runs that never touch the BB identities. To force the precondition on a real
+  identity, `az logout` on its `AZURE_CONFIG_DIR` (reversible with one login).
+- **Nudge (Req-1):** set the window env to 1m against a fresh token (task 4.2) — day-55
+  logic fires immediately.
+- **Fail-fast (Req-5):** inject the captured AADSTS70043 stderr sample (this file's
+  forensics) — tests *handling*, which keys off the error string, not *causing* the error.
+- **Only residual:** confirming the real broker `/health` flips to `ado/o365 SERVING`
+  after a genuine o365 re-auth — one confirming run at the first natural expiry. Not a
+  blocker to full coverage.
