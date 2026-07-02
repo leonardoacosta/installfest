@@ -88,4 +88,15 @@ means automating the whole sign-in, not just the code.
 - Seed hygiene (both): enroll software OATH once, store base32 seed in 1Password
   (`op`/`opsh`), never plaintext in the repo. az-reauth reads it via `op` at runtime.
 
-Decision pending Leo (A vs B). Implementation tasks not yet filed.
+**DECISION: D5-A chosen.** Independent 4-lens judge panel (2026-07-02) scored A over B
+unanimously — security 8/2, ergonomics 8/6, maintenance 9/2, policy 8/2. Both options are
+fully buildable (oathtool, op, node, playwright, chromium all already installed), so this
+is a correctness call, not feasibility. B rejected: it co-locates password + seed on the
+always-on homelab (collapses both MFA factors on host compromise → self-renewing ADO +
+Azure RM + Graph/M365 takeover), hard-depends on Microsoft's churning AAD login DOM
+(~50% chance of breakage per run at 12 runs/yr), reads to security as automation-as-user
+with a stored corporate password, and saves only ~2 min/yr over A.
+
+**B revives ONLY if** the re-auth window can open when no human is ever present (truly
+unattended server) OR it becomes an IT-sanctioned service account under a PAM program.
+Neither holds for Leo's interactive identity today.
