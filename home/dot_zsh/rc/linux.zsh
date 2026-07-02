@@ -96,5 +96,9 @@ flink() {
     || echo "localhost")
   local port="${FILE_SERVER_PORT:-8787}"
   local url="http://${host}:${port}${abs_path}"
+  # Append the shared auth token if the server has generated one; fall back to
+  # the bare URL so flink never breaks before the service has started.
+  local token_file="$HOME/.local/state/file-server.token"
+  [[ -r "$token_file" ]] && url="${url}?t=$(<"$token_file")"
   printf '\e]8;;%s\e\\%s\e]8;;\e\\\n' "$url" "$label"
 }

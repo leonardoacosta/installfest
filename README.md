@@ -45,6 +45,19 @@ chezmoi init --source ~/dev/if
 chezmoi apply
 ```
 
+## Verifying
+
+Before committing, run the verification gate — it catches breakage that would
+otherwise only surface during `chezmoi apply` on a fresh machine:
+
+```bash
+scripts/check.sh        # or: npm run check
+```
+
+It checks zsh syntax, bash/sh syntax, chezmoi template rendering (+ `bash -n` on
+rendered `*.sh.tmpl`), `shellcheck` at error severity, and — when initialized —
+`terraform validate`. Exit 0 = healthy; sections whose tool is absent are skipped.
+
 ## Machines
 
 | Machine | OS | Hostname | User | Connectivity |

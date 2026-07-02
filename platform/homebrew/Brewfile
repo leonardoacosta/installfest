@@ -62,6 +62,8 @@ brew "pngpaste"
 brew "pam-reattach"
 # Search tool like grep and The Silver Searcher
 brew "ripgrep"
+# Static analysis for shell scripts (used by scripts/check.sh verification gate)
+brew "shellcheck"
 # CLI proxy to minimize LLM token consumption
 brew "rtk"
 # Command-line utility to interact with Sentry

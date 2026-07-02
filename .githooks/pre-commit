@@ -39,7 +39,9 @@ while IFS= read -r file; do
     fi
 
     # Check staged content (what will actually be committed)
-    MATCHES=$(git show ":$file" 2>/dev/null | grep -nEi "$COMBINED" 2>/dev/null || true)
+    # -e guards against COMBINED starting with a dash (e.g. "-----BEGIN...")
+    # being misread by grep as an option string instead of the pattern.
+    MATCHES=$(git show ":$file" 2>/dev/null | grep -nEi -e "$COMBINED" 2>/dev/null || true)
 
     if [ -n "$MATCHES" ]; then
         if [ "$FOUND" -eq 0 ]; then

@@ -2,7 +2,7 @@
 # Set git hooks path for the dotfiles repo + inject deploy hook into beads.
 #
 # run_onchange_: re-runs whenever this file's content changes.
-# {{ "scripts/hooks" }} {{ "if-deploy-v1" }}
+# {{ "scripts/hooks" }} {{ "if-deploy-v1" }} {{ "if-precommit-v1" }}
 #
 # When beads is initialized in this repo, it installs its own hooks at
 # .beads/hooks/ and re-points core.hooksPath there. That silently orphans
@@ -70,6 +70,29 @@ fi
 # --- END IF-POSTMERGE v1 ---
 HOOK
         echo "chezmoi: injected if-postmerge v1 into $BEADS_POSTMERGE"
+    fi
+
+    # Also inject into pre-commit so the secret scan + raycast regen run as a
+    # commit GATE. Unlike IF-DEPLOY (|| true), a failing scan MUST block the
+    # commit — the delegation propagates a non-zero exit.
+    BEADS_PRECOMMIT="$DOTFILES/.beads/hooks/pre-commit"
+    PRECOMMIT_BEGIN="# --- BEGIN IF-PRECOMMIT v1 ---"
+    PRECOMMIT_END="# --- END IF-PRECOMMIT v1 ---"
+    if [ -f "$BEADS_PRECOMMIT" ] && ! grep -Fq "$PRECOMMIT_BEGIN" "$BEADS_PRECOMMIT"; then
+        cat >> "$BEADS_PRECOMMIT" <<'HOOK'
+
+# --- BEGIN IF-PRECOMMIT v1 ---
+# Managed by chezmoi (home/run_onchange_set-git-hooks.sh.tmpl).
+# Delegates to scripts/hooks/pre-commit (secret scan + raycast regen).
+# NOTE: no `|| true` — a failing scan MUST block the commit.
+_if_pc_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_if_pc_root" ] && [ -x "$_if_pc_root/scripts/hooks/pre-commit" ]; then
+    "$_if_pc_root/scripts/hooks/pre-commit" "$@" || exit 1
+fi
+unset _if_pc_root
+# --- END IF-PRECOMMIT v1 ---
+HOOK
+        echo "chezmoi: injected if-precommit v1 into $BEADS_PRECOMMIT"
     fi
 else
     # No beads in this clone — fall back to scripts/hooks as the hooks dir

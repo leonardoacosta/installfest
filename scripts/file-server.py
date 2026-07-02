@@ -8,14 +8,17 @@ Usage:
     file-server.py [--port PORT] [--bind ADDR]
 """
 
+import hmac
 import http.server
 import html
 import json
 import mimetypes
 import os
+import secrets
 import sys
+from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlsplit
 
 PORT = int(os.environ.get("FILE_SERVER_PORT", 8787))
 BIND = os.environ.get("FILE_SERVER_BIND", "0.0.0.0")
@@ -25,6 +28,27 @@ ALLOWED_ROOTS = [
     Path.home() / ".claude",
     Path("/tmp"),
 ]
+
+TOKEN_FILE = Path(
+    os.environ.get("FILE_SERVER_TOKEN_FILE", Path.home() / ".local/state/file-server.token")
+)
+
+
+def load_or_create_token() -> str:
+    """Read the shared auth token, generating one (0600) on first run."""
+    if TOKEN_FILE.exists():
+        return TOKEN_FILE.read_text().strip()
+    token = secrets.token_hex(16)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Create with 0600 from the start — no world-readable window (secret file).
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    print(f"file-server: generated new auth token at {TOKEN_FILE}", file=sys.stderr)
+    return token
+
+
+TOKEN = load_or_create_token()
 
 DARK_STYLE = """
   :root { color-scheme: dark; }
@@ -118,7 +142,26 @@ def is_allowed(path: Path) -> bool:
 
 class FileHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        raw_path = unquote(self.path.lstrip("/"))
+        parts = urlsplit(self.path)
+
+        supplied = parse_qs(parts.query).get("t", [None])[0]
+        via_param = supplied is not None and hmac.compare_digest(supplied, TOKEN)
+        via_cookie = False
+        cookie_header = self.headers.get("Cookie")
+        if cookie_header:
+            morsel = SimpleCookie(cookie_header).get("fs_token")
+            if morsel is not None:
+                via_cookie = hmac.compare_digest(morsel.value, TOKEN)
+
+        if not (via_param or via_cookie):
+            self.send_error(403, "Missing or invalid token")
+            return
+
+        # On a fresh param match, set a cookie so relative links (dir listings,
+        # rendered markdown) work without threading ?t= through every href.
+        self._auth_cookie = TOKEN if via_param and not via_cookie else None
+
+        raw_path = unquote(parts.path.lstrip("/"))
         if not raw_path:
             self.send_error(400, "No file path specified")
             return
@@ -209,6 +252,8 @@ class FileHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        if getattr(self, "_auth_cookie", None):
+            self.send_header("Set-Cookie", f"fs_token={self._auth_cookie}; Path=/; HttpOnly")
         self.end_headers()
         self.wfile.write(body)
 

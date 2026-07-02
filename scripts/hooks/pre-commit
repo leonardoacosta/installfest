@@ -2,9 +2,16 @@
 #
 # pre-commit — runs before git commit
 #
+# 0. Secret scan (blocks the commit on findings).
 # 1. Regenerate Raycast scripts when projects.toml or generator is staged
 #    (auto-stages output so commits always contain matching artifacts).
 # 2. Flush beads pending changes to JSONL.
+
+# === 0. Secret scan (blocks commit on findings) ===
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/.githooks/pre-commit" ]; then
+    "$REPO_ROOT/.githooks/pre-commit" || exit 1
+fi
 
 # === 1. Raycast script regeneration ===
 # Trigger only when the source-of-truth files are staged. Fail the commit

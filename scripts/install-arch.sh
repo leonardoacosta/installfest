@@ -34,6 +34,7 @@ install_arch_packages() {
         eza
         ripgrep
         fd
+        shellcheck        # static analysis for shell scripts (scripts/check.sh)
         git
         tmux
         neovim

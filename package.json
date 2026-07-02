@@ -2,6 +2,7 @@
   "name": "if",
   "private": true,
   "scripts": {
+    "check": "./scripts/check.sh",
     "tf": "./infra/scripts/tf.sh"
   }
 }

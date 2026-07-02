@@ -22,3 +22,14 @@ if command -v bd >/dev/null 2>&1; then
   if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
 fi
 # --- END BEADS INTEGRATION v0.63.3 ---
+
+# --- BEGIN IF-PRECOMMIT v1 ---
+# Managed by chezmoi (home/run_onchange_set-git-hooks.sh.tmpl).
+# Delegates to scripts/hooks/pre-commit (secret scan + raycast regen).
+# NOTE: no `|| true` — a failing scan MUST block the commit.
+_if_pc_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_if_pc_root" ] && [ -x "$_if_pc_root/scripts/hooks/pre-commit" ]; then
+    "$_if_pc_root/scripts/hooks/pre-commit" "$@" || exit 1
+fi
+unset _if_pc_root
+# --- END IF-PRECOMMIT v1 ---
