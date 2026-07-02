@@ -8,6 +8,9 @@
 {{- if eq .chezmoi.os "darwin" }}
 #   weekly-cleanup plist:     {{ include "Library/LaunchAgents/com.leonardoacosta.weekly-cleanup.plist" | sha256sum }}
 #   nexus-listener plist:     {{ include "Library/LaunchAgents/com.leonardoacosta.nexus-listener.plist" | sha256sum }}
+#   cmux-bridge plist:        {{ include "Library/LaunchAgents/com.leonardoacosta.cmux-bridge.plist" | sha256sum }}
+#   cmux-bridge main.rs:      {{ include "../ssh-mesh/scripts/remote/cmux-bridge/src/main.rs" | sha256sum }}
+#   cmux-bridge Cargo.toml:   {{ include "../ssh-mesh/scripts/remote/cmux-bridge/Cargo.toml" | sha256sum }}
 {{- else if eq .chezmoi.os "linux" }}
 #   weekly-cleanup service:   {{ include "dot_config/systemd/user/weekly-cleanup.service" | sha256sum }}
 #   weekly-cleanup timer:     {{ include "dot_config/systemd/user/weekly-cleanup.timer" | sha256sum }}
@@ -23,6 +26,7 @@
 
 set -euo pipefail
 
+DOTFILES="{{ .chezmoi.workingTree }}"
 mkdir -p "$HOME/.local/state"
 
 case "$(uname -s)" in
@@ -53,6 +57,25 @@ case "$(uname -s)" in
     }
     bootstrap_plist com.leonardoacosta.weekly-cleanup
     bootstrap_plist com.leonardoacosta.nexus-listener
+
+    # ── cmux-bridge: build-from-source (if-j8g) ────────────────────────
+    # No prebuilt binary is committed (arch-specific, non-reproducible) —
+    # cargo build is naturally incremental, so this is a no-op fast-path
+    # once built. Guarded by command -v so a machine without Rust just
+    # skips it (remote-CC-hook callbacks degrade to unavailable, not a
+    # broken apply).
+    if command -v cargo >/dev/null 2>&1; then
+      mkdir -p "$HOME/.local/logs"
+      if cargo build --release --manifest-path \
+          "$DOTFILES/ssh-mesh/scripts/remote/cmux-bridge/Cargo.toml" \
+          >"$HOME/.local/logs/cmux-bridge-build.log" 2>&1; then
+        bootstrap_plist com.leonardoacosta.cmux-bridge
+      else
+        echo "scheduler: cmux-bridge build failed — see ~/.local/logs/cmux-bridge-build.log"
+      fi
+    else
+      echo "scheduler: cargo not available; skipping cmux-bridge (install Rust first)"
+    fi
     ;;
 
   Linux)
