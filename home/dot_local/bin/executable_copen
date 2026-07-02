@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# copen — open (or focus) the Mac's Cursor window for a registry project.
+#
+# From anywhere inside a project on the homelab:
+#   ~/dev/ws/docs/references> copen        -> Cursor on the Mac opens/focuses the
+#                                             Remote-SSH window for homelab:~/dev/ws
+#   copen ws                               -> same, resolved by registry code
+#
+# Resolution comes from if's project registry (projects.toml): with an argument
+# the code is looked up directly; with no argument the CWD is matched against
+# registry paths (longest prefix wins). The Mac side needs no "is Cursor open?"
+# logic — the Cursor CLI is single-instance: opening a folder URI that is
+# already open focuses that window, otherwise it opens one (launching the app
+# if it isn't running).
+#
+# Env:
+#   COPEN_MAC_HOST   ssh alias for the Mac       (default: mac)
+#   COPEN_REGISTRY   projects.toml path          (default: ~/projects.toml,
+#                                                 falling back to $DOTFILES/home/projects.toml)
+(return 0 2>/dev/null) || set -euo pipefail
+
+MAC_HOST="${COPEN_MAC_HOST:-mac}"
+DOTFILES="${DOTFILES:-$HOME/dev/if}"
+REGISTRY="${COPEN_REGISTRY:-$HOME/projects.toml}"
+[ -f "$REGISTRY" ] || REGISTRY="$DOTFILES/home/projects.toml"
+
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+
+DRYRUN=""
+CODE_ARG=""
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) usage; exit 0 ;;
+    -n|--dry-run) DRYRUN=1 ;;
+    -*) echo "copen: unknown option $arg" >&2; exit 1 ;;
+    *) CODE_ARG="$arg" ;;
+  esac
+done
+
+[ -f "$REGISTRY" ] || { echo "copen: registry not found: $REGISTRY" >&2; exit 1; }
+
+# Resolve (code, absolute project path, remote host) from the registry.
+RESOLVED="$(python3 - "$REGISTRY" "$CODE_ARG" "$PWD" <<'PY'
+import os, sys, tomllib
+reg, arg, cwd = sys.argv[1:4]
+with open(reg, "rb") as f:
+    data = tomllib.load(f)
+base = data.get("defaults", {}).get("ssh_base", os.path.expanduser("~"))
+remote = data.get("defaults", {}).get("ssh_host", "homelab")
+best = None
+for p in data.get("projects", []):
+    abs_p = os.path.join(base, p["path"])
+    if arg:
+        if p["code"] == arg:
+            best = (p["code"], abs_p)
+            break
+    elif cwd == abs_p or cwd.startswith(abs_p + os.sep):
+        if best is None or len(abs_p) > len(best[1]):
+            best = (p["code"], abs_p)
+if best is None:
+    what = f"code '{arg}'" if arg else f"a project containing {cwd}"
+    print(f"copen: registry has no {what} ({reg})", file=sys.stderr)
+    sys.exit(1)
+print(best[0], best[1], remote)
+PY
+)" || exit 1
+read -r CODE ABS REMOTE <<< "$RESOLVED"
+
+# Cursor CLI on the Mac: PATH first (login installs), app bundle fallback —
+# BatchMode ssh gets the bare system PATH, which usually lacks /usr/local/bin.
+REMOTE_CMD="CLI=\"/Applications/Cursor.app/Contents/Resources/app/bin/cursor\"; command -v cursor >/dev/null 2>&1 && CLI=cursor; \"\$CLI\" --remote ssh-remote+${REMOTE} '${ABS}'"
+
+if [ -n "$DRYRUN" ]; then
+  echo "[dryrun] project: $CODE  path: $ABS  remote: $REMOTE"
+  echo "[dryrun] ssh $MAC_HOST \"$REMOTE_CMD\""
+  exit 0
+fi
+
+if ! ssh -o BatchMode=yes -o ConnectTimeout=3 "$MAC_HOST" true 2>/dev/null; then
+  echo "copen: Mac unreachable ($MAC_HOST)" >&2
+  exit 2
+fi
+
+# fire-and-forget (mac-open parity): the CLI blocks while the app launches
+( ssh -o BatchMode=yes -o ConnectTimeout=5 "$MAC_HOST" "$REMOTE_CMD" >/dev/null 2>&1 & ) 2>/dev/null
+echo "copen: $CODE -> Cursor ($REMOTE:$ABS) on $MAC_HOST"
