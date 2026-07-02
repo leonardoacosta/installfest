@@ -32,6 +32,14 @@ path = "dev/fb"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
+code = "ds"
+name = "Decus Architecture"
+category = "b-and-b"
+icon = "🧩"
+path = "dev/ds"
+tiers = ["remote"]
+
+[[projects]]
 code = "ws"
 name = "Wholesale Architecture"
 category = "b-and-b"

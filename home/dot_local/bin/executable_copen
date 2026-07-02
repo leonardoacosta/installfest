@@ -44,17 +44,23 @@ done
 
 [ -f "$REGISTRY" ] || { echo "copen: registry not found: $REGISTRY" >&2; exit 1; }
 
-# If the arg is a real path (and not a registry code), resolve it to a file to open.
+# If the arg is a real path (and not a registry code): a FILE becomes the thing
+# to open; a DIRECTORY only anchors project resolution (the project window opens).
 FILE_ABS=""
+ANCHOR_DIR=""
 ARG_CODE="$TARGET"
 if [ -n "$TARGET" ] && [ -e "$TARGET" ]; then
-  FILE_ABS="$(realpath -- "$TARGET")"
+  if [ -d "$TARGET" ]; then
+    ANCHOR_DIR="$(realpath -- "$TARGET")"
+  else
+    FILE_ABS="$(realpath -- "$TARGET")"
+  fi
   ARG_CODE=""
 fi
 
 # Resolve (code, project path, remote host) from the registry. Anchor is the
 # file's location when a file was given, else the CWD.
-ANCHOR="${FILE_ABS:-$PWD}"
+ANCHOR="${FILE_ABS:-${ANCHOR_DIR:-$PWD}}"
 RESOLVED="$(python3 - "$REGISTRY" "$ARG_CODE" "$ANCHOR" <<'PY'
 import os, sys, tomllib
 reg, arg, anchor = sys.argv[1:4]
@@ -73,7 +79,7 @@ for p in data.get("projects", []):
         if best is None or len(abs_p) > len(best[1]):
             best = (p["code"], abs_p)
 if best is None:
-    what = f"code '{arg}'" if arg else f"a project containing {anchor}"
+    what = f"code '{arg}'" if arg else f"project containing {anchor}"
     print(f"copen: registry has no {what} ({reg})", file=sys.stderr)
     sys.exit(1)
 print(best[0], best[1], remote)
