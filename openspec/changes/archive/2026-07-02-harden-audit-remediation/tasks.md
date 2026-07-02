@@ -49,11 +49,11 @@ Req-4. `[P-1]` = do first within a batch.
 <!-- [beads:if-8lu] -->
 
 
-- [ ] [5.1] [P-1] Record gate baseline — `scripts/check.sh` exits 0 (STOP if Req-4 not landed) (plan 005 Step 0) [owner:general-purpose]
-- [ ] [5.2] [P-1] Create `scripts/lib/registry.sh` — source-guard strict mode, `registry_path()` (with existence fallback), cached `registry_python()` (probe loop); leak check shows `errexit off` (plan 005 Step 1) [owner:general-purpose]
-- [ ] [5.3] Convert Camp B (bug fixes) — `generate-raycast.sh`, `mux-remote.sh`, `executable_copen` — to source the lib; verify `generate-raycast.sh` output byte-identical and `copen` resolves without a tomllib error (plan 005 Step 2) [owner:general-purpose]
-- [ ] [5.4] Convert Camp A (dedup) — `wsenv`, `generate-profiles`, `wk-ready`, `cmux-workspaces.sh` — delete inline probe, use lib, keep each script's own var name (plan 005 Step 3) [owner:general-purpose]
-- [ ] [5.5] Sweep + gate — probe loop exists once (only in the lib); no bare `python3` heredoc remains; `scripts/check.sh` exits 0 (plan 005 Step 4) [owner:general-purpose]
+- [x] [5.1] [P-1] Record gate baseline — `scripts/check.sh` exits 0 (STOP if Req-4 not landed) (plan 005 Step 0) [owner:general-purpose] [beads:if-8lu]
+- [x] [5.2] [P-1] Create `scripts/lib/registry.sh` — source-guard strict mode, `registry_path()` (with existence fallback), cached `registry_python()` (probe loop); leak check shows `errexit off` (plan 005 Step 1) [owner:general-purpose] [beads:if-8lu]
+- [x] [5.3] Convert Camp B (bug fixes) — `generate-raycast.sh`, `mux-remote.sh`, `executable_copen` — to source the lib; verify `generate-raycast.sh` output byte-identical and `copen` resolves without a tomllib error (plan 005 Step 2) [owner:general-purpose] [beads:if-8lu]
+- [x] [5.4] Convert Camp A (dedup) — `wsenv`, `generate-profiles`, `wk-ready`, `cmux-workspaces.sh` — delete inline probe, use lib, keep each script's own var name (plan 005 Step 3) [owner:general-purpose] [beads:if-8lu]
+- [x] [5.5] Sweep + gate — probe loop exists once (only in the lib); no bare `python3` heredoc remains; `scripts/check.sh` exits 0 (plan 005 Step 4) [owner:general-purpose] [beads:if-8lu] — note: `packages/workspace/lib/trackers/{ado,beads}-ready` also have a tomllib-probe loop but parse a *different* file (`profile.toml`, not `home/projects.toml`) and were correctly left out of scope. Also reverted unrelated pre-existing drift surfaced by running the regenerator: `home/projects.toml` had a "ds" (Decus Architecture) entry never regenerated into `platform/raycast-scripts/` — not this change's concern, filed as backlog instead of silently shipping it.
 
 ## Cross-Cutting Verification
 

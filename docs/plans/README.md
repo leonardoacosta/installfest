@@ -19,11 +19,11 @@ repo's convention that new docs go under `docs/`.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | file-server token auth (tailnet can read ~/dev + ~/.claude) | P1 | S | — | TODO |
-| 002 | rotate-keys append-verify-remove; drop auto force-push | P1 | M | — | TODO |
-| 003 | wire orphaned secret-scan + raycast-regen into beads pre-commit | P1 | S | — | TODO |
-| 004 | scripts/check.sh verification baseline | P1 | M | — | TODO |
-| 005 | shared projects.toml python resolver (fixes bare-python3 Mac bug) | P2 | M | 004 | TODO |
+| 001 | file-server token auth (tailnet can read ~/dev + ~/.claude) | P1 | S | — | DONE |
+| 002 | rotate-keys append-verify-remove; drop auto force-push | P1 | M | — | DONE |
+| 003 | wire orphaned secret-scan + raycast-regen into beads pre-commit | P1 | S | — | DONE |
+| 004 | scripts/check.sh verification baseline | P1 | M | — | DONE |
+| 005 | shared projects.toml python resolver (fixes bare-python3 Mac bug) | P2 | M | 004 | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale).

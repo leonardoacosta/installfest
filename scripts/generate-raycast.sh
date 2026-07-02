@@ -23,7 +23,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-export TOML_FILE="$REPO_ROOT/home/projects.toml"
+source "$SCRIPT_DIR/lib/registry.sh"
+export TOML_FILE="$(registry_path)"
 export RAYCAST_DIR="$REPO_ROOT/platform/raycast-scripts"
 export DRY_RUN=false
 
@@ -35,7 +36,8 @@ if [[ ! -f "$TOML_FILE" ]]; then
 fi
 
 # Parse TOML and generate scripts via Python
-python3 << 'PYTHON_SCRIPT'
+PY="$(registry_python)" || exit 1
+"$PY" << 'PYTHON_SCRIPT'
 import tomllib
 import os
 import sys

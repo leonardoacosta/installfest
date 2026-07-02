@@ -25,8 +25,12 @@
 #   COPEN_FULLSCREEN   set 0 to skip the fullscreen attempt
 (return 0 2>/dev/null) || set -euo pipefail
 
-MAC_HOST="${COPEN_MAC_HOST:-mac}"
 DOTFILES="${DOTFILES:-$HOME/dev/if}"
+[ -r "$DOTFILES/scripts/lib/registry.sh" ] || { echo "copen: registry lib not found: $DOTFILES/scripts/lib/registry.sh" >&2; exit 1; }
+# shellcheck source=/dev/null
+source "$DOTFILES/scripts/lib/registry.sh"
+
+MAC_HOST="${COPEN_MAC_HOST:-mac}"
 REGISTRY="${COPEN_REGISTRY:-$HOME/projects.toml}"
 [ -f "$REGISTRY" ] || REGISTRY="$DOTFILES/home/projects.toml"
 FULLSCREEN="${COPEN_FULLSCREEN:-1}"
@@ -63,7 +67,8 @@ fi
 # Resolve (code, homelab project path, registry rel path, ssh user+host) from
 # the registry. Anchor is the file/dir when given, else the CWD.
 ANCHOR="${FILE_ABS:-${ANCHOR_DIR:-$PWD}}"
-RESOLVED="$(python3 - "$REGISTRY" "$ARG_CODE" "$ANCHOR" <<'PY'
+PY="$(registry_python)" || exit 1
+RESOLVED="$("$PY" - "$REGISTRY" "$ARG_CODE" "$ANCHOR" <<'PY'
 import os, sys, tomllib
 reg, arg, anchor = sys.argv[1:4]
 with open(reg, "rb") as f:

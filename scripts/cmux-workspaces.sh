@@ -55,19 +55,9 @@ COLOR_BB="#F59E0B"       # amber
 COLOR_PRICELESS="#10B981"   # green
 COLOR_PERSONAL="#3B82F6" # blue
 
-# Resolve a python3 with tomllib (stdlib only in 3.11+). The ambient python3 can be
-# too old — macOS interactive shells resolve /usr/bin/python3 (3.9, no tomllib) ahead
-# of Homebrew's, which broke `mux` with ModuleNotFoundError: No module named 'tomllib'.
-WS_PY=""
-for _py in python3.14 python3.13 python3.12 python3.11 python3; do
-  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
-    WS_PY="$_py"; break
-  fi
-done
-if [[ -z "$WS_PY" ]]; then
-  echo "Error: no python3 with tomllib found (need Python >= 3.11)" >&2
-  exit 1
-fi
+# shellcheck source=lib/registry.sh
+source "$SCRIPT_DIR/lib/registry.sh"
+WS_PY=$(registry_python) || exit 1
 
 # Parse projects.toml with Python and emit shell variable assignments
 load_projects() {

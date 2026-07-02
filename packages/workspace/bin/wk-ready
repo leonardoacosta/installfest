@@ -84,14 +84,9 @@ if [[ ! -f "$PROFILE_TOML" ]]; then
   exit 1
 fi
 
-# Probe python3 with tomllib.
-PY=""
-for _py in python3.14 python3.13 python3.12 python3.11 python3; do
-  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
-    PY="$_py"; break
-  fi
-done
-[[ -n "$PY" ]] || { echo "wk-ready: need python3 with tomllib (>=3.11)" >&2; exit 1; }
+# shellcheck source=../../../scripts/lib/registry.sh
+source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
+PY=$(registry_python) || exit 1
 
 # Read tracker name from profile.toml.
 TRACKER=$("$PY" - "$PROFILE_TOML" <<'PY'

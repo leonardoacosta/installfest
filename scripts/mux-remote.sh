@@ -15,7 +15,8 @@ set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT=~/dev/if/scripts/cmux-workspaces.sh
-TOML_FILE=~/dev/if/home/projects.toml
+source ~/dev/if/scripts/lib/registry.sh
+TOML_FILE="$(registry_path)"
 
 # Verify cmux is running
 if ! cmux ping >/dev/null 2>&1; then
@@ -26,7 +27,8 @@ fi
 
 # Generate the AppleScript list items for the "Pick Projects" dialog from projects.toml
 generate_picker_applescript() {
-  python3 << 'PYEOF'
+  PY="$(registry_python)" || exit 1
+  "$PY" << 'PYEOF'
 import tomllib, os
 
 toml_file = os.path.expanduser(os.environ["TOML_FILE"])
