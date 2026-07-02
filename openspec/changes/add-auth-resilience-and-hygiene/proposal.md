@@ -49,6 +49,23 @@ A daily systemd user timer (homelab) runs `scripts/az-reauth-nudge.sh`. The scri
   Deduped by a state file per identity so it never nags repeatedly.
 - Exits 0 always; absent caches or unreadable metadata degrade to silence.
 
+### Req-6: One-tap re-auth orchestrator (`az-reauth`)
+A script `scripts/az-reauth.sh` (exposed as `az-reauth [identity...]`, default: both due
+identities) automates everything around the interactive auth moment:
+- Runs `az login --use-device-code` per identity (correct `AZURE_CONFIG_DIR`, egress
+  via the existing SOCKS routing), parses the device code + URL from stderr.
+- Hands off to the Mac over existing primitives: code to clipboard (`ssh mac pbcopy`),
+  browser to the device-login page via `mac-open`/Edge (ProxyBridge already routes Edge
+  through cloudpc, satisfying the location control). Prefer the code-prefill URL form
+  if it verifies during implementation; clipboard is the fallback.
+- Waits for the login poll to complete, verifies with a token probe, clears the Req-5
+  fail-fast marker, re-checks broker `/health` (the ADO line depends on `az --as-o365`),
+  and notifies success/failure per identity.
+- Human still performs account selection + MFA — by design. No credential storage, no
+  headless completion of the sign-in; the automation target is ceremony, not the policy.
+The Req-1 nudge names `az-reauth` as the action, so the day-55 path is:
+notification -> run one command (or tap) -> approve MFA -> everything else self-heals.
+
 ### Req-5: Fail-fast on AADSTS70043 in the az wrapper
 `home/dot_local/bin/executable_az` detects AADSTS70043 in a failing call's stderr,
 emits ONE notify with the re-login command, and sets a per-identity state marker; while

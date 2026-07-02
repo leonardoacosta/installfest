@@ -9,6 +9,8 @@
 - [ ] [1.3] [P-1] Create `home/dot_local/bin/executable_mx-token` — broker socket token client per Req-2, mirroring `git-credential-mxbroker.sh` hardening (ownership check, --max-time 5, silent-fail exit 0, no token logging) [owner:general-purpose] [beads:if-yhr]
 - [ ] [1.4] [P-2] Extend `home/run_after_doctor.sh.tmpl` — warn when MSAL cache age is already past the CA window (login will fail on next az call) alongside the existing broker-socket check [owner:general-purpose] [beads:if-ean]
 - [ ] [1.5] [P-1] Fail-fast on AADSTS70043 in `home/dot_local/bin/executable_az` — detect 70043 in stderr of a failing call, notify once with the re-login command, set per-identity marker in `~/.local/state/az-reauth-nudge/`; while marker exists, short-circuit that identity's calls with a one-line error; clear marker on successful `login` invocation (design.md D2) [owner:general-purpose] [beads:if-xga]
+- [ ] [1.6] [P-1] Create `scripts/az-reauth.sh` — per-identity device-code login orchestrator (Req-6): run `az login --use-device-code` with correct `AZURE_CONFIG_DIR`, parse code+URL from stderr, `ssh mac pbcopy` the code, open device-login page on Mac via `mac-open`/Edge (verify `?otc=` prefill form; clipboard fallback), wait for poll completion, token-probe verify, clear Req-5 marker, re-check broker `/health`, notify per identity [owner:general-purpose] [beads:if-6yj]
+- [ ] [1.7] [P-2] Wire the Req-1 nudge message to name `az-reauth` as the action (exact command per identity); deploy `az-reauth` via `home/dot_local/bin/` so it's on PATH on homelab [owner:general-purpose] [beads:if-806]
 
 ## Heartbeat Batch
 
@@ -29,3 +31,4 @@
 - [ ] [4.3] [P-1] `mx-token graph o365` returns a non-empty token through the live broker socket; with the tunnel down it prints nothing and exits 0 [owner:general-purpose] [beads:if-1id]
 - [ ] [4.4] [P-1] Heartbeat smoke: run once with all probes up (record emitted, no notify); stop SOCKS tunnel, run again (transition notify fires); restart, run again (recovery notify) [owner:general-purpose] [beads:if-tl0]
 - [ ] [4.5] [P-2] Post-hygiene: `systemctl --user status nexus-dashboard` not-found; only one cmux bridge remains in-tree; grep shows zero remaining inline `~/.mx/broker` mkdir sites [owner:general-purpose] [beads:if-btg]
+- [ ] [4.6] [P-1] Re-auth E2E (run at next real expiry or with a test identity): `az-reauth o365` -> code lands on Mac clipboard, Edge opens device-login, post-MFA the script verifies token, clears fail-fast marker, broker `/health` shows ado/o365 SERVING, success notify fires [owner:general-purpose] [beads:if-gge]
