@@ -11,6 +11,7 @@
 - [ ] [1.5] [P-1] Fail-fast on AADSTS70043 in `home/dot_local/bin/executable_az` — detect 70043 in stderr of a failing call, notify once with the re-login command, set per-identity marker in `~/.local/state/az-reauth-nudge/`; while marker exists, short-circuit that identity's calls with a one-line error; clear marker on successful `login` invocation (design.md D2) [owner:general-purpose] [beads:if-xga]
 - [ ] [1.6] [P-1] Create `scripts/az-reauth.sh` — per-identity device-code login orchestrator (Req-6): run `az login --use-device-code` with correct `AZURE_CONFIG_DIR`, parse code+URL from stderr, `ssh mac pbcopy` the code, open device-login page on Mac via `mac-open`/Edge (verify `?otc=` prefill form; clipboard fallback), wait for poll completion, token-probe verify, clear Req-5 marker, re-check broker `/health`, notify per identity [owner:general-purpose] [beads:if-6yj]
 - [ ] [1.7] [P-2] Wire the Req-1 nudge message to name `az-reauth` as the action (exact command per identity); deploy `az-reauth` via `home/dot_local/bin/` so it's on PATH on homelab [owner:general-purpose] [beads:if-806]
+- [ ] [1.8] [P-2] [user] TOTP feasibility check (design.md § TOTP probe): at mysignins.microsoft.com/security-info per identity, confirm whether software-OATH/TOTP is an addable method. API path 403 (az token scope) — manual browser check only. If yes: enroll, capture seed, spin follow-on `oathtool` step for hands-free az-reauth. If no: close, Req-6 one-tap is final [owner:leo] [beads:if-y9m]
 
 ## Heartbeat Batch
 

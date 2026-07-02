@@ -41,3 +41,29 @@ Key facts driving the design:
   argv + exit 0). This converts a retry storm into one actionable failure.
 - **D3 — Issue-date source:** prefer parsing the issued-on date from the newest 70043
   text when present in state, else MSAL cache file metadata. Never read token values.
+
+## TOTP feasibility probe (2026-07-02, read-only)
+
+Goal: if the tenant permits a software-OATH (TOTP) method for these identities, a homelab
+`oathtool` step could make `az-reauth` fully hands-free (no MFA tap) — emulating the
+algorithm, not the app. Number-matched push has no script-derivable code; TOTP does.
+
+**API path is blocked (inconclusive, not negative).** All Graph reads return 403
+accessDenied — same wall as the CA policy read. The `az` CLI first-party token lacks
+`UserAuthenticationMethod.Read` (for `/me/authentication/methods` and
+`/softwareOathMethods`) and `Policy.Read.All` (for
+`/policies/authenticationMethodsPolicy` SoftwareOath state); neither identity has
+directory-reader consent for the az SP. v1.0 and beta both 403; both identities 403.
+
+**Resolution is a manual browser check (30s, Leo-only):** at
+`https://mysignins.microsoft.com/security-info` (signed in as each identity, via
+Edge/ProxyBridge through cloudpc), click "Add sign-in method" and check whether
+"Authenticator app or hardware token — code" (software OATH / TOTP) is offered.
+- If offered -> enroll it, capture the base32 seed once, add a `oathtool --totp -b`
+  step to `az-reauth` -> hands-free re-auth (new follow-on task).
+- If not offered (expected — B&B likely disables software-OATH to force phishing-
+  resistant number-matched push) -> Req-6 one-tap stands as the final answer; close the
+  probe.
+
+Expectation: not offered. This probe exists to convert that expectation into a
+confirmed fact with one click, not to build on an assumption.
