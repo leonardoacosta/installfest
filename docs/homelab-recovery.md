@@ -76,7 +76,7 @@ sudo tailscale up --accept-routes      # re-auth URL, approve on another device
 # expect same tailnet name, possibly different IP (free tier can't reserve)
 ```
 
-User-scope systemd units (nexus-agent, nexus-dashboard, nova-dashboard, file-server, elephant, pm2-nyaptor):
+User-scope systemd units (nexus-agent, nova-dashboard, file-server, elephant, pm2-nyaptor):
 
 ```
 systemctl --user daemon-reload
@@ -149,7 +149,7 @@ All three dashboards should return 200/307. Any non-healthy container needs inve
 
 1. **`libgcc_s.so.1` cascade during `pacman -Syu`** — if `/boot` isn't mounted, the post-install hooks fail silently and you get nonsensical post-upgrade state. Verify `findmnt /boot` before running the big upgrade.
 
-2. **Node isn't on default `$PATH`** — this is a mise-managed runtime. Every systemd service that spawns node needs `Environment=PATH=%h/.local/share/mise/shims:...` (see committed `nexus-dashboard.service`, `nova-dashboard.service`).
+2. **Node isn't on default `$PATH`** — this is a mise-managed runtime. Every systemd service that spawns node needs `Environment=PATH=%h/.local/share/mise/shims:...` (see committed `nova-dashboard.service`).
 
 3. **AdGuard bind-mount → named-volume drift** — the running container can have bind mounts while the compose file defines named volumes. After `docker compose up --force-recreate adguardhome`, configs land in `/var/lib/docker/volumes/adguardhome-{conf,work}/_data/`, NOT in `~/homelab/adguardhome/`. Restore from `~/dev/hl/homelab/adguardhome/` with `sudo cp -a` into the named-volume path.
 

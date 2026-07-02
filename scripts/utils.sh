@@ -56,3 +56,13 @@ sudo_keepalive_stop() {
     kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
     SUDO_KEEPALIVE_PID=""
 }
+
+# --- mx-broker socket dir --------------------------------------------------
+# Single source of truth for the ~/.mx/broker 0700 invariant (was duplicated
+# across run_once_install-packages, run_onchange_after_configure-git-azure,
+# and run_after_doctor). The ssh -L tunnel LaunchAgent needs this dir to
+# exist BEFORE it binds (ExitOnForwardFailure makes a missing dir a hard
+# bind failure), so every deploy path that might run first calls this.
+ensure_mx_broker_dir() {
+    mkdir -p "$HOME/.mx/broker" 2>/dev/null && chmod 700 "$HOME/.mx/broker" 2>/dev/null || true
+}

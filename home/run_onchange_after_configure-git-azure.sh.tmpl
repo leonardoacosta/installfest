@@ -16,12 +16,12 @@
 set -euo pipefail
 
 DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
 
 {{ if eq .chezmoi.os "darwin" -}}
 # 1. Socket parent dir must exist 0700 before the tunnel binds; the LaunchAgent
 #    also writes logs under ~/.local/logs, so ensure that exists too.
-mkdir -p "$HOME/.mx/broker"
-chmod 700 "$HOME/.mx/broker"
+ensure_mx_broker_dir
 mkdir -p "$HOME/.local/logs"
 
 # 2. git credential helper chain (multi-valued): broker helper first, PAT fallback.

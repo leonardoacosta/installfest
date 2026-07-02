@@ -32,7 +32,7 @@ fi
 # --- ensure mx-broker socket + log dirs exist BEFORE any tunnel LaunchAgent binds ---
 # (ssh -L won't mkdir the local endpoint; ExitOnForwardFailure makes a missing dir
 #  a hard bind failure. Create it before the bootstrap loop so the first bind wins.)
-mkdir -p "$HOME/.mx/broker" 2>/dev/null && chmod 700 "$HOME/.mx/broker" 2>/dev/null || true
+ensure_mx_broker_dir
 mkdir -p "$HOME/.local/logs" 2>/dev/null || true
 
 # --- auto-repair: load deployed-but-unloaded LaunchAgents (user domain, no sudo) ---
@@ -62,8 +62,29 @@ else
   GAPS+=("mx-broker ADO token unavailable — git->ADO will fall back to PAT (check mx-broker-tunnel LaunchAgent + homelab 'az --as-o365' session)")
 fi
 {{ else -}}
-# Linux (homelab): no platform-specific post-install repairs modeled yet.
-true
+# --- warn-only: az MSAL token already past the 60-day CA window (Req-1/1.4) ---
+# The nudge (az-reauth-nudge.service, day-55) should normally catch this
+# first; this is the belt-and-suspenders check for a machine that missed the
+# timer (fresh restore, timer disabled) — by the time this fires, the NEXT
+# `az` call for that identity will already fail with AADSTS70043.
+AZ_REAUTH_WINDOW_DAYS="${AZ_REAUTH_WINDOW_DAYS:-60}"
+STATE_DIR="$HOME/.local/state/az-reauth-nudge"
+for pair in "bbadmin:$HOME/.azure-bbadmin" "o365:$HOME/.azure-o365"; do
+  identity="${pair%%:*}"
+  cfg_dir="${pair#*:}"
+  [ -d "$cfg_dir" ] || continue
+  epoch=""
+  [ -f "$STATE_DIR/${identity}.login-epoch" ] && epoch=$(cat "$STATE_DIR/${identity}.login-epoch" 2>/dev/null)
+  if [ -z "$epoch" ] || ! [[ "$epoch" =~ ^[0-9]+$ ]]; then
+    cache="$cfg_dir/msal_token_cache.json"
+    [ -f "$cache" ] && epoch=$(stat -c '%Y' "$cache" 2>/dev/null)
+  fi
+  [[ "${epoch:-}" =~ ^[0-9]+$ ]] || continue
+  age_days=$(( ($(date +%s) - epoch) / 86400 ))
+  if [ "$age_days" -ge "$AZ_REAUTH_WINDOW_DAYS" ]; then
+    GAPS+=("az ${identity} token is ${age_days}d old (>=${AZ_REAUTH_WINDOW_DAYS}d CA window) — next az call will fail; run: az-reauth ${identity}")
+  fi
+done
 {{ end -}}
 
 for r in "${REPAIRED[@]:-}"; do [ -n "$r" ] && success "doctor repaired: $r"; done

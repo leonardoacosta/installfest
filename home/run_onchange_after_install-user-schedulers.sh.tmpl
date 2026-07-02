@@ -13,6 +13,12 @@
 #   weekly-cleanup timer:     {{ include "dot_config/systemd/user/weekly-cleanup.timer" | sha256sum }}
 #   nexus-listener service:   {{ include "dot_config/systemd/user/nexus-listener.service" | sha256sum }}
 #   cmux-relay-cleanup svc:   {{ include "dot_config/systemd/user/cmux-relay-cleanup.service" | sha256sum }}
+#   az-reauth-nudge script:   {{ include "../scripts/az-reauth-nudge.sh" | sha256sum }}
+#   az-reauth-nudge service:  {{ include "dot_config/systemd/user/az-reauth-nudge.service" | sha256sum }}
+#   az-reauth-nudge timer:    {{ include "dot_config/systemd/user/az-reauth-nudge.timer" | sha256sum }}
+#   mesh-heartbeat script:    {{ include "../scripts/mesh-heartbeat.sh" | sha256sum }}
+#   mesh-heartbeat service:   {{ include "dot_config/systemd/user/mesh-heartbeat.service" | sha256sum }}
+#   mesh-heartbeat timer:     {{ include "dot_config/systemd/user/mesh-heartbeat.timer" | sha256sum }}
 {{- end }}
 
 set -euo pipefail
@@ -62,7 +68,7 @@ case "$(uname -s)" in
     systemctl --user stop nexus-notifier.service 2>/dev/null || true
     systemctl --user disable nexus-notifier.service 2>/dev/null || true
     # Enable our managed units.
-    for unit in weekly-cleanup.timer nexus-listener.service; do
+    for unit in weekly-cleanup.timer nexus-listener.service az-reauth-nudge.timer mesh-heartbeat.timer; do
       systemctl --user enable --now "$unit"
       echo "scheduler: enabled ${unit}"
     done
@@ -71,7 +77,7 @@ case "$(uname -s)" in
     # next boot (clearing reboot-orphaned slots); start manually if needed.
     systemctl --user enable cmux-relay-cleanup.service
     echo "scheduler: enabled cmux-relay-cleanup.service (runs at boot)"
-    systemctl --user list-timers weekly-cleanup.timer --no-pager 2>/dev/null || true
+    systemctl --user list-timers weekly-cleanup.timer az-reauth-nudge.timer mesh-heartbeat.timer --no-pager 2>/dev/null || true
     systemctl --user status nexus-listener.service --no-pager 2>/dev/null | head -5 || true
     ;;
 

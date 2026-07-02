@@ -1,0 +1,11 @@
+[Unit]
+Description=Run az-reauth-nudge.service daily (design.md D1)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15m
+Persistent=true
+Unit=az-reauth-nudge.service
+
+[Install]
+WantedBy=timers.target

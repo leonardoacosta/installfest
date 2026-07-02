@@ -95,7 +95,7 @@ else
 fi
 
 # Ensure mx-broker socket + log dirs exist before the tunnel LaunchAgent binds.
-mkdir -p "$HOME/.mx/broker" && chmod 700 "$HOME/.mx/broker"
+ensure_mx_broker_dir
 mkdir -p "$HOME/.local/logs"
 
 # Load LaunchAgents

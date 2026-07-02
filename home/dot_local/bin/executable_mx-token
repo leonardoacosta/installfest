@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# mx-token - thin client for the homelab mx-broker token socket (Req-2).
+#
+# USAGE
+#   mx-token <resource> [identity]     # prints access token to stdout
+#   mx-token graph o365
+#   mx-token ado                       # identity defaults to o365
+#
+# Lets resource-only tooling (Graph/ADO REST calls) skip az MSAL entirely by
+# reusing the same forwarded broker socket git-credential-mxbroker.sh already
+# consumes (D4 extension it documents).
+#
+# HARDENING CONTRACT (mirrors git-credential-mxbroker.sh)
+#   - socket-ownership check before ever POSTing to it
+#   - --max-time 5 so a hung tunnel never blocks the caller
+#   - silent exit 0 on every failure path — no token means "fall back",
+#     never a stack trace
+#   - the token is NEVER logged or echoed anywhere except stdout
+
+set -uo pipefail
+
+RESOURCE="${1:-}"
+IDENTITY="${2:-o365}"
+[ -n "$RESOURCE" ] || exit 0
+
+SOCK="$HOME/.mx/broker/broker.sock"
+[ -S "$SOCK" ] || exit 0
+
+# Defense-in-depth: only trust a socket (and its parent dir) owned by us.
+[ -O "$SOCK" ] && [ -O "$HOME/.mx/broker" ] || exit 0
+
+resp=$(curl -s --max-time 5 --unix-socket "$SOCK" \
+  "http://localhost/token?resource=${RESOURCE}&identity=${IDENTITY}") || exit 0
+
+tok=$(printf '%s' "$resp" | /usr/bin/python3 -c 'import sys,json
+try:
+    t = json.load(sys.stdin).get("access_token")
+    if isinstance(t, str) and t and "\n" not in t and "\r" not in t:
+        sys.stdout.write(t)
+except Exception:
+    pass')
+
+[ -n "$tok" ] || exit 0
+printf '%s' "$tok"

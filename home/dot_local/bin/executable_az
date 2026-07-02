@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # az — Smart Azure CLI wrapper
 # Routes BB traffic through CloudPC SOCKS5 tunnel (proxychains4)
 # Auto-selects identity based on subcommand/arguments or project directory
@@ -15,6 +15,22 @@
 #
 # Project routing (in shared.zsh):
 #   ~/dev/ct/* → personal identity (no proxy) — handled by shell function, never reaches this script
+#
+# FAIL-FAST ON AADSTS70043 (Req-5, design.md D2)
+#   The 60-day CA sign-in-frequency window only resets on an interactive
+#   `az login` (background refresh does not extend it). Once it expires,
+#   every subsequent call fails with AADSTS70043 and retries just re-emit
+#   the same error — a retry storm. This wrapper detects 70043 in a failing
+#   call's stderr, fires ONE notify naming the fix, and sets a per-identity
+#   marker; while it exists, later calls for that identity short-circuit
+#   locally instead of hitting the network again. `az login` always bypasses
+#   the marker (it's the only thing that can clear it) and, on success,
+#   clears the marker + stamps a login-epoch file that az-reauth-nudge.sh
+#   reads to compute token age.
+#
+# Bash (not sh) needed for the `2> >(tee ...)` process substitution below,
+# which streams stderr live (device-code login output must stay interactive)
+# while also capturing it for the 70043 check.
 
 set -e
 
@@ -70,17 +86,57 @@ if [ "$IDENTITY" = "bbadmin" ]; then
     esac
 fi
 
-# --- Execute ---
-if [ "$USE_PROXY" = "false" ]; then
-    # Personal identity: direct connection, no proxy
-    exec "$REAL_AZ" $ARGS
+# --- Fail-fast state (Req-5) ---
+STATE_DIR="$HOME/.local/state/az-reauth-nudge"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+MARKER="$STATE_DIR/${IDENTITY}.reauth-required"
+
+IS_LOGIN=false
+case " $ARGS " in
+    *" login "*) IS_LOGIN=true ;;
+esac
+
+# While the marker exists for this identity, short-circuit locally instead of
+# re-hitting a network we already know will 70043 — UNLESS this call is the
+# `login` meant to clear it.
+if [ -f "$MARKER" ] && [ "$IS_LOGIN" = false ]; then
+    echo "error: ${IDENTITY} re-auth required — run: az-reauth ${IDENTITY}" >&2
+    exit 1
 fi
 
-# BB identities: route through CloudPC SOCKS5 tunnel
-# Prefer HTTPS_PROXY env var — works with Python (az CLI) and avoids LD_PRELOAD
-# issues in sandboxed environments (Claude Code, containers). proxychains4 LD_PRELOAD
-# only needed for binaries that ignore proxy env vars (compiled C/Go), which az is not.
-export HTTPS_PROXY="socks5h://127.0.0.1:1080"
-export HTTP_PROXY="socks5h://127.0.0.1:1080"
-export NO_PROXY="localhost,127.0.0.1,::1"
-exec "$REAL_AZ" $ARGS
+if [ "$USE_PROXY" = "true" ]; then
+    # BB identities: route through CloudPC SOCKS5 tunnel.
+    # Prefer HTTPS_PROXY env var — works with Python (az CLI) and avoids LD_PRELOAD
+    # issues in sandboxed environments (Claude Code, containers). proxychains4 LD_PRELOAD
+    # only needed for binaries that ignore proxy env vars (compiled C/Go), which az is not.
+    export HTTPS_PROXY="socks5h://127.0.0.1:1080"
+    export HTTP_PROXY="socks5h://127.0.0.1:1080"
+    export NO_PROXY="localhost,127.0.0.1,::1"
+fi
+
+# --- Execute, capturing stderr for the 70043 check while streaming it live ---
+STDERR_TMP=$(mktemp)
+set +e
+"$REAL_AZ" $ARGS 2> >(tee "$STDERR_TMP" >&2)
+EXIT_CODE=$?
+wait
+set -e
+
+STDERR_TEXT=$(cat "$STDERR_TMP" 2>/dev/null || true)
+rm -f "$STDERR_TMP" 2>/dev/null || true
+
+if [ "$EXIT_CODE" -ne 0 ] && printf '%s' "$STDERR_TEXT" | grep -q "AADSTS70043"; then
+    if [ ! -f "$MARKER" ]; then
+        # shellcheck disable=SC1091
+        . "$HOME/.claude/scripts/lib/nx-send.sh" 2>/dev/null || true
+        command -v nx_notify >/dev/null 2>&1 && nx_notify \
+            "Azure ${IDENTITY} sign-in expired (AADSTS70043). Run: az-reauth ${IDENTITY}" \
+            "az re-auth required"
+    fi
+    touch "$MARKER" 2>/dev/null || true
+elif [ "$IS_LOGIN" = true ] && [ "$EXIT_CODE" -eq 0 ]; then
+    rm -f "$MARKER" 2>/dev/null || true
+    date +%s > "$STATE_DIR/${IDENTITY}.login-epoch" 2>/dev/null || true
+fi
+
+exit "$EXIT_CODE"
