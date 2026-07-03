@@ -24,6 +24,7 @@ repo's convention that new docs go under `docs/`.
 | 003 | wire orphaned secret-scan + raycast-regen into beads pre-commit | P1 | S | — | DONE |
 | 004 | scripts/check.sh verification baseline | P1 | M | — | DONE |
 | 005 | shared projects.toml python resolver (fixes bare-python3 Mac bug) | P2 | M | 004 | DONE |
+| 006 | project-management audit workflow (audit-projects.sh + saved CC workflow) | P2 | M | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale).
@@ -36,6 +37,11 @@ REJECTED (one-line rationale).
   live remote-exposure finding.
 - Follow-up (not a plan yet): after 003 and 004 both land, wire
   `scripts/check.sh` into the pre-commit chain.
+- 006 (added 2026-07-03 at `24260fe`, operator-requested via /improve plan
+  variant) covers *detection* for the backlog items "generator prune pass"
+  and "registry convergence" audit surface; the fixes themselves remain
+  backlog. Evidence found at planning time: orphan raycast launchers
+  `es gd pp sj` (local/) and `es pp` (cloudpc/) with no registry entry.
 
 ## Backlog — vetted findings not planned this round
 
