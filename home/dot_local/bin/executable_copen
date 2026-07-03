@@ -77,15 +77,23 @@ d = data.get("defaults", {})
 base = d.get("ssh_base", os.path.expanduser("~"))
 src = f"{d.get('ssh_user', 'nyaptor')}@{d.get('ssh_host', 'homelab')}"
 best = None
+best_real_len = -1
+anchor_real = os.path.realpath(anchor)
 for p in data.get("projects", []):
     abs_p = os.path.join(base, p["path"])
     if arg:
         if p["code"] == arg:
             best = (p["code"], abs_p, p["path"])
             break
-    elif anchor == abs_p or anchor.startswith(abs_p + os.sep):
-        if best is None or len(abs_p) > len(best[1]):
-            best = (p["code"], abs_p, p["path"])
+    else:
+        # realpath: registry entries may point at a symlink (e.g. ~/.claude
+        # -> ~/dev/cc); compare against the resolved target so working from
+        # either path resolves to the same project.
+        abs_p_real = os.path.realpath(abs_p)
+        if anchor_real == abs_p_real or anchor_real.startswith(abs_p_real + os.sep):
+            if len(abs_p_real) > best_real_len:
+                best = (p["code"], abs_p, p["path"])
+                best_real_len = len(abs_p_real)
 if best is None:
     what = f"code '{arg}'" if arg else f"project containing {anchor}"
     print(f"copen: registry has no {what} ({reg})", file=sys.stderr)
