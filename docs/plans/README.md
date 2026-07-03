@@ -24,7 +24,7 @@ repo's convention that new docs go under `docs/`.
 | 003 | wire orphaned secret-scan + raycast-regen into beads pre-commit | P1 | S | — | DONE |
 | 004 | scripts/check.sh verification baseline | P1 | M | — | DONE |
 | 005 | shared projects.toml python resolver (fixes bare-python3 Mac bug) | P2 | M | 004 | DONE |
-| 006 | project-management audit workflow (audit-projects.sh + saved CC workflow) | P2 | M | — | TODO |
+| 006 | project-management audit workflow (audit-projects.sh + saved CC workflow) | P2 | M | — | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) |
 REJECTED (one-line rationale).
@@ -42,6 +42,8 @@ REJECTED (one-line rationale).
   and "registry convergence" audit surface; the fixes themselves remain
   backlog. Evidence found at planning time: orphan raycast launchers
   `es gd pp sj` (local/) and `es pp` (cloudpc/) with no registry entry.
+- 006 supersedes the backlog item "generator prune pass" only as *detection*;
+  the prune fix itself is still open.
 
 ## Backlog — vetted findings not planned this round
 
