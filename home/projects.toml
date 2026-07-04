@@ -240,6 +240,14 @@ path = "dev/lv"
 tiers = ["remote", "local"]
 
 [[projects]]
+code = "mx"
+name = "MX Mesh"
+category = "personal"
+icon = "🛰️"
+path = "dev/mx"
+tiers = ["remote", "local"]
+
+[[projects]]
 code = "nv"
 name = "Nova"
 category = "personal"
