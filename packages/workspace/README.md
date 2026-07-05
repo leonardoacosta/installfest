@@ -17,10 +17,13 @@ packages/workspace/
     generate-profiles   generator: reads the registry, scaffolds packages/workspace/profiles/<org>/
   lib/
     trackers/           per-tracker adapters: beads-ready, ado-ready, none-ready (+ README)
-  profiles/<org>/
+  profiles/<org>/       COMMITTED profile tree — ~/.config/workspace/<org> symlinks here
     profile.toml        tracker config (consumed by wk-ready)
-    env.sh              sourced at activation by wsenv
-    claude/, wrappers/  scaffold dirs (--add-dir + PATH overlay)
+    env.sh              portable env, sourced at activation by wsenv (+ overlay tail)
+    claude/, wrappers/  --add-dir target + PATH overlay (wrappers/az -> executable_az)
+    plugin/             org agents+skills bundle (--plugin-dir); agents/skills are
+                        relative symlinks into ~/dev/cc, plugin.json is committed
+    settings.json       installed-plugin enablement overlay (--settings; b-and-b only)
   integrations/         consumer glue (cmux, etc.)
   README.md
 ```
@@ -37,10 +40,17 @@ registry — new subcommands appear the moment they land on PATH. Run `wk` (or
 - `bin/wsenv` is symlinked onto PATH by chezmoi: `home/dot_local/bin/symlink_wsenv.tmpl`
   → `~/.local/bin/wsenv` → `~/dev/if/packages/workspace/bin/wsenv`. `~/.local/bin` is already
   on PATH (`.zshenv`), so bare `wsenv` works.
-- `bin/generate-profiles` runs on `chezmoi apply` via
-  `home/run_onchange_after_generate-workspace-profiles.sh.tmpl` (hash-pinned to `projects.toml`).
+- `profiles/<org>/` are **committed dirs**; chezmoi symlinks each into place via
+  `home/dot_config/workspace/symlink_<org>.tmpl` → `~/.config/workspace/<org>`. The live file IS
+  the repo file — edit in place, review in git. `bin/generate-profiles` is a **scaffolder**: it
+  creates a skeleton + symlink template for a *new* org category only (run it by hand when adding
+  one); it never writes content into `~/.config` (the pre-rehome model did, and clobbered the
+  symlink every apply — retired 2026-07-05).
+- Machine-coupled bits (the SOCKS/cloudpc tunnel ensure-block) live in a chezmoi-**rendered**
+  overlay `home/dot_config/workspace-local/<org>/env.local.sh.tmpl` → `~/.config/workspace-local/<org>/env.local.sh`
+  (OS-branched `systemctl`/`launchctl`), sourced transitively by the committed `env.sh`.
 - `sourceDir = ~/dev/if` on BOTH machines + the `post-merge` → `chezmoi apply` hook means a
-  `git pull` regenerates everything locally. No SSH coordination, no per-machine manual step.
+  `git pull` redeploys the symlinks + overlay locally. No SSH coordination, no per-machine manual step.
 
 ## Registry (source of truth)
 

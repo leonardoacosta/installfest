@@ -1,34 +1,32 @@
 #!/usr/bin/env bash
-# generate-workspace-profiles.sh — emit per-org workspace profiles from projects.toml.
+# generate-profiles — registry-driven scaffolder for committed workspace profiles.
 #
 # Source of truth: home/projects.toml (the `category` field defines the org set).
-# Output: ~/.config/workspace/<org>/ with the artifacts wsenv consumes:
-#   env.sh        sourced for env vars (e.g. AZURE_CONFIG_DIR)
-#   wrappers/     prepended to PATH (org command wrappers) — created empty for now
-#   claude/       --add-dir target (org-only skills) — created empty for now
+# Committed tree: packages/workspace/profiles/<org>/ — version-controlled, edited in
+# place, and SYMLINKED into ~/.config/workspace/<org>/ by chezmoi
+# (home/dot_config/workspace/symlink_<org>.tmpl). wsenv sources the symlinked path.
 #
-# Consumed by: wsenv (~/.claude/scripts/bin/wsenv), cmux-workspaces.sh (Phase 4).
-# Triggered by: home/run_onchange_after_generate-workspace-profiles.sh.tmpl on chezmoi apply.
+# This script no longer GENERATES content into ~/.config (that was the pre-rehome model,
+# which clobbered the chezmoi symlink every apply — see cc rehome-workspace-profiles-to-repo
+# task 1.7). It only SCAFFOLDS a skeleton for any org category in the registry that does
+# not yet have a committed profile dir + its chezmoi symlink template. Existing profiles
+# are never touched — their content (env.sh, plugin/, wrappers/, settings.json) is
+# committed and hand-edited.
 #
-# Idempotent: writes into a tmp tree, then atomically swaps each org dir. Pruning:
-# orgs no longer in the registry get their profile dir removed.
-#
-# Scope: b-and-b/env.sh carries the Azure-identity fix (AZURE_CONFIG_DIR=~/.azure-bbadmin)
-# + cloudpc tunnel; b-and-b/wrappers/az the bbadmin+SOCKS wrapper. Phase 4b adds per-org
-# plugin bundles (agents + skills symlinked from ~/.claude) and a b-and-b enablement
-# settings.json (omnisharp on, vercel-plugin off). priceless/personal env.sh stay stubs.
-set -euo pipefail
+# Idempotent: an org whose profiles/<org>/ + symlink_<org>.tmpl already exist is a no-op.
+# Newly-scaffolded files are left UNCOMMITTED for review + `git add` (never auto-committed).
+(return 0 2>/dev/null) || set -euo pipefail
 
-# Registry source of truth: IF's projects.toml (read in-place; chezmoi-ignored).
-# Package lives at ~/dev/if/packages/workspace/bin/, registry at ~/dev/if/home/.
-REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
+DOTFILES="${DOTFILES:-$HOME/dev/if}"
+REGISTRY="${WSENV_REGISTRY:-$DOTFILES/home/projects.toml}"
 [[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
-PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
+PROFILES_DIR="$DOTFILES/packages/workspace/profiles"
+SYMLINK_TMPL_DIR="$DOTFILES/home/dot_config/workspace"
 
-[[ -f "$REGISTRY" ]] || { echo "generate-workspace-profiles: registry not found: $REGISTRY" >&2; exit 1; }
+[[ -f "$REGISTRY" ]] || { echo "generate-profiles: registry not found: $REGISTRY" >&2; exit 1; }
 
 # shellcheck source=../../../scripts/lib/registry.sh
-source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
+source "$DOTFILES/scripts/lib/registry.sh"
 WS_PY=$(registry_python) || exit 1
 
 # Distinct org set from the registry.
@@ -40,194 +38,42 @@ print("\n".join(cats))
 PY
 )
 
-# Per-org env content. Keyed by org slug. Add new exports here as phases land.
-emit_env() {
-  local org="$1"
-  case "$org" in
-    b-and-b)
-      cat <<'EOF'
-# Workspace env: b-and-b (generated — edit generate-workspace-profiles.sh, not here)
-# Correct default Azure identity for Brown & Brown work (was globally civalent).
-export AZURE_CONFIG_DIR="$HOME/.azure-bbadmin"
+mkdir -p "$PROFILES_DIR" "$SYMLINK_TMPL_DIR"
 
-# Ensure the cloudpc SOCKS5 tunnel (127.0.0.1:1080) is up — Azure CAE bypass needs it.
-# Idempotent + quiet: skip if :1080 already listening, else start the user unit.
-# ALL output redirected — this file is sourced inside the eval'd `wsenv --activate`,
-# so any chatter on stdout would corrupt the activation shell. b-and-b ONLY.
-if ! command ss -tlnH 'sport = :1080' 2>/dev/null | command grep -q .; then
-  systemctl --user start cloudpc-tunnel.service >/dev/null 2>&1 || true
-fi
-EOF
-      ;;
-    priceless)
-      cat <<'EOF'
-# Workspace env: priceless (generated)
-# (no shared priceless env yet — per-repo .env still applies)
-EOF
-      ;;
-    personal)
-      cat <<'EOF'
-# Workspace env: personal (generated)
-# (no shared personal env yet)
-EOF
-      ;;
-    *)
-      echo "# Workspace env: $org (generated, empty)"
-      ;;
-  esac
-}
-
-# Phase 4b — per-org plugin bundle. The plugin (loaded via --plugin-dir, which wsenv
-# already emits when plugin/ exists) is the ONLY launch surface that carries hooks and
-# cleanly co-locates an org's agents + skills behind one flag. Agents/skills are
-# SYMLINKED from their canonical ~/.claude sources — never forked (forking drifts). Maps
-# are keyed by org slug; add rows as orgs gain org-scoped agents/skills.
-CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-declare -A ORG_AGENTS=(
-  [b-and-b]="dotnet-azure-specialist cloudpc-specialist"
-  [priceless]="stripe-engineer"
-  [personal]="effect-engineer"
-)
-declare -A ORG_SKILLS=(
-  [b-and-b]="bb-azure-ops"
-  [priceless]="t3-code-patterns"
-  [personal]="effect"
-)
-
-# Scaffold plugin/.claude-plugin/plugin.json + symlinked agents/ + skills/ into the
-# staged profile dir. Validated against workspace-profile.schema.json by the contract
-# validator before promotion (plugin.json fields, settings allowlist, symlink resolution).
-scaffold_plugin() {
-  local org="$1" root="$2"
-  local agents="${ORG_AGENTS[$org]:-}" skills="${ORG_SKILLS[$org]:-}"
-  [[ -z "$agents$skills" ]] && return 0   # org has no bundle
-  local pdir="$root/plugin"
-  mkdir -p "$pdir/.claude-plugin" "$pdir/agents" "$pdir/skills"
-  cat > "$pdir/.claude-plugin/plugin.json" <<EOF
-{
-  "name": "workspace-$org",
-  "version": "1.0.0",
-  "description": "$org org-scoped agents + skills (generated from projects.toml)"
-}
-EOF
-  local a s src
-  for a in $agents; do
-    src="$(find "$CLAUDE_HOME/agents" -name "$a.md" -not -path '*/references/*' 2>/dev/null | head -1)"
-    if [[ -n "$src" ]]; then ln -sfn "$src" "$pdir/agents/$a.md";
-    else echo "scaffold_plugin: agent not found: $a ($org)" >&2; fi
-  done
-  for s in $skills; do
-    src="$CLAUDE_HOME/skills/$s"
-    if [[ -d "$src" ]]; then ln -sfn "$src" "$pdir/skills/$s";
-    else echo "scaffold_plugin: skill not found: $s ($org)" >&2; fi
-  done
-}
-
-# Installed-plugin enablement overlay (scope-by-smaller-set). Only b-and-b overrides:
-# omnisharp is default-OFF globally (.NET is B&B-exclusive) and re-enabled here;
-# vercel-plugin stays global-ON but is silenced in b-and-b (context-blind hooks = noise
-# for Azure work). enabledPlugins merges per-key, narrower wins. Allowlisted key per
-# workspace-profile.schema.json settingsOverlay.
-emit_settings() {
-  local org="$1" root="$2"
-  [[ "$org" == "b-and-b" ]] || return 0
-  cat > "$root/settings.json" <<'EOF'
-{
-  "enabledPlugins": {
-    "omnisharp@claude-code-lsps": true,
-    "vercel-plugin@vercel-vercel-plugin": false
-  }
-}
-EOF
-}
-
-# Build into a tmp root, then swap.
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/wsprofiles.XXXXXX")"
-trap 'rm -rf "$TMP_ROOT"' EXIT
-
+SCAFFOLDED=0
+EXISTING=0
 while IFS= read -r org; do
   [[ -z "$org" ]] && continue
-  d="$TMP_ROOT/$org"
-  mkdir -p "$d/wrappers" "$d/claude"
-  emit_env "$org" > "$d/env.sh"
-  scaffold_plugin "$org" "$d"
-  emit_settings "$org" "$d"
-done <<< "$ORGS"
+  d="$PROFILES_DIR/$org"
 
-mkdir -p "$PROFILE_ROOT"
+  if [[ -d "$d" ]]; then
+    EXISTING=$((EXISTING + 1))
+  else
+    # New org category — scaffold a portable skeleton. Content is a stub the user
+    # fills in; the OS-coupled tunnel block belongs in a workspace-local overlay
+    # (home/dot_config/workspace-local/<org>/env.local.sh.tmpl), NOT here.
+    mkdir -p "$d/claude" "$d/wrappers"
+    cat > "$d/env.sh" <<EOF
+# Workspace env: $org (portable — committed, edit in place).
+# Machine-coupled bits (tunnels, launchd/systemd) go in the chezmoi-rendered overlay
+# ~/.config/workspace-local/$org/env.local.sh, sourced transitively below.
 
-# Contract validator (cc-owned, referenced by stable absolute path — same convention
-# as the rest of ~/.claude/scripts/bin/*). Each org's STAGED profile is validated
-# BEFORE it is promoted; promotion is the existing atomic swap below.
-VALIDATE="$HOME/.claude/scripts/bin/workspace-profile-validate"
-
-# Per-org outcome tally for the three-state aggregate exit (rules/TOOLING.md fan-out
-# convention): 0 = all valid, 1 = all failed, 2 = partial.
-ORGS_OK=0
-ORGS_FAILED=0
-
-# Atomic per-org swap + prune orgs no longer present.
-#
-# Integration choice: STAGE -> VALIDATE -> PROMOTE-ON-PASS. The generator already
-# builds each org into "$TMP_ROOT/$org" and then atomically swaps it into place. We
-# validate the STAGED tmp dir against the contract first, and only perform the swap
-# when it passes. A failing org is left UN-promoted: its existing on-disk profile (if
-# any) is untouched and no invalid profile is ever finalized — per-org isolation, one
-# bad org never aborts the run. This fits the existing tmp-then-swap shape with no
-# restore logic and no chance of a half-written profile persisting.
-for org in $ORGS; do
-  [[ -z "$org" ]] && continue
-  src="$TMP_ROOT/$org"
-  dst="$PROFILE_ROOT/$org"
-
-  # Validate the staged profile before promoting it.
-  if [[ -x "$VALIDATE" ]]; then
-    if ! "$VALIDATE" "$src"; then
-      echo "generate-profiles: contract validation FAILED for org '$org' -> NOT promoted (kept existing profile)" >&2
-      ORGS_FAILED=$((ORGS_FAILED + 1))
-      continue
-    fi
+_ovl="\${XDG_CONFIG_HOME:-\$HOME/.config}/workspace-local/$org/env.local.sh"
+[ -r "\$_ovl" ] && . "\$_ovl"
+unset _ovl
+EOF
+    : > "$d/claude/.gitkeep"
+    echo "scaffolded committed profile skeleton: profiles/$org/ (uncommitted — review + git add)"
+    SCAFFOLDED=$((SCAFFOLDED + 1))
   fi
 
-  rm -rf "$dst.old" 2>/dev/null || true
-  [[ -d "$dst" ]] && mv "$dst" "$dst.old"
-  mv "$src" "$dst"
-  rm -rf "$dst.old" 2>/dev/null || true
-  ORGS_OK=$((ORGS_OK + 1))
-done
+  # Ensure the chezmoi symlink template exists for this org.
+  tmpl="$SYMLINK_TMPL_DIR/symlink_$org.tmpl"
+  if [[ ! -f "$tmpl" ]]; then
+    echo '{{ .chezmoi.sourceDir }}/../packages/workspace/profiles/'"$org" > "$tmpl"
+    echo "scaffolded chezmoi symlink template: $(basename "$tmpl") (uncommitted — review + git add)"
+    SCAFFOLDED=$((SCAFFOLDED + 1))
+  fi
+done <<< "$ORGS"
 
-# Populate per-org wrapper sets. These shadow native CLIs ONLY when the org's
-# workspace is active (wsenv prepends <org>/wrappers/ to PATH). Phase 3.3 scope:
-# the bbadmin+SOCKS-proxy `az` belongs to b-and-b — relocated here so the global
-# default can become native (priceless) az with no wrapper/guard.
-BBADMIN_AZ="$HOME/.local/bin/az"
-if [[ -x "$BBADMIN_AZ" ]] && grep -q 'azure-bbadmin' "$BBADMIN_AZ" 2>/dev/null; then
-  install -m 0755 "$BBADMIN_AZ" "$PROFILE_ROOT/b-and-b/wrappers/az"
-  echo "installed b-and-b/wrappers/az (bbadmin + SOCKS proxy)"
-fi
-
-# Prune stale org dirs (present on disk but no longer in the registry).
-if [[ -d "$PROFILE_ROOT" ]]; then
-  for existing in "$PROFILE_ROOT"/*/; do
-    [[ -d "$existing" ]] || continue
-    name="$(basename "$existing")"
-    if ! grep -qx "$name" <<< "$ORGS"; then
-      rm -rf "$existing"
-      echo "pruned stale workspace profile: $name"
-    fi
-  done
-fi
-
-echo "workspace profiles generated under $PROFILE_ROOT: $(echo $ORGS | tr '\n' ' ')"
-
-# Three-state aggregate exit (rules/TOOLING.md fan-out convention) so a CI / chezmoi
-# caller can distinguish "nothing worked" from "most worked, one org drifted":
-#   0 = all orgs valid + promoted | 1 = all orgs failed | 2 = partial (some skipped).
-echo "generate-profiles: promoted=$ORGS_OK failed=$ORGS_FAILED"
-if [[ "$ORGS_FAILED" -eq 0 ]]; then
-  exit 0
-elif [[ "$ORGS_OK" -eq 0 ]]; then
-  exit 1
-else
-  exit 2
-fi
+echo "generate-profiles: orgs=$(echo $ORGS | tr '\n' ' ')| existing=$EXISTING scaffolded=$SCAFFOLDED"

@@ -1,6 +1,0 @@
-#!/bin/bash
-# chezmoi:template: string
-# Regenerate workspace profiles when projects.toml changes
-# Hash: {{ include "projects.toml" | sha256sum }}
-
-"{{ .chezmoi.workingTree }}/packages/workspace/bin/generate-profiles"
