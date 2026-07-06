@@ -24,6 +24,7 @@ packages/workspace/
     plugin/             org agents+skills bundle (--plugin-dir); agents/skills are
                         relative symlinks into ~/dev/cc, plugin.json is committed
     settings.json       installed-plugin enablement overlay (--settings; b-and-b only)
+  profiles/bootstrap/   COMMITTED, NOT org-scoped — see § Bootstrap profile below
   integrations/         consumer glue (cmux, etc.)
   README.md
 ```
@@ -69,6 +70,8 @@ eval "$(wsenv ws)"          # activate b-and-b in this shell (env + wrappers PAT
 claude $(wsenv --flags ws)  # launch claude with the org's CC profile flags
 
 # Portfolio surface (new — W1)
+claude $(wsenv --profile bootstrap --flags)  # launch with the bootstrap profile (see below)
+
 wk                          # list discovered subcommands
 wk ready priceless          # 60 ready beads issues across oo/tc/ss/ct/mv/tl
 wk ready personal           # 73 ready beads issues across the personal portfolio
@@ -107,6 +110,32 @@ It shows the four stacked layers and what each contributes:
 `--json` emits the full object (consumable by other tooling); `-i` opens an fzf
 drill-down where selecting a layer previews its live source file (falls back to plain
 when fzf is absent).
+
+## Bootstrap profile
+
+`profiles/bootstrap/` is a **fixed, non-org profile** — it exists to house the `/plan:*` suite
+(`scope`, `user-stories`, `design`, `financials`, `prd`, `roadmap`, `strategy`, `advance`) and
+`/project:init|scaffold|video`, which cc's `add-bootstrapping-workspace-profile` change relocated
+out of cc's always-loaded global command surface (they cost `command_descriptions` bytes on
+every session everywhere, for a command family only used at the start of a brand-new project —
+see cc's `add-bootstrapping-workspace-profile` OpenSpec change for the full rationale and the
+measured floor-reduction impact).
+
+`wsenv --profile <name>` is a **separate resolution path** from `--org <code>`: it bypasses the
+`projects.toml` code→org lookup entirely and activates `$PROFILE_ROOT/<name>` directly, then falls
+through the same `--flags`/`--activate`/`--validate` mode dispatch as an org profile. Today
+`bootstrap` is the only profile reached this way; the flag is mutually exclusive with a positional
+`<code>` argument (errors clearly if both are given).
+
+```bash
+claude $(wsenv --profile bootstrap --flags)   # start a session with /plan:* + /project:init|scaffold|video
+```
+
+Unlike an org profile, `bootstrap/plugin/commands/**/*.md` are **committed copies**, not symlinks
+into `~/dev/cc` (see design.md Decision 3 — copies decouple the relocated commands' lifecycle from
+cc's own release cadence, since they're meant to be a stable, rarely-touched utility belt rather
+than something that tracks cc HEAD). It is still validated by the same cc-owned contract described
+below.
 
 ## Per-org profiles (generated)
 
