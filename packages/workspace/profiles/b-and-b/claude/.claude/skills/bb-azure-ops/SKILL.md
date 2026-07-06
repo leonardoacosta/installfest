@@ -144,9 +144,9 @@ Brown & Brown's tenant enforces Conditional Access by IP — direct calls from a
 ```
 Linux workstation
   │
-  ├─ SSH → cloudpc                          (ADO PS proxy, Edge CDP for SNOW)
+  ├─ SOCKS5 localhost:1080 → cloudpc        (every Azure / Graph / SNOW / ADO HTTPS call — the PRIMARY transport)
   │
-  └─ SOCKS5 localhost:1080 → cloudpc        (every Azure / Graph / SNOW HTTPS call)
+  └─ SSH → cloudpc                          (fallback only: az-devops-extension PS proxy, cloudpc files, Edge CDP for SNOW)
 ```
 
 **You don't start this tunnel by hand.** Starting a b-and-b workspace session — `mux ws` / `ws-claude ws` / `wsenv --activate ws` — auto-ensures it: activation starts `cloudpc-tunnel.service` if `:1080` is down (wired into the generated b-and-b `env.sh`, 2026-05-31). So begin work inside the b-and-b workspace and the tunnel is handled. If a B&B command still hangs ~30s, re-activate the workspace (fallback: `systemctl --user start cloudpc-tunnel.service`). The rare miss is activation in a context without a user session bus.
@@ -395,7 +395,7 @@ If a smoke-test step below fails because the tool/token isn't there, this is whe
 | Tool | Lives at | Verify / (re)create | If absent |
 | --- | --- | --- | --- |
 | **SOCKS tunnel** | systemd `--user` unit `cloudpc-tunnel.service` (`ExecStart=ssh -D 1080 -N … cloudpc`) | `ss -tlnp \| grep 1080`; (re)start `systemctl --user start cloudpc-tunnel.service` — but b-and-b workspace activation auto-ensures it (`wsenv --activate ws`) | Re-activate the workspace; if the unit itself is gone it ships from `~/dev/if` dotfiles (`~/.config/systemd/user/cloudpc-tunnel.service`) |
-| **`scripts/ado`** | `~/dev/ws/scripts/ado` (cloudpc SSH proxy; ADO via the O365 AAD token, resource `499b84ac-…`) | `~/dev/ws/scripts/ado test` (prints active identity + project count) | It's committed in the ws repo — `git -C ~/dev/ws status scripts/ado`; needs the SSH `cloudpc` alias + a live cloudpc `az login` |
+| **`scripts/ado`** | `~/dev/ws/scripts/ado` (SOCKS-first: local BBAdmin token mint + ADO REST via :1080, resource `499b84ac-…`; SSH PS proxy only for the extension shortcuts) | `~/dev/ws/scripts/ado test` (grades SOCKS primary; SSH reported warn-only) | Committed in the ws repo — `git -C ~/dev/ws status scripts/ado`; primary path needs a live local `az --as-admin` session + the tunnel; only PS-proxy shortcuts need the SSH alias + cloudpc `az login` |
 | **Graph token (BBAdmin)** | `~/.graph-bbadmin-token.json` (O365 sibling: `~/.graph-token.json`) | refreshed by `~/dev/ws/scripts/graph-token-refresh` + `graph-token-refresh.timer` (systemd `--user`); manual: `scripts/graph-token-refresh` (BBAdmin) / `scripts/graph-token-refresh --file ~/.graph-token.json --client <id>` (O365) | File is seeded once from a cloudpc `Connect-MgGraph` mint; if no `refresh_token` in the JSON, re-mint on cloudpc (see `references/graph-endpoints.md`) |
 | **`postman-smoke`** | `~/dev/ws/scripts/bin/postman-smoke` (newman over the 221-request wholesale collection) | `postman-smoke <dev\|test\|stage>` — see `postman-smoke --help` | Committed in ws; needs `newman` + the env files (see `references/whs-pipelines.md` § Postman per-env smoke) |
 | **`scripts/az-audit`** | `~/dev/ws/scripts/az-audit` (per-identity ARM health, tunnel state, cache age) | `scripts/az-audit` (exit 0 = all green) — see its header comment | Committed in ws; it only reads, nothing to create |
