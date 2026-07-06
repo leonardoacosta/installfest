@@ -28,12 +28,19 @@
 #   wsenv --activate <code> # alias for default (eval-able shell)
 #   wsenv --validate <code> # validate the resolved org profile (no launch); propagates exit
 #   wsenv --list            # list all code->org mappings
+#   wsenv --profile <name>  # bypass CODE/org registry resolution; resolve
+#                           # PROFILE=$PROFILE_ROOT/<name> directly (e.g. `bootstrap`), then fall
+#                           # through to the same --flags/--activate/--validate mode logic.
+#                           # Mutually exclusive with a positional <code>. Rejected by
+#                           # --org/--code/--list (registry-only queries with no analog for a
+#                           # name-addressed profile).
 #
 # Examples:
 #   eval "$(wsenv ws)"               # activate b-and-b workspace
 #   eval "$(wsenv)"                  # activate based on cwd
 #   claude $(wsenv --flags ws)       # launch claude with b-and-b profile
 #   wsenv --org oo                   # -> client
+#   claude $(wsenv --profile bootstrap --flags)  # launch claude with the bootstrap profile
 #
 # Environment overrides:
 #   WSENV_REGISTRY   path to projects.toml (default: $DOTFILES/home/projects.toml,
@@ -44,6 +51,7 @@ set -euo pipefail
 
 MODE="activate"
 CODE=""
+PROFILE_NAME=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,28 +61,53 @@ while [[ $# -gt 0 ]]; do
     --activate)  MODE="activate"; shift ;;
     --validate)  MODE="validate"; shift ;;
     --list)      MODE="list"; shift ;;
+    --profile)
+      [[ $# -ge 2 ]] || { echo "wsenv: --profile requires a name argument" >&2; exit 2; }
+      PROFILE_NAME="$2"; shift 2 ;;
     -h|--help)   awk '/^# wsenv/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*)          echo "wsenv: unknown flag $1 (try --help)" >&2; exit 2 ;;
     *)           CODE="$1"; shift ;;
   esac
 done
 
-REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
-[[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
-PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
-
-if [[ ! -f "$REGISTRY" ]]; then
-  echo "wsenv: registry not found: $REGISTRY" >&2
-  exit 1
+if [[ -n "$PROFILE_NAME" ]]; then
+  if [[ -n "$CODE" ]]; then
+    echo "wsenv: --profile <name> is mutually exclusive with a positional <code> ('$CODE')" >&2
+    exit 2
+  fi
+  case "$MODE" in
+    org|code|list)
+      echo "wsenv: --$MODE is registry-only and does not accept --profile (no analog for a name-addressed profile)" >&2
+      exit 2
+      ;;
+  esac
 fi
 
-# shellcheck source=../../../scripts/lib/registry.sh
-source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
-WS_PY=$(registry_python) || exit 1
+PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
 
-# Resolve code from cwd if not given (match a project whose path is a suffix of $PWD).
-if [[ -z "$CODE" && "$MODE" != "list" ]]; then
-  CODE=$("$WS_PY" - "$REGISTRY" "$PWD" <<'PY'
+if [[ -n "$PROFILE_NAME" ]]; then
+  # --profile bypass: skip CODE/org registry resolution entirely. ORG/CODE are set to the
+  # profile name itself so the activate-mode output below stays well-defined (set -u guard);
+  # they carry no registry meaning in this path.
+  PROFILE="$PROFILE_ROOT/$PROFILE_NAME"
+  ORG="$PROFILE_NAME"
+  CODE="$PROFILE_NAME"
+else
+  REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
+  [[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
+
+  if [[ ! -f "$REGISTRY" ]]; then
+    echo "wsenv: registry not found: $REGISTRY" >&2
+    exit 1
+  fi
+
+  # shellcheck source=../../../scripts/lib/registry.sh
+  source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
+  WS_PY=$(registry_python) || exit 1
+
+  # Resolve code from cwd if not given (match a project whose path is a suffix of $PWD).
+  if [[ -z "$CODE" && "$MODE" != "list" ]]; then
+    CODE=$("$WS_PY" - "$REGISTRY" "$PWD" <<'PY'
 import sys, tomllib, os
 reg, pwd = sys.argv[1], os.path.realpath(sys.argv[2])
 data = tomllib.load(open(reg, "rb"))
@@ -89,26 +122,26 @@ for p in data.get("projects", []):
 print(best[0])
 PY
 )
-  if [[ -z "$CODE" ]]; then
-    echo "wsenv: could not resolve a project code from cwd ($PWD)" >&2
-    exit 1
+    if [[ -z "$CODE" ]]; then
+      echo "wsenv: could not resolve a project code from cwd ($PWD)" >&2
+      exit 1
+    fi
   fi
-fi
 
-# --list: dump code -> org for every project.
-if [[ "$MODE" == "list" ]]; then
-  "$WS_PY" - "$REGISTRY" <<'PY'
+  # --list: dump code -> org for every project.
+  if [[ "$MODE" == "list" ]]; then
+    "$WS_PY" - "$REGISTRY" <<'PY'
 import sys, tomllib
 data = tomllib.load(open(sys.argv[1], "rb"))
 cat2org = {"b-and-b": "b-and-b", "priceless": "priceless", "personal": "personal"}
 for p in sorted(data.get("projects", []), key=lambda x: (x.get("category",""), x.get("code",""))):
     print(f'{p.get("code",""):<6} {cat2org.get(p.get("category",""), "personal")}')
 PY
-  exit 0
-fi
+    exit 0
+  fi
 
-# Resolve org from code.
-ORG=$("$WS_PY" - "$REGISTRY" "$CODE" <<'PY'
+  # Resolve org from code.
+  ORG=$("$WS_PY" - "$REGISTRY" "$CODE" <<'PY'
 import sys, tomllib
 reg, code = sys.argv[1], sys.argv[2]
 data = tomllib.load(open(reg, "rb"))
@@ -121,7 +154,8 @@ sys.exit(3)
 PY
 ) || { echo "wsenv: unknown code '$CODE' (not in registry)" >&2; exit 3; }
 
-PROFILE="$PROFILE_ROOT/$ORG"
+  PROFILE="$PROFILE_ROOT/$ORG"
+fi
 
 case "$MODE" in
   org)

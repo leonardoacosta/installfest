@@ -1,0 +1,5 @@
+{
+  "name": "bootstrap",
+  "version": "1.0.0",
+  "description": "Bootstrap workspace profile — relocated plan:*/project:{init,scaffold,video} commands for launching a new initiative with no registered repo yet (committed profile bundle)"
+}
