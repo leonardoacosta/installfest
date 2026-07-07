@@ -127,9 +127,9 @@ else
     warning "Install zsh plugins manually for your distribution."
 fi
 
-# Enable systemd user services (file-server + cloudpc tunnel)
+# Enable systemd user services (file-server + cloudpc tunnel + ropen)
 if command -v systemctl &>/dev/null; then
-    for svc in file-server cloudpc-tunnel; do
+    for svc in file-server cloudpc-tunnel ropen; do
         if [[ -f "$HOME/.config/systemd/user/${svc}.service" ]]; then
             systemctl --user enable "$svc" 2>/dev/null && success "Enabled $svc service" || true
         fi

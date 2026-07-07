@@ -1,0 +1,18 @@
+[Unit]
+Description=ropen — long-lived multi-mount HTTP file server for browsing dev folder over Tailscale
+Documentation=https://github.com/nyaptor/if
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/ropen --serve
+Restart=always
+RestartSec=5
+# Port can be overridden via systemctl --user edit ropen
+Environment=ROPEN_PORT=8889
+# State dir lives under /tmp/ropen-<uid>; recreated on startup.
+# Logs land in journalctl --user -u ropen (stdout/stderr captured by systemd).
+
+[Install]
+WantedBy=default.target
