@@ -9,19 +9,127 @@ scroll_buffer_size 50000               // == tmux history-limit 50000
 
 // Matches Ghostty/tmux/starship's tokyo-night-abyss theme (see home/dot_config/ghostty/themes/Tokyo-Night-Abyss).
 // Single hardcoded theme (not templated like ghostty/tmux) since this is currently the only one in use.
+// Uses zellij's current nested-component theme schema (NOT the flat fg/bg/red/green/... format
+// zellij's own `setup --dump-config` example comment still shows — that format is legacy/silently
+// ignored on 0.44.3; verified against the real shipped zellij-org/zellij tokyo-night.kdl schema).
 themes {
     tokyo-night-abyss {
-        fg      154 163 196   // #9AA3C4
-        bg       13  14  21   // #0D0E15
-        black    13  14  21   // #0D0E15
-        red     196  84 110   // #C4546E
-        green   114 153  71   // #729947
-        yellow  168 127  74   // #A87F4A
-        blue     82 120 196   // #5278C4
-        magenta 142 109 196   // #8E6DC4
-        cyan     78 165 150   // #4EA596
-        white   154 163 196   // #9AA3C4
-        orange  188 146  92   // #BC925C (bright yellow slot — abyss has no dedicated orange)
+        text_unselected {
+            base       154 163 196   // #9AA3C4 fg
+            background  42  45  68   // #2A2D44 selection-bg (panel/pill bg)
+            emphasis_0 188 146  92   // #BC925C bright yellow/orange accent
+            emphasis_1  78 165 150   // #4EA596 cyan
+            emphasis_2 114 153  71   // #729947 green
+            emphasis_3 142 109 196   // #8E6DC4 magenta
+        }
+        text_selected {
+            base       154 163 196
+            background  42  45  68
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        ribbon_selected {
+            base        13  14  21   // #0D0E15 bg (dark text on bright pill)
+            background  82 120 196   // #5278C4 blue — abyss's primary accent (cursor-color family)
+            emphasis_0 196  84 110   // #C4546E red
+            emphasis_1 188 146  92   // #BC925C orange
+            emphasis_2 142 109 196   // #8E6DC4 magenta
+            emphasis_3 100 137 213   // #6489D5 bright blue
+        }
+        ribbon_unselected {
+            base        13  14  21
+            background 176 185 213   // #B0B9D5 bright white (muted inactive pill bg)
+            emphasis_0 196  84 110
+            emphasis_1 154 163 196
+            emphasis_2 100 137 213
+            emphasis_3 142 109 196
+        }
+        table_title {
+            base       114 153  71   // green
+            background 0
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        table_cell_selected {
+            base       154 163 196
+            background  42  45  68
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        table_cell_unselected {
+            base       154 163 196
+            background  42  45  68
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        list_selected {
+            base       154 163 196
+            background  42  45  68
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        list_unselected {
+            base       154 163 196
+            background  42  45  68
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 114 153  71
+            emphasis_3 142 109 196
+        }
+        frame_selected {
+            base        82 120 196   // blue — active pane border
+            background  0
+            emphasis_0 188 146  92
+            emphasis_1  78 165 150
+            emphasis_2 142 109 196
+            emphasis_3  0
+        }
+        frame_highlight {
+            base       188 146  92   // orange — alert/highlight border
+            background  0
+            emphasis_0 142 109 196
+            emphasis_1 188 146  92
+            emphasis_2 188 146  92
+            emphasis_3 188 146  92
+        }
+        exit_code_success {
+            base       132 172  88   // #84AC58 bright green
+            background  0
+            emphasis_0  78 165 150
+            emphasis_1  42  45  68
+            emphasis_2 142 109 196
+            emphasis_3 100 137 213
+        }
+        exit_code_error {
+            base       214 103 127   // #D6677F bright red
+            background  0
+            emphasis_0 188 146  92
+            emphasis_1  0
+            emphasis_2  0
+            emphasis_3  0
+        }
+        multiplayer_user_colors {
+            player_1  142 109 196
+            player_2  100 137 213
+            player_3  0
+            player_4  188 146  92
+            player_5   78 165 150
+            player_6   0
+            player_7  196  84 110
+            player_8   0
+            player_9   0
+            player_10  0
+        }
     }
 }
 theme "tokyo-night-abyss"
