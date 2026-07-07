@@ -255,6 +255,128 @@ themes {
             player_10  0
         }
     }
+
+    // Real Vercel Geist dark-mode design tokens (vercel.com/design.dark.md, fetched 2026-07-07) --
+    // not an "inspired by" derivative like one-hunter-vercel above. Same palette as
+    // home/dot_config/ghostty/themes/Vercel and home/dot_config/tmux/vercel-theme.conf.
+    vercel {
+        text_unselected {
+            base       237 237 237   // #ededed primary/gray-1000
+            background  41  41  41   // #292929 gray-300 (panel bg)
+            emphasis_0 255 174   0   // #ffae00 amber-700
+            emphasis_1   0 170 149   // #00aa95 teal-700
+            emphasis_2   0 172  58   // #00ac3a green-700
+            emphasis_3 148  64 213   // #9440d5 purple-700
+        }
+        text_selected {
+            base       237 237 237
+            background  41  41  41
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        ribbon_selected {
+            base         0   0   0   // #000000 (dark text on bright pill)
+            background   0 110 254   // #006efe blue-700 -- Vercel's signature brand blue
+            emphasis_0 241  50  66   // #f13242 red-700
+            emphasis_1 255 174   0   // #ffae00 amber-700
+            emphasis_2 148  64 213   // #9440d5 purple-700
+            emphasis_3  71 168 255   // #47a8ff blue-900 (bright)
+        }
+        ribbon_unselected {
+            base         0   0   0
+            background  69  69  69   // #454545 gray-500
+            emphasis_0 241  50  66
+            emphasis_1 237 237 237
+            emphasis_2  71 168 255
+            emphasis_3 148  64 213
+        }
+        table_title {
+            base         0 172  58   // green
+            background 0
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        table_cell_selected {
+            base       237 237 237
+            background  41  41  41
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        table_cell_unselected {
+            base       237 237 237
+            background  41  41  41
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        list_selected {
+            base       237 237 237
+            background  41  41  41
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        list_unselected {
+            base       237 237 237
+            background  41  41  41
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2   0 172  58
+            emphasis_3 148  64 213
+        }
+        frame_selected {
+            base         0 110 254   // blue -- active pane border
+            background  0
+            emphasis_0 255 174   0
+            emphasis_1   0 170 149
+            emphasis_2 148  64 213
+            emphasis_3  0
+        }
+        frame_highlight {
+            base       255 174   0   // amber -- alert/highlight border
+            background  0
+            emphasis_0 148  64 213
+            emphasis_1 255 174   0
+            emphasis_2 255 174   0
+            emphasis_3 255 174   0
+        }
+        exit_code_success {
+            base         0 202  80   // #00ca50 green-900 (bright)
+            background  0
+            emphasis_0   0 170 149
+            emphasis_1  41  41  41
+            emphasis_2 148  64 213
+            emphasis_3  71 168 255
+        }
+        exit_code_error {
+            base       255  86  95   // #ff565f red-900 (bright)
+            background  0
+            emphasis_0 255 174   0
+            emphasis_1  0
+            emphasis_2  0
+            emphasis_3  0
+        }
+        multiplayer_user_colors {
+            player_1  148  64 213
+            player_2   71 168 255
+            player_3   0
+            player_4  255 174   0
+            player_5    0 170 149
+            player_6   0
+            player_7  241  50  66
+            player_8   0
+            player_9   0
+            player_10  0
+        }
+    }
 }
 theme "{{ .theme }}"
 copy_clipboard "system"                // == tmux set-clipboard on (OSC52 over SSH)
@@ -264,10 +386,22 @@ support_kitty_keyboard_protocol true   // enables the future Cmd/Super layer (Te
 session_serialization true             // ws-claude `zellij attach -c ws-<code>` reattach-by-name
 serialize_pane_viewport true           // restore scrollback TEXT on a resumed pane
 scrollback_lines_to_serialize 0        // 0 == full buffer
-pane_frames false              // no border/padding chrome (trades away the frame_selected/frame_highlight
-                                // theme colors above -- kept in the theme blocks in case this flips back)
-default_layout "compact"       // built-in single-line compact-bar instead of tab-bar + status-bar
+pane_frames false               // no border/padding chrome (trades away the frame_selected/frame_highlight
+                                 // theme colors above -- kept in the theme blocks in case this flips back)
+// default_layout intentionally left unset -- zellij's own "default" gives tab-bar (top) +
+// status-bar (bottom), which is what we're keeping. "compact" (single bottom bar, tried
+// and reverted) is still available by setting default_layout "compact" if wanted again.
 show_startup_tips false
+
+// hide_session_name suppresses the "Zellij (<session-name>)" text in the tab-bar/compact-bar --
+// real config key, found in zellij's own kdl parser tests (zellij-utils/src/kdl/mod.rs).
+// rounded_corners only matters if pane_frames flips back to true; harmless either way.
+ui {
+    pane_frames {
+        rounded_corners true
+        hide_session_name true
+    }
+}
 
 keybinds {
     // Patch the built-in `Ctrl+b` tmux mode to match YOUR tmux.conf (additive — keeps "/%/c/n/p/z/x/d/o/hjkl).

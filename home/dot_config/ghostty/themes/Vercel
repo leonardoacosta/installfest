@@ -1,0 +1,27 @@
+# Vercel — real Ghostty theme
+# Real Vercel Geist design-system dark-mode tokens (vercel.com/design.dark.md,
+# fetched 2026-07-07) -- not an "inspired by" derivative like One-Hunter-Vercel.
+# See: home/dot_config/tmux/vercel-theme.conf for the same palette in tmux.
+
+palette = 0=#000000
+palette = 1=#F13242
+palette = 2=#00AC3A
+palette = 3=#FFAE00
+palette = 4=#006EFE
+palette = 5=#9440D5
+palette = 6=#00AA95
+palette = 7=#EDEDED
+palette = 8=#454545
+palette = 9=#FF565F
+palette = 10=#00CA50
+palette = 11=#FF9300
+palette = 12=#47A8FF
+palette = 13=#C472FB
+palette = 14=#00CFB7
+palette = 15=#FFFFFF
+background = #000000
+foreground = #EDEDED
+cursor-color = #0090FF
+cursor-text = #000000
+selection-background = #292929
+selection-foreground = #EDEDED
