@@ -264,7 +264,9 @@ support_kitty_keyboard_protocol true   // enables the future Cmd/Super layer (Te
 session_serialization true             // ws-claude `zellij attach -c ws-<code>` reattach-by-name
 serialize_pane_viewport true           // restore scrollback TEXT on a resumed pane
 scrollback_lines_to_serialize 0        // 0 == full buffer
-pane_frames true
+pane_frames false              // no border/padding chrome (trades away the frame_selected/frame_highlight
+                                // theme colors above -- kept in the theme blocks in case this flips back)
+default_layout "compact"       // built-in single-line compact-bar instead of tab-bar + status-bar
 show_startup_tips false
 
 keybinds {
