@@ -1,7 +1,7 @@
 # The `*open` command family
 
-Seven commands, one job each: get something in front of a human eyeball —
-in a browser tab, a Mac IDE window, or a phone notification. All are
+Eight commands, one job each: get something in front of a human eyeball —
+in a browser tab, a Mac IDE window, or a phone/desktop notification. All are
 chezmoi-deployed (`home/dot_local/bin/symlink_*.tmpl` or `executable_*`) —
 the sole source of truth for this family lives in `if`.
 
@@ -9,12 +9,12 @@ the sole source of truth for this family lives in `if`.
 
 | Family | Commands | Portal-aware? | Why |
 | --- | --- | --- | --- |
-| **VIEW** | `ropen`, `sopen`, `gopen`, `mopen` | Yes | Opening something to *look at* — a durable portal copy is fine, often better (survives your laptop closing). |
+| **VIEW** | `ropen`, `sopen`, `gopen`, `mopen`, `iopen` | Yes | Opening something to *look at* — a durable portal copy is fine, often better (survives your laptop closing). |
 | **EDIT** | `copen`, `vopen`, `zopen` | No | Opening something to *edit* — you always want the real source file, never a rendered copy. |
 
 ### VIEW family
 
-All four share one engine, `scripts/lib/open-core.sh`:
+All five share one engine, `scripts/lib/open-core.sh`:
 
 | Command | Behavior |
 | --- | --- |
@@ -22,6 +22,7 @@ All four share one engine, `scripts/lib/open-core.sh`:
 | `sopen <target>` | Force Safari specifically |
 | `gopen <target>` | Force Google Chrome specifically |
 | `mopen <target>` | Post a clickable Nexus desktop notification instead of auto-opening — the Mac counterpart to a phone push. No live-reload watcher (a notification is a one-shot). |
+| `iopen <target>` | Post a clickable Nexus APNS push to iPhone — the phone counterpart to `mopen` (same one-shot, click-to-open shape, no live-reload watcher). Uses `nx_ropen` (cc's `nx-send.sh`), the iPhone-push sibling of `nx_mopen`. |
 
 `<target>` is any of:
 - An existing file or directory, relative or absolute
@@ -125,7 +126,7 @@ log, Atlas cache) — ephemeral by design, recreated on server start.
 
 ## History
 
-This family used to be split: `ropen`/`mopen`/`ideopen` lived in `cc`
+This family used to be split: `ropen`/`mopen`/`iopen`/`ideopen` lived in `cc`
 (`~/.claude/tools/`), while `copen` and a separate, simpler unified opener
 (`mac-open.sh` — still `if`'s front door for URLs and OAuth-loopback
 callbacks, untouched by this migration) already lived here. Beads `if-34u`
@@ -135,3 +136,11 @@ mechanism turned out to still be in active daily use — see the comment
 trail on `if-34u` for the full reasoning. `sopen`/`gopen` are new; the rest
 were relocated into `if` as the sole owner, with Atlas-awareness added on
 top.
+
+**`iopen` note:** missed in the initial migration pass (cc's `tools/ropen/`
+was deleted before `iopen` had an `if`-side home), which briefly broke it
+on `$PATH` alongside `ropen`/`mopen`/`vopen`/`zopen` when the cc-side
+cleanup ran ahead of a `chezmoi apply`. Ported immediately as a same-shape
+sibling of `mopen` (swap `nx_mopen` for `nx_ropen`) and the missing
+executable bit on the whole batch of migrated scripts was fixed in the
+same pass — see git history for both fixes.
