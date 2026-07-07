@@ -25,8 +25,10 @@ theme = Tokyo-Night
 theme = {{ .theme | title }}
 {{- end }}
 # Any value < 1.0 blends with whatever's behind the window (macOS vibrancy defaults blue-gray in
-# Dark Mode) -- true #000 requires 1.0. background-blur-radius dropped: no-op with nothing to blur.
-background-opacity = 1.0
+# Dark Mode) -- true #000 is only guaranteed at 1.0. Trying 0.80 back with the blur restored;
+# accepting a slight tint for the frosted-glass look. Bump to 1.0 (drop blur too) if it bothers you.
+background-opacity = 0.80
+background-blur-radius = 20
 window-decoration = true
 macos-titlebar-style = tabs
 window-padding-x = 10

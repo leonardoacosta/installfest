@@ -35,7 +35,10 @@ if command -v chezmoi >/dev/null 2>&1; then
     CHEZMOI_SOURCE="$(chezmoi source-path 2>/dev/null)"
     # .chezmoiroot makes source-path return home/ subdir — match prefix
     case "$CHEZMOI_SOURCE" in "$REPO_ROOT"*)
-        if chezmoi apply --no-tty 2>/dev/null; then
+        # init --apply (not plain apply): `apply` alone never re-renders
+        # .chezmoi.toml.tmpl, so a commit that changes $theme (or any other
+        # [data] value) would deploy against a stale cached config otherwise.
+        if chezmoi init --source="$REPO_ROOT" --apply --no-tty 2>/dev/null; then
             echo "chezmoi: applied dotfiles"
         else
             echo "chezmoi: apply failed (run 'chezmoi apply' manually)" >&2

@@ -29,7 +29,13 @@ PRE_SHA="${1:-}"
     fi
     cd "$REPO_ROOT" || exit 0
 
-    # --- chezmoi apply (deploys ~/.config, ~/.zshrc, etc.) ---
+    # --- chezmoi init --apply (regenerates config.tmpl cache, then deploys) ---
+    # `chezmoi apply` alone re-renders dotfile templates but does NOT re-render
+    # .chezmoi.toml.tmpl itself — that cached config (~/.config/chezmoi/chezmoi.toml)
+    # only regenerates on `chezmoi init`. A plain `apply`-only hook silently deploys
+    # against stale [data] values (e.g. $theme) whenever .chezmoi.toml.tmpl changes,
+    # even though `git pull` picked up the new template correctly. Folding init into
+    # this call via --apply closes that gap in one step instead of two.
     # --force overrides interactive conflict prompts. Required because some
     # apps mutate their config files at runtime (e.g. Zed writing back
     # extension-install state to settings.json), and an unattended deploy
@@ -37,7 +43,7 @@ PRE_SHA="${1:-}"
     # config wins on every deploy; if you tweak via the app's own UI, run
     # `chezmoi re-add <path>` to pull the change back into the dotfiles.
     if command -v chezmoi >/dev/null 2>&1; then
-        chezmoi apply --no-tty --force
+        chezmoi init --source="$REPO_ROOT" --apply --no-tty --force
         rc=$?
         echo "chezmoi: exit $rc"
     else
