@@ -2,10 +2,15 @@
 # Managed by chezmoi: ~/.config/ghostty/config
 
 # === Font ===
-font-family = GeistMono Nerd Font Mono
-font-style = DemiBold
+# Matches Cursor/VS Code's terminal.integrated.font* (shared/vscode-user-settings.json) so the
+# editor and terminal render the same typeface/weight. Regular + no thicken: font-thicken is a
+# macOS CoreText hack that synthetically widens glyph strokes -- stacked on the old DemiBold
+# style, it was the main source of the "colors bleed" complaint (smeared/thickened edges, not
+# an actual color issue).
+font-family = JetBrainsMono Nerd Font
+font-style = Regular
 font-size = 13
-font-thicken = true
+font-thicken = false
 
 # === Theme / Appearance ===
 {{ if eq .theme "nord" -}}
@@ -34,7 +39,10 @@ macos-titlebar-style = tabs
 window-padding-x = 10
 window-padding-y = 10
 window-padding-balance = true
-window-colorspace = display-p3
+# srgb, not display-p3: theme hex values (#43AAF9 etc.) are authored in sRGB. Rendering them
+# directly in the wider P3 gamut without conversion oversaturates high-sat accents -- the other
+# half of the "colors bleed" complaint alongside the font-thicken fix above.
+window-colorspace = srgb
 
 # === Behavior ===
 confirm-close-surface = false
