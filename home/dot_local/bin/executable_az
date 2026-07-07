@@ -104,15 +104,76 @@ if [ -f "$MARKER" ] && [ "$IS_LOGIN" = false ]; then
     exit 1
 fi
 
+# --- CloudPC SOCKS5 tunnel liveness (127.0.0.1:1080) ---
+# BB identities are unreachable without this tunnel. Agents should see `az` as a
+# native command, so bring the tunnel up transparently instead of surfacing a
+# bare proxy-connection error. Cheap listen-check on the fast path; on a cold
+# tunnel, (re)start the user service and poll briefly, then fail with actionable
+# guidance if it still cannot come up. Opt out with AZ_SKIP_TUNNEL=1.
+SOCKS_PORT=1080
+_socks_listening() {
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | grep -qE ":${SOCKS_PORT}\b"
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"${SOCKS_PORT}" -sTCP:LISTEN >/dev/null 2>&1
+    else
+        (exec 3<>"/dev/tcp/127.0.0.1/${SOCKS_PORT}") 2>/dev/null
+    fi
+}
+ensure_socks_tunnel() {
+    if [ "${AZ_SKIP_TUNNEL:-0}" = "1" ]; then return 0; fi
+    if _socks_listening; then return 0; fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user start cloudpc-tunnel.service >/dev/null 2>&1 || true
+    fi
+    local i
+    for i in 1 2 3 4 5 6; do
+        if _socks_listening; then return 0; fi
+        sleep 1
+    done
+    echo "error: CloudPC SOCKS tunnel (127.0.0.1:${SOCKS_PORT}) is down and could not be started." >&2
+    echo "       tried:  systemctl --user start cloudpc-tunnel.service" >&2
+    echo "       check:  systemctl --user status cloudpc-tunnel.service" >&2
+    echo "       manual: ssh -D ${SOCKS_PORT} -N cloudpc   (or set AZ_SKIP_TUNNEL=1 to bypass)" >&2
+    return 1
+}
+
+# --- Prod deploy hard-guard ---
+# Refuse a MUTATING `az deployment ... create|delete` whose arguments name a prod
+# subscription GUID or a `-PROD` resource group, unless AZ_ALLOW_PROD=1 is set.
+# Prod deploys are runbook-gated; local ad-hoc prod writes are never appropriate.
+# A prod `what-if` (read-only) is deliberately NOT blocked — reference reads are fine.
+# This complements `scripts/ado queue` refusing `--branch prod` at the pipeline layer.
+guard_prod() {
+    [ "${AZ_ALLOW_PROD:-0}" = "1" ] && return 0
+    local all=" $* "
+    case "$all" in *" deployment "*) ;; *) return 0 ;; esac
+    case "$all" in *" create "*|*" create"|*" delete "*|*" delete"|*" cancel "*) ;; *) return 0 ;; esac
+    # prod indicators: any `-PROD`/`-prod` token (RG names) or a known prod subscription GUID.
+    local prod_re='(-PROD|-prod|b2a995ac-59dc-4cd3-bbe8-77a96b6377e3|43fcd7c1-6264-4b15-9ffb-90fd51145d59|0f3176a4-fd40-43c3-9fa0-42a03ad425b7|0e4f65bb-4da4-49e3-905d-99abb404618d|8c72ecb9-4c87-4fad-bca0-b5113c55db6c|e3ea04a4-f53f-4fd6-ba4c-eeb3b1e515bf|959a6613-ca64-4dc1-8db1-6e65b42b3727)'
+    if printf '%s' "$all" | grep -qE "$prod_re"; then
+        echo "error: refusing a PROD deployment create/delete from the local wrapper." >&2
+        echo "       prod deploys are runbook-gated (never ad-hoc local writes)." >&2
+        echo "       a prod what-if (read-only) is allowed; only create/delete is blocked." >&2
+        echo "       override (you must own the runbook): AZ_ALLOW_PROD=1 az ..." >&2
+        return 1
+    fi
+    return 0
+}
+
 if [ "$USE_PROXY" = "true" ]; then
     # BB identities: route through CloudPC SOCKS5 tunnel.
     # Prefer HTTPS_PROXY env var — works with Python (az CLI) and avoids LD_PRELOAD
     # issues in sandboxed environments (Claude Code, containers). proxychains4 LD_PRELOAD
     # only needed for binaries that ignore proxy env vars (compiled C/Go), which az is not.
+    ensure_socks_tunnel || exit 1
     export HTTPS_PROXY="socks5h://127.0.0.1:1080"
     export HTTP_PROXY="socks5h://127.0.0.1:1080"
     export NO_PROXY="localhost,127.0.0.1,::1"
 fi
+
+# --- Prod deploy guard (before any execution) ---
+guard_prod "$@" || exit 1
 
 # --- Execute, capturing stderr for the 70043 check while streaming it live ---
 STDERR_TMP=$(mktemp)
