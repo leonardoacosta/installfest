@@ -6,6 +6,25 @@
 
 default_mode "locked"                  // passive until you prefix (Ctrl+g unlock / Ctrl+b tmux) — safe for nvim + claude panes
 scroll_buffer_size 50000               // == tmux history-limit 50000
+
+// Matches Ghostty/tmux/starship's tokyo-night-abyss theme (see home/dot_config/ghostty/themes/Tokyo-Night-Abyss).
+// Single hardcoded theme (not templated like ghostty/tmux) since this is currently the only one in use.
+themes {
+    tokyo-night-abyss {
+        fg      154 163 196   // #9AA3C4
+        bg       13  14  21   // #0D0E15
+        black    13  14  21   // #0D0E15
+        red     196  84 110   // #C4546E
+        green   114 153  71   // #729947
+        yellow  168 127  74   // #A87F4A
+        blue     82 120 196   // #5278C4
+        magenta 142 109 196   // #8E6DC4
+        cyan     78 165 150   // #4EA596
+        white   154 163 196   // #9AA3C4
+        orange  188 146  92   // #BC925C (bright yellow slot — abyss has no dedicated orange)
+    }
+}
+theme "tokyo-night-abyss"
 copy_clipboard "system"                // == tmux set-clipboard on (OSC52 over SSH)
 copy_on_select true
 mouse_mode true                        // == tmux mouse on
