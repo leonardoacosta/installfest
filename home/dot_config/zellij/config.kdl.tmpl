@@ -7,8 +7,8 @@
 default_mode "locked"                  // passive until you prefix (Ctrl+g unlock / Ctrl+b tmux) — safe for nvim + claude panes
 scroll_buffer_size 50000               // == tmux history-limit 50000
 
-// Matches Ghostty/tmux/starship's tokyo-night-abyss theme (see home/dot_config/ghostty/themes/Tokyo-Night-Abyss).
-// Single hardcoded theme (not templated like ghostty/tmux) since this is currently the only one in use.
+// Both themes below mirror Ghostty/tmux/starship — selected via {{ .theme }} like those tools,
+// so a theme swap is a one-line edit in .chezmoi.toml.tmpl instead of touching every tool.
 // Uses zellij's current nested-component theme schema (NOT the flat fg/bg/red/green/... format
 // zellij's own `setup --dump-config` example comment still shows — that format is legacy/silently
 // ignored on 0.44.3; verified against the real shipped zellij-org/zellij tokyo-night.kdl schema).
@@ -131,8 +131,132 @@ themes {
             player_10  0
         }
     }
+
+    // Vanilla port of Ghostty/tmux's One-Hunter-Vercel theme (see
+    // home/dot_config/ghostty/themes/One-Hunter-Vercel) — pure #000/#DCE3EA base, high-sat accents.
+    // No new color choices here: every slot below maps 1:1 to an existing palette entry from that
+    // file (blue as primary/selected accent, #454D54 "Inactive" gray for unselected panels, same
+    // accent-rotation pattern used in tokyo-night-abyss above for emphasis_0-3 / multiplayer colors).
+    one-hunter-vercel {
+        text_unselected {
+            base       220 227 234   // #DCE3EA fg
+            background  69  77  84   // #454D54 gray/inactive (panel bg)
+            emphasis_0 255 218 138   // #FFDA8A bright yellow
+            emphasis_1  91 209 185   // #5BD1B9 cyan
+            emphasis_2 152 195 121   // #98C379 green
+            emphasis_3 178 103 230   // #B267E6 purple
+        }
+        text_selected {
+            base       220 227 234
+            background  69  77  84
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        ribbon_selected {
+            base         0   0   0   // #000000 bg (dark text on bright pill)
+            background  67 170 249   // #43AAF9 blue — primary accent
+            emphasis_0 230  31  68   // #E61F44 red
+            emphasis_1 221  79 125   // #DD4F7D pink/cursor-color
+            emphasis_2 178 103 230   // #B267E6 purple
+            emphasis_3 111 193 255   // #6FC1FF bright blue
+        }
+        ribbon_unselected {
+            base         0   0   0
+            background  69  77  84   // #454D54 "Inactive" per the tmux theme's own color comment
+            emphasis_0 230  31  68
+            emphasis_1 220 227 234
+            emphasis_2 111 193 255
+            emphasis_3 178 103 230
+        }
+        table_title {
+            base       152 195 121   // green
+            background 0
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        table_cell_selected {
+            base       220 227 234
+            background  69  77  84
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        table_cell_unselected {
+            base       220 227 234
+            background  69  77  84
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        list_selected {
+            base       220 227 234
+            background  69  77  84
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        list_unselected {
+            base       220 227 234
+            background  69  77  84
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 152 195 121
+            emphasis_3 178 103 230
+        }
+        frame_selected {
+            base        67 170 249   // blue — active pane border
+            background  0
+            emphasis_0 255 218 138
+            emphasis_1  91 209 185
+            emphasis_2 178 103 230
+            emphasis_3  0
+        }
+        frame_highlight {
+            base       250 199  96   // #FAC760 yellow — alert/highlight border
+            background  0
+            emphasis_0 178 103 230
+            emphasis_1 250 199  96
+            emphasis_2 250 199  96
+            emphasis_3 250 199  96
+        }
+        exit_code_success {
+            base       181 232 144   // #B5E890 bright green
+            background  0
+            emphasis_0  91 209 185
+            emphasis_1  69  77  84
+            emphasis_2 178 103 230
+            emphasis_3 111 193 255
+        }
+        exit_code_error {
+            base       242  99 126   // #F2637E bright red
+            background  0
+            emphasis_0 250 199  96
+            emphasis_1  0
+            emphasis_2  0
+            emphasis_3  0
+        }
+        multiplayer_user_colors {
+            player_1  178 103 230
+            player_2  111 193 255
+            player_3  0
+            player_4  250 199  96
+            player_5   91 209 185
+            player_6   0
+            player_7  230  31  68
+            player_8   0
+            player_9   0
+            player_10  0
+        }
+    }
 }
-theme "tokyo-night-abyss"
+theme "{{ .theme }}"
 copy_clipboard "system"                // == tmux set-clipboard on (OSC52 over SSH)
 copy_on_select true
 mouse_mode true                        // == tmux mouse on
