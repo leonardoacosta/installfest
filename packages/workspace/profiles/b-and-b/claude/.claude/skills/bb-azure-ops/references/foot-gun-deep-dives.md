@@ -92,6 +92,41 @@ A KV private-endpoint write (esp. a bulk secret seed) fails on a single `:443` T
 
 The CF code localizes the layer: **522 = TCP timeout to origin** (network/routing/firewall — rules OUT cert), **525 = SSL handshake failed**, **526 = SSL cert invalid** (classically APIM `hostnameConfigurations` reset to BuiltIn dropping `apic.<env>`). For **522** check origin reachability + CF SSL mode (Full vs Flexible) vs what the origin supports — NOT the cert. For **526** restore the custom-domain `hostnameConfigurations` in Bicep (§ in `references/whs-pipelines.md`). CF is the sole intended ingress (AFD decommissioned).
 
+### Querying Cloudflare DNS records directly (no cloudpc needed)
+
+`ws/.claude/settings.local.json`'s `env` block already carries `CF_API_TOKEN` (zone-scoped —
+proven valid for zone-level DNS reads/writes today via `fleet-sync/ingress-domains.yml`; it does
+NOT carry account-scoped Tunnel permissions, a separate unresolved gap — see
+`project_cf_account_id_missing_all_vgs` ws memory). If it's ever missing, the source is ADO VG 83
+(`CloudflareVariables`) in Wholesale Architecture. Verify the token:
+
+```bash
+CF_TOK=$(jq -r '.env.CF_API_TOKEN' ~/dev/ws/.claude/settings.local.json)
+curl -s -H "Authorization: Bearer $CF_TOK" "https://api.cloudflare.com/client/v4/user/tokens/verify"
+```
+
+Zone IDs for the three `bridgespecialty.com` subzones live in `ws/scripts/dns-flip/manifest.json`
+(`zones.{dev,test,stage}.id`) — don't hunt for them in the CF dashboard. Read a live record:
+
+```bash
+ZONE_ID=$(jq -r '.zones.stage.id' ~/dev/ws/scripts/dns-flip/manifest.json)
+curl -s -H "Authorization: Bearer $CF_TOK" \
+  "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=api.stage.bridgespecialty.com" \
+  | jq -r '.result[] | "\(.name) type=\(.type) content=\(.content) proxied=\(.proxied) modified_on=\(.modified_on)"'
+```
+
+**The manifest's own `records` block is a dated snapshot, not live state** — it was captured
+during a `_live_audit_2026_06_17` pass and can drift. Always hit the API for ground truth before
+concluding a DNS/CF change explains a symptom.
+
+**Confirmed 2026-07-07**: `api.{dev,test,stage}.bridgespecialty.com` all still CNAME to the
+LEGACY `fireball-{env}-apim.azure-api.net` (dev unchanged since 2025-12-04, test since
+2025-03-12; stage's record WAS touched 2026-06-17 — same target, but its `comment` field went
+`null` where dev/test still carry `"Fireball - APIM"`, consistent with a delete+recreate rather
+than an edit). No v1->v2 DNS cutover has happened on any env. This ruled out an entire hypothesis
+class in one call during a Cogitate InsCipher-proxy 404 investigation — don't assume `api.<env>`
+routes to the canonical `apic` gateway without checking this first.
+
 ### SPN `Application.ReadWrite.OwnedBy` 403 (privileged Graph permission)
 
 Granting a service principal the Graph `Application.ReadWrite.OwnedBy` app permission via `POST /servicePrincipals/{sp}/appRoleAssignments` returns 403 even though the calling identity holds `AppRoleAssignment.ReadWrite.All` + Cloud Application Administrator. `Application.ReadWrite.OwnedBy` is on Microsoft's **privileged Graph permission** set — admin-consenting a *privileged* permission requires **Global Administrator or Privileged Role Administrator**; Cloud App Admin (`wids b79fbf4d…`) + `AppRoleAssignment.ReadWrite.All` are deliberately fenced out of the privileged set (anti-escalation). Confirmed 2026-06-24. BBAdmin/O365 CAN *manage* app regs (redirectUris/owners via `Application.ReadWrite.All`) but CANNOT hand a deploy SPN directory-wide app control. Escalate to Global Admin / PRA (SNOW), OR run an operator-authenticated out-of-band lane (the `ws/apps/appreg-callbacks` Ink tool — read-merge-PATCH redirect URIs as BBAdmin, NOT the pipeline SPN), OR sidestep with a stable custom domain so the SWA callback never changes.
