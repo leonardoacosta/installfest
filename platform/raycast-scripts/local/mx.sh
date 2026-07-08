@@ -13,4 +13,4 @@
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-zed ~/dev/mx/
+cursor ~/dev/mx/

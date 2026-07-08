@@ -7,17 +7,16 @@
 #   bash scripts/generate-raycast.sh --dry-run # Show what would be generated
 #
 # Generates:
-#   raycast-scripts/{code}.sh          — Open project on homelab via Zed Remote SSH
-#   raycast-scripts/local/{code}.sh    — Open project locally in Zed
+#   raycast-scripts/{code}.sh          — Open project on homelab via Cursor SSH Remote
+#   raycast-scripts/local/{code}.sh    — Open project locally in Cursor
 #   raycast-scripts/cloudpc/{code}.sh  — Open project on CloudPC via Cursor SSH Remote
-#                                         (Cursor retained: Zed remote-SSH is weak on Windows hosts)
-#   raycast-scripts/open-project.sh    — Dropdown picker (remote, Zed)
-#   raycast-scripts/local/open-project.sh — Dropdown picker (local, Zed)
+#   raycast-scripts/open-project.sh    — Dropdown picker (remote, Cursor)
+#   raycast-scripts/local/open-project.sh — Dropdown picker (local, Cursor)
 #
-# Editor migration (2026-04-26): Mac/homelab editor switched from Cursor to Zed
-# for a one-week trial. To revert, swap `zed ssh://...` back to
-# `cursor --folder-uri "vscode-remote://ssh-remote+..."` in the generators below
-# and re-run this script.
+# Editor migration (2026-07-08): reverted Mac/homelab editor from Zed back to
+# Cursor — the 2026-04-26 one-week Zed trial ran its course. To try Zed again,
+# swap `cursor ...` back to `zed ssh://...` / `zed ~/...` in the generators
+# below and re-run this script.
 
 set -euo pipefail
 
@@ -76,17 +75,13 @@ def write_script(path, content):
 
 
 def resolve_remote_uri(project):
-    """Build the Zed Remote SSH URI for homelab.
+    """Build the Cursor SSH Remote URI for homelab.
 
-    Zed remote SSH reads ~/.ssh/config for the host alias (`homelab`).
-    Form: zed ssh://[user@]host/absolute/path
+    Cursor remote SSH reads ~/.ssh/config for the host alias (`homelab`).
+    Form: vscode-remote://ssh-remote+[user@]host/absolute/path
     """
     path = project["path"]
-    if path.startswith("."):
-        # Home-relative (e.g. .claude -> /home/nyaptor/.claude)
-        return f'ssh://{ssh_host}{ssh_base}/{path}'
-    else:
-        return f'ssh://{ssh_host}{ssh_base}/{path}/'
+    return f'vscode-remote://ssh-remote+{ssh_host}{ssh_base}/{path}/'
 
 
 def resolve_local_path(project):
@@ -111,7 +106,7 @@ def resolve_cloudpc_uri(project):
 
 
 def gen_remote_script(project):
-    """Generate a remote (homelab) Raycast script — opens project in Zed via SSH."""
+    """Generate a remote (homelab) Raycast script — opens project in Cursor via SSH Remote."""
     code = project["code"]
     name = project["name"]
     icon = project["icon"]
@@ -132,12 +127,12 @@ def gen_remote_script(project):
 # @raycast.author {AUTHOR}
 # @raycast.authorURL {AUTHOR_URL}
 
-zed {uri}
+cursor --folder-uri "{uri}"
 '''
 
 
 def gen_local_script(project):
-    """Generate a local Raycast script — opens project in Zed."""
+    """Generate a local Raycast script — opens project in Cursor."""
     code = project["code"]
     name = project["name"]
     icon = project["icon"]
@@ -158,7 +153,7 @@ def gen_local_script(project):
 # @raycast.author {AUTHOR}
 # @raycast.authorURL {AUTHOR_URL}
 
-zed {local_path}
+cursor {local_path}
 '''
 
 
@@ -192,11 +187,11 @@ def gen_dropdown_script(tier):
     """Generate the open-project dropdown picker script."""
     if tier == "remote":
         title = "open project"
-        description = "Open project on homelab via Zed Remote SSH"
+        description = "Open project on homelab via Cursor SSH Remote"
         dir_name = ""
     elif tier == "local":
         title = "open project local"
-        description = "Open project locally in Zed"
+        description = "Open project locally in Cursor"
         dir_name = "local"
     else:
         return None
@@ -212,15 +207,15 @@ def gen_dropdown_script(tier):
 
     if tier == "remote":
         body = f'''if [ "$1" = "cc" ]; then
-  zed ssh://{ssh_host}{ssh_base}/.claude
+  cursor --folder-uri "vscode-remote://ssh-remote+{ssh_host}{ssh_base}/.claude/"
 else
-  zed ssh://{ssh_host}{ssh_base}/dev/$1/
+  cursor --folder-uri "vscode-remote://ssh-remote+{ssh_host}{ssh_base}/dev/$1/"
 fi'''
     else:
         body = '''if [ "$1" = "cc" ]; then
-  zed ~/.claude
+  cursor ~/.claude
 else
-  zed ~/dev/$1/
+  cursor ~/dev/$1/
 fi'''
 
     return f'''#!/bin/bash
