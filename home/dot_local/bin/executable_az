@@ -55,7 +55,12 @@ IDENTITY="bbadmin"
 USE_PROXY=true
 
 # --- Check for override flags ---
-ARGS=""
+# ARGS is a bash array (NOT a string) — a plain `ARGS="$ARGS $arg"` + unquoted
+# `$ARGS` expansion word-splits on every space, shredding any single argument
+# that contains a space/pipe/brace (KQL `-q "..."`, JMESPath `--query "{...}"`).
+# Fixed 2026-07-07 (~/.local/bin/az hit the identical bug earlier this session —
+# see reference_az_wrapper_arg_quoting_fixed.md).
+ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --as-o365)
@@ -71,19 +76,22 @@ for arg in "$@"; do
             USE_PROXY=false
             ;;
         *)
-            ARGS="$ARGS $arg"
+            ARGS+=("$arg")
             ;;
     esac
 done
 
 # --- Auto-detect identity from subcommand/arguments ---
 if [ "$IDENTITY" = "bbadmin" ]; then
-    case "$ARGS" in
-        *graph.microsoft.com*)
-            export AZURE_CONFIG_DIR="$HOME/.azure-o365"
-            IDENTITY="o365"
-            ;;
-    esac
+    for arg in "${ARGS[@]}"; do
+        case "$arg" in
+            *graph.microsoft.com*)
+                export AZURE_CONFIG_DIR="$HOME/.azure-o365"
+                IDENTITY="o365"
+                break
+                ;;
+        esac
+    done
 fi
 
 # --- Fail-fast state (Req-5) ---
@@ -92,9 +100,12 @@ mkdir -p "$STATE_DIR" 2>/dev/null || true
 MARKER="$STATE_DIR/${IDENTITY}.reauth-required"
 
 IS_LOGIN=false
-case " $ARGS " in
-    *" login "*) IS_LOGIN=true ;;
-esac
+for arg in "${ARGS[@]}"; do
+    if [ "$arg" = "login" ]; then
+        IS_LOGIN=true
+        break
+    fi
+done
 
 # While the marker exists for this identity, short-circuit locally instead of
 # re-hitting a network we already know will 70043 — UNLESS this call is the
@@ -178,7 +189,7 @@ guard_prod "$@" || exit 1
 # --- Execute, capturing stderr for the 70043 check while streaming it live ---
 STDERR_TMP=$(mktemp)
 set +e
-"$REAL_AZ" $ARGS 2> >(tee "$STDERR_TMP" >&2)
+"$REAL_AZ" "${ARGS[@]}" 2> >(tee "$STDERR_TMP" >&2)
 EXIT_CODE=$?
 wait
 set -e
