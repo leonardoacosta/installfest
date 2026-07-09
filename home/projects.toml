@@ -208,6 +208,14 @@ path = "dev/if"
 tiers = ["remote", "local"]
 
 [[projects]]
+code = "cs"
+name = "Card Scope"
+category = "personal"
+icon = "🃏"
+path = "dev/cardscope"
+tiers = ["remote", "local"]
+
+[[projects]]
 code = "cc"
 name = "Central Claude"
 category = "personal"
