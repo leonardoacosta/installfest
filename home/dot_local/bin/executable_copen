@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# copen — open (or focus) a registry project in Cursor on the Mac, LOCAL clone.
+# copen — open (or focus) a registry project in Cursor, on the machine copen
+# was actually run from.
 #
 # Usage:
-#   copen                  CWD -> registry project -> Cursor on the Mac's clone
+#   copen                  CWD -> registry project -> Cursor, here
 #   copen ws               by registry code
 #   copen docs/readme.md   open that file directly (project inferred from the file)
 #   copen ~/dev/ds/        directory arg anchors the project
-#   copen -n ...           dry-run (print resolution + ssh command)
+#   copen -n ...           dry-run (print resolution + the command that would run)
 #
-# The Mac-side path is STATIC from if's projects.toml: local_base_mac + path
-# (e.g. $HOME/dev/ds). If the clone is missing on the Mac, it is cloned from
-# the homelab over the ssh mesh (no Mac-side ADO/GitHub creds needed), then
-# origin is re-pointed at the homelab clone's real upstream. Cursor's CLI is
-# single-instance per folder: already open -> focuses, else opens (launching
-# the app if needed). The window is then activated and pushed fullscreen via
-# AXFullScreen — a silent no-op until osascript over ssh gets the one-time
-# Accessibility grant (System Settings > Privacy & Security > Accessibility:
-# add /usr/sbin/sshd and /usr/bin/osascript).
+# On the Mac (uname -s == Darwin): opens the LOCAL clone directly — no SSH hop.
+# If the clone is missing, it is cloned from the homelab over the ssh mesh (no
+# Mac-side ADO/GitHub creds needed), then origin is re-pointed at the homelab
+# clone's real upstream. Cursor's CLI is single-instance per folder: already
+# open -> focuses, else opens (launching the app if needed). The window is
+# then activated and pushed fullscreen via AXFullScreen — a silent no-op until
+# the one-time Accessibility grant is made (System Settings > Privacy &
+# Security > Accessibility: add /usr/bin/osascript).
+#
+# Elsewhere (Linux — homelab/Arch): unchanged from the original design —
+# still hops through SSH to the Mac and opens the Mac's LOCAL clone there.
+# (Opening a genuinely local GUI editor isn't possible here: the `cursor`
+# on PATH is the remote-cli/IPC wrapper, which only works when Cursor on the
+# Mac is already Remote-SSH-connected into this box — it can't launch Cursor
+# from scratch. Making copen open via a fresh Remote-SSH window into whatever
+# host it's invoked from, instead of cloning to the Mac, is a bigger mechanism
+# change than this fix covers — ask Leo before going further down that path.)
 #
 # Env:
 #   COPEN_MAC_HOST     ssh alias for the Mac   (default: mac)
@@ -34,8 +43,10 @@ MAC_HOST="${COPEN_MAC_HOST:-mac}"
 REGISTRY="${COPEN_REGISTRY:-$HOME/projects.toml}"
 [ -f "$REGISTRY" ] || REGISTRY="$DOTFILES/home/projects.toml"
 FULLSCREEN="${COPEN_FULLSCREEN:-1}"
+IS_MAC=0
+[ "$(uname -s)" = "Darwin" ] && IS_MAC=1
 
-usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DRYRUN=""
 TARGET=""
@@ -103,19 +114,52 @@ PY
 )" || exit 1
 read -r CODE HL_ABS REL SRC <<< "$RESOLVED"
 
-# Real upstream of the homelab clone (empty if none) — the fresh Mac clone's
-# origin gets re-pointed here so pushes go to the true remote, not the homelab.
+# Real upstream of the homelab clone (empty if none) — a fresh clone's origin
+# gets re-pointed here so pushes go to the true remote, not the homelab.
 # Credentials embedded in the URL (PAT userinfo) are STRIPPED — never copy a
-# secret to another machine; the Mac's own credential helper handles auth.
+# secret to another machine; the local credential helper handles auth.
 ORIGIN="$(git -C "$HL_ABS" remote get-url origin 2>/dev/null | sed -E 's#^(https?://)[^@/]+@#\1#' || true)"
 
-# File path relative to the project root, remapped onto the Mac clone.
+# File path relative to the project root, remapped onto the target clone.
 REL_FILE=""
 [ -n "$FILE_ABS" ] && REL_FILE="${FILE_ABS#"$HL_ABS"/}"
 
-# Mac-side script: clone-if-missing, open folder (+file), activate, fullscreen.
-# $HOME expands on the Mac (local_base_mac). Cursor CLI: PATH first, bundle
-# fallback (BatchMode ssh gets the bare system PATH).
+if [ "$IS_MAC" = "1" ]; then
+  # Already on the Mac — open the local clone directly, no SSH hop.
+  LOCAL_DIR="$HOME/$REL"
+  CLI="/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
+
+  if [ -n "$DRYRUN" ]; then
+    echo "[dryrun] project: $CODE  local: $LOCAL_DIR  file: ${REL_FILE:-<none>}  origin: ${ORIGIN:-<keep homelab>}"
+    echo "[dryrun] (on Mac — opens directly, no ssh)"
+    exit 0
+  fi
+
+  if [ ! -d "$LOCAL_DIR/.git" ]; then
+    echo "copen: cloning $SRC:$REL -> $LOCAL_DIR"
+    mkdir -p "$(dirname "$LOCAL_DIR")"
+    git clone "$SRC:$REL" "$LOCAL_DIR" || exit 1
+    [ -n "$ORIGIN" ] && git -C "$LOCAL_DIR" remote set-url origin "$ORIGIN"
+  fi
+
+  if [ ! -x "$CLI" ]; then
+    echo "copen: Cursor.app not found at $CLI" >&2
+    exit 1
+  fi
+  "$CLI" "$LOCAL_DIR"${REL_FILE:+ "$LOCAL_DIR/$REL_FILE"}
+  open -a Cursor
+
+  if [ "$FULLSCREEN" = "1" ]; then
+    sleep 1.5
+    osascript -e 'tell application "System Events" to tell process "Cursor" to set value of attribute "AXFullScreen" of front window to true' >/dev/null 2>&1 || true
+  fi
+  echo "copen: $CODE -> ${REL_FILE:-Cursor} ($LOCAL_DIR)"
+  exit 0
+fi
+
+# Not on the Mac (Linux — homelab/Arch): unchanged original behavior — hop
+# through SSH and open the Mac's LOCAL clone there. See header comment for why
+# this hasn't switched to a Remote-SSH-into-current-host mechanism.
 REMOTE_CMD="DIR=\"\$HOME/${REL}\"
 if [ ! -d \"\$DIR/.git\" ]; then
   echo \"copen: cloning ${SRC}:${REL} -> \$DIR\"
