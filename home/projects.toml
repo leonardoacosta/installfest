@@ -196,7 +196,7 @@ code = "hl"
 name = "Home Lab"
 category = "personal"
 icon = "💻"
-path = "dev/hl"
+path = "dev/personal/homelab"
 tiers = ["remote", "local"]
 
 [[projects]]

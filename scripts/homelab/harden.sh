@@ -374,7 +374,7 @@ setup_tailscale() {
 #   and runs drizzle migrations by hand.
 #
 # Idempotency:
-#   - Skips entirely when docker / ~/dev/hl/homelab/docker-compose.yml absent.
+#   - Skips entirely when docker / ~/dev/personal/homelab/homelab/docker-compose.yml absent.
 #   - `docker compose up -d homelab-postgres` is a no-op when the container
 #     is already healthy.
 #   - Database creation is gated on SELECT 1 FROM pg_database.
@@ -480,7 +480,7 @@ bootstrap_databases() {
         return 0
     fi
 
-    local hl_root="${HOME}/dev/hl/homelab"
+    local hl_root="${HOME}/dev/personal/homelab/homelab"
     local compose_file="${hl_root}/docker-compose.yml"
     if [[ ! -f "$compose_file" ]]; then
         info "${compose_file} not found — skipping database bootstrap"

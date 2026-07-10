@@ -14,10 +14,10 @@ alias diff="diff --color=auto"
 alias ip="ip -color=auto"
 
 # Homelab shortcuts
-alias hl="cd ~/dev/hl/homelab"
-alias hls="cd ~/dev/hl/homelab && ./homelab.sh status"
-alias hll="cd ~/dev/hl/homelab && ./homelab.sh logs"
-alias hlr="cd ~/dev/hl/homelab && ./homelab.sh restart"
+alias hl="cd ~/dev/personal/homelab/homelab"
+alias hls="cd ~/dev/personal/homelab/homelab && ./homelab.sh status"
+alias hll="cd ~/dev/personal/homelab/homelab && ./homelab.sh logs"
+alias hlr="cd ~/dev/personal/homelab/homelab && ./homelab.sh restart"
 
 # Docker shortcuts
 alias dc="docker compose"

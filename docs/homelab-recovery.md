@@ -126,7 +126,7 @@ sudo journalctl -u vector -n 30 --no-pager   # confirm ingest is happening, no a
 `scripts/homelab/harden.sh` now bootstraps these, but if you're running this manually:
 
 ```
-cd ~/dev/hl/homelab
+cd ~/dev/personal/homelab/homelab
 docker compose --env-file ~/.env up -d homelab-postgres   # shared postgres on :5436
 docker exec homelab-postgres pg_isready -U cortex -d cortex
 # Create per-project DBs that don't exist yet
@@ -154,7 +154,7 @@ All three dashboards should return 200/307. Any non-healthy container needs inve
 
 2. **Node isn't on default `$PATH`** — this is a mise-managed runtime. Every systemd service that spawns node needs `Environment=PATH=%h/.local/share/mise/shims:...` (see committed `nova-dashboard.service`).
 
-3. **AdGuard bind-mount → named-volume drift** — the running container can have bind mounts while the compose file defines named volumes. After `docker compose up --force-recreate adguardhome`, configs land in `/var/lib/docker/volumes/adguardhome-{conf,work}/_data/`, NOT in `~/homelab/adguardhome/`. Restore from `~/dev/hl/homelab/adguardhome/` with `sudo cp -a` into the named-volume path.
+3. **AdGuard bind-mount → named-volume drift** — the running container can have bind mounts while the compose file defines named volumes. After `docker compose up --force-recreate adguardhome`, configs land in `/var/lib/docker/volumes/adguardhome-{conf,work}/_data/`, NOT in `~/homelab/adguardhome/`. Restore from `~/dev/personal/homelab/homelab/adguardhome/` with `sudo cp -a` into the named-volume path.
 
 4. **Tailscale IP collision** — fresh `tailscale up` creates `homelab-1` if the old `homelab` node still exists in the admin console. Delete old node in admin UI FIRST. You won't get the old IP back on free-tier — expect a new one and update any hardcoded references (see commit `03d2166` for the pattern: grep for `100.x.x.x` across the repo).
 
@@ -169,7 +169,7 @@ All three dashboards should return 200/307. Any non-healthy container needs inve
 ## Reference material
 
 - **Session commits**: `git log --oneline | grep -E "(harden|install-arch|tailscale|rollback)"` on the `if` repo.
-- **Source-of-truth configs**: `~/dev/hl/homelab/` (configs), `~/dev/personal/installfest/home/dot_config/systemd/user/` (user services), `~/dev/nx/packages/db/` (schema + migrations).
+- **Source-of-truth configs**: `~/dev/personal/homelab/homelab/` (configs), `~/dev/personal/installfest/home/dot_config/systemd/user/` (user services), `~/dev/nx/packages/db/` (schema + migrations).
 - **Backups per operation**: `limine.conf.pre-rollback`, `*.bak-pre-pacdiff`, `@.broken-YYYYMMDD` btrfs subvol (delete once recovery is confirmed).
 
 ## Quick-start appendix

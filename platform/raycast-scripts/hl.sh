@@ -13,4 +13,4 @@
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/hl/"
+cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/personal/homelab/"
