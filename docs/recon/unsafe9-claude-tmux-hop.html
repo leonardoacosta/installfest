@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recon — claude-tmux-hop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08080a; --surface: #101014; --surface2: #17171d; --border: #26262f;
+    --fg: #ededed; --dim: #8a8a99; --blue: #006efe; --amber: #ffae00;
+    --green: #00ac3a; --red: #f13242; --purple: #9440d5;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f6f8; --surface: #fff; --surface2: #eef0f4; --border: #d8dae2;
+      --fg: #16161c; --dim: #5a5a68; --blue: #006efe; --amber: #b57d00;
+      --green: #00832c; --red: #d11a2a; --purple: #7a2fb8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: 'Space Grotesk', system-ui, sans-serif; line-height: 1.55;
+    padding: 3rem 1.5rem; max-width: 1020px; margin: 0 auto;
+  }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.15rem; margin: 2.6rem 0 1rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+  .sub { color: var(--dim); font-size: .9rem; margin-bottom: .2rem; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: .82em; }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; color: var(--dim); font-size: .85rem; margin: 1rem 0 0; }
+  .meta b { color: var(--fg); font-weight: 500; }
+
+  .flow { display: flex; align-items: stretch; gap: .6rem; flex-wrap: wrap; margin: 1.4rem 0; }
+  .node { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: .8rem 1rem; flex: 1; min-width: 160px; }
+  .node .t { font-weight: 600; font-size: .92rem; }
+  .node .d { color: var(--dim); font-size: .78rem; margin-top: .25rem; }
+  .arrow { align-self: center; color: var(--dim); font-size: 1.3rem; }
+
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+  .b-adapt { background: rgba(255,174,0,.16); color: var(--amber); border: 1px solid var(--amber); }
+  .b-monitor { background: rgba(148,64,213,.16); color: var(--purple); border: 1px solid var(--purple); }
+  .b-supersede { background: rgba(0,110,254,.14); color: var(--blue); border: 1px solid var(--blue); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1.4rem; margin: 1rem 0; }
+  .card.adapt { border-left: 4px solid var(--amber); }
+  .card.monitor { border-left: 4px solid var(--purple); }
+  .card h3 { margin: .5rem 0 .3rem; font-size: 1.05rem; }
+  .card .src { color: var(--dim); font-size: .78rem; }
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .9rem 0; }
+  @media (max-width: 640px) { .ba { grid-template-columns: 1fr; } }
+  .ba div { background: var(--surface2); border-radius: 8px; padding: .7rem .9rem; font-size: .85rem; }
+  .ba .lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); font-weight: 700; margin-bottom: .3rem; }
+  .cov { font-family: 'JetBrains Mono', monospace; font-size: .76rem; background: var(--surface2); padding: .5rem .7rem; border-radius: 6px; color: var(--dim); margin: .6rem 0; }
+  .pv { font-size: .82rem; margin-top: .7rem; } .pv b { color: var(--blue); }
+  ul { padding-left: 1.2rem; } li { margin: .25rem 0; font-size: .88rem; }
+
+  .legend { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 1rem 0; font-size: .82rem; color: var(--dim); }
+  .callout { background: linear-gradient(135deg, rgba(0,110,254,.12), rgba(148,64,213,.08)); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1.4rem; margin: 1.5rem 0; }
+  .callout ol { margin: .5rem 0 0; padding-left: 1.3rem; } .callout li { margin: .35rem 0; }
+  .flag { color: var(--amber); font-weight: 600; }
+  .supersede-box { background: rgba(0,110,254,.08); border: 1px solid var(--blue); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; font-size: .87rem; }
+</style>
+</head>
+<body>
+  <div class="sub">EXTERNAL-ADOPTION RECON · context: project (<code>if</code> dotfiles)</div>
+  <h1>claude-tmux-hop</h1>
+  <div class="meta">
+    <span><b>unsafe9/claude-tmux-hop</b> · self-declared MIT (no LICENSE file) · 1★</span>
+    <span>Pushed 2026-06-12</span>
+    <span>Ask: <b>none — general sweep</b></span>
+  </div>
+
+  <div class="supersede-box">
+    <span class="badge b-supersede">Supersedes</span>
+    This absorbs part of the prior recon (<code>docs/recon/tmux-claude-plugins.md</code>): its
+    Adapt recommendation for <code>tmux-agent-indicator</code> is now superseded by this repo's
+    richer, more hardened state-tracking architecture. The prior Skip on
+    <code>tmux-claude-usage</code> (duplicate of <code>tmux-nexus-creds</code>) is unaffected.
+  </div>
+
+  <h2>Pipeline</h2>
+  <div class="flow">
+    <div class="node"><div class="t">Claude Code hooks</div><div class="d">SessionStart, UserPromptSubmit, PreToolUse[AskUserQuestion/ExitPlanMode], Notification, Stop, SessionEnd — 10s timeout each</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node" style="border-color:var(--amber)"><div class="t">① state core</div><div class="d"><span class="badge b-adapt">Adapt</span> pane options → priority cycle, jump-back, inbox, notify, status bar</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node"><div class="t"><code>apps/cc-tmux</code></div><div class="d">new custom plugin (not yet scaffolded)</div></div>
+  </div>
+  <div class="flow">
+    <div class="node" style="border-color:var(--purple)"><div class="t">② Conductor</div><div class="d"><span class="badge b-monitor">Monitor</span> persistent orchestrator session, 4 dispatch modes</div></div>
+    <div class="arrow" style="opacity:.4">⇢</div>
+    <div class="node"><div class="t">follow-on /feature</div><div class="d">after core ships + proves out</div></div>
+  </div>
+
+  <div class="legend">
+    <span><span class="badge b-adapt">Adapt</span> extend/modify before adopting</span>
+    <span><span class="badge b-monitor">Monitor</span> no caller yet — revisit</span>
+    <span><span class="badge b-supersede">Supersedes</span> replaces a prior recon's verdict</span>
+  </div>
+
+  <h2>Findings</h2>
+
+  <div class="card adapt">
+    <span class="badge b-adapt">Adapt</span>
+    <h3>① State core: hooks + priority cycle + inbox + notify + status</h3>
+    <div class="src">unsafe9/claude-tmux-hop · <code>hooks/hooks.json</code>, <code>src/claude_tmux_hop/{tmux.py,priority.py,notify/}</code></div>
+    <div class="cov">Coverage: NONE — rg -il "hop|cycle-key|inbox|priority.based|jump-back" home/dot_config/tmux/ home/dot_local/bin/ → only false-positive "SSH hop" matches</div>
+    <div class="ba">
+      <div><div class="lbl">Before</div>No pane-state awareness in tmux at all. Manually check each parallel Claude pane (cmux workspaces).</div>
+      <div><div class="lbl">After</div>Every pane's state tracked; cycle to the one needing you first; fzf inbox lists all waiting/idle across sessions; OS notify + terminal auto-focus on <code>waiting</code>.</div>
+    </div>
+    <ul>
+      <li>Hook set more complete than prior <code>tmux-agent-indicator</code> finding: covers <code>AskUserQuestion</code>/<code>ExitPlanMode</code>/<code>Elicitation</code>/<code>SessionEnd</code>, 10s timeouts, real-transition guard against re-fired hooks.</li>
+      <li>Single source of truth: all views derive from one <code>get_hop_panes()</code> read of tmux pane options — can't disagree, auto-cleanup on pane close.</li>
+    </ul>
+    <div class="pv">
+      <b>Layer:</b> custom application (Python CLI + tmux shell entrypoint + hooks config) — not a skill/command/scripts-bin producer.<br>
+      <b>Landing:</b> <code>apps/cc-tmux/</code> — new top-level dir, tracked from day one (no vendoring/symlink).<br>
+      <b>Extend-before-create:</b> nothing in <code>if</code> owns this domain; standalone is correct — Leo wants ONE combined plugin, not 3 separate installs.<br>
+      <b>Caller:</b> every tmux session with parallel Claude panes (high, continuous). <b>Effort:</b> medium-large — this is the bulk of the planned scaffold.
+    </div>
+    <div class="pv flag">⚠ Same cross-repo gate as the prior agent-indicator finding: hooks want <code>~/.claude/settings.json</code> = <code>~/dev/cc</code> symlink (cc-governed). One consolidated decision now instead of two.</div>
+  </div>
+
+  <div class="card monitor">
+    <span class="badge b-monitor">Monitor</span>
+    <h3>② Conductor — orchestrator dispatch</h3>
+    <div class="src">unsafe9/claude-tmux-hop · <code>install.py:CONDUCTOR_INSTRUCTIONS</code>, <code>tmux.py:spawn_conductor_session()</code>, <code>skills/hop-dispatch</code></div>
+    <p style="font-size:.88rem">Persistent background Claude session dispatching tasks to other panes (switch / send-prompt / spawn-task / spawn-in-worktree), live pane-snapshot injected per turn. Interesting, but opt-in even upstream and no caller in <code>if</code> yet — <code>scripts/cmux-workspaces.sh</code> is adjacent (launches workspaces) but solves a different problem (initial launch, not runtime dispatch to live panes). Build the state core first; revisit conductor once it has a real caller.</p>
+  </div>
+
+  <div class="callout">
+    <b>Implementation order for <code>apps/cc-tmux</code></b>
+    <ol>
+      <li><b>State core</b> (medium-large) — port hooks.json + priority.py + tmux.py state model; this is the actual <code>/feature</code> scope.</li>
+      <li><b>Fold in prior threads</b> — which-key action menu (installed), nexus-creds-style multi-account usage segment, agent-indicator visual polish ideas (superseded architecture-wise by this repo, but border/title color choices still worth a glance).</li>
+      <li><b>Conductor</b> (large, gated) — only after the core ships and Leo has used it enough to know if the dispatch model fits.</li>
+    </ol>
+  </div>
+
+  <p class="sub" style="margin-top:2rem">Recon artifacts: <code>docs/recon/unsafe9-claude-tmux-hop.md</code> · <code>docs/recon/unsafe9-claude-tmux-hop.html</code></p>
+</body>
+</html>
