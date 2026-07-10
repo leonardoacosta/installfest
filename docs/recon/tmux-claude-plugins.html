@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recon — tmux Claude-Code plugins</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #08080a; --surface: #101014; --surface2: #17171d; --border: #26262f;
+    --fg: #ededed; --dim: #8a8a99; --blue: #006efe; --amber: #ffae00;
+    --green: #00ac3a; --red: #f13242; --purple: #9440d5;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f6f8; --surface: #fff; --surface2: #eef0f4; --border: #d8dae2;
+      --fg: #16161c; --dim: #5a5a68; --blue: #006efe; --amber: #b57d00;
+      --green: #00832c; --red: #d11a2a; --purple: #7a2fb8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: 'Space Grotesk', system-ui, sans-serif; line-height: 1.55;
+    padding: 3rem 1.5rem; max-width: 1000px; margin: 0 auto;
+  }
+  h1 { font-size: 2rem; font-weight: 700; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  h2 { font-size: 1.15rem; margin: 2.6rem 0 1rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+  .sub { color: var(--dim); font-size: .9rem; margin-bottom: .2rem; }
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: .82em; }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem 1.2rem; color: var(--dim); font-size: .85rem; margin: 1rem 0 0; }
+  .meta b { color: var(--fg); font-weight: 500; }
+
+  /* flow */
+  .flow { display: flex; align-items: stretch; gap: .6rem; flex-wrap: wrap; margin: 1.4rem 0; }
+  .node {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: .8rem 1rem; flex: 1; min-width: 150px;
+  }
+  .node .t { font-weight: 600; font-size: .92rem; }
+  .node .d { color: var(--dim); font-size: .78rem; margin-top: .25rem; }
+  .arrow { align-self: center; color: var(--dim); font-size: 1.3rem; }
+
+  /* badges */
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+  .b-adapt { background: rgba(255,174,0,.16); color: var(--amber); border: 1px solid var(--amber); }
+  .b-skip { background: rgba(241,50,66,.14); color: var(--red); border: 1px solid var(--red); }
+  .b-monitor { background: rgba(148,64,213,.16); color: var(--purple); border: 1px solid var(--purple); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1.4rem; margin: 1rem 0; }
+  .card.adapt { border-left: 4px solid var(--amber); }
+  .card.skip { border-left: 4px solid var(--red); }
+  .card.monitor { border-left: 4px solid var(--purple); }
+  .card h3 { margin: .5rem 0 .3rem; font-size: 1.05rem; }
+  .card .src { color: var(--dim); font-size: .78rem; }
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin: .9rem 0; }
+  @media (max-width: 640px) { .ba { grid-template-columns: 1fr; } }
+  .ba div { background: var(--surface2); border-radius: 8px; padding: .7rem .9rem; font-size: .85rem; }
+  .ba .lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); font-weight: 700; margin-bottom: .3rem; }
+  .cov { font-family: 'JetBrains Mono', monospace; font-size: .76rem; background: var(--surface2); padding: .5rem .7rem; border-radius: 6px; color: var(--dim); margin: .6rem 0; }
+  .pv { font-size: .82rem; margin-top: .7rem; }
+  .pv b { color: var(--blue); }
+  ul { padding-left: 1.2rem; } li { margin: .2rem 0; font-size: .88rem; }
+
+  .legend { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 1rem 0; font-size: .82rem; color: var(--dim); }
+  .callout { background: linear-gradient(135deg, rgba(0,110,254,.12), rgba(148,64,213,.08)); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem 1.4rem; margin: 1.5rem 0; }
+  .callout ol { margin: .5rem 0 0; padding-left: 1.3rem; } .callout li { margin: .35rem 0; }
+  .flag { color: var(--amber); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="sub">EXTERNAL-ADOPTION RECON · context: project (<code>if</code> dotfiles)</div>
+  <h1>tmux &times; Claude-Code plugins</h1>
+  <div class="meta">
+    <span><b>accessd/tmux-agent-indicator</b> · MIT · 72★</span>
+    <span><b>docker-run/tmux-claude-usage</b> · MIT · 10★</span>
+    <span>Ask: <b>none — general sweep</b></span>
+  </div>
+
+  <h2>Where each finding integrates</h2>
+  <div class="flow">
+    <div class="node"><div class="t">Claude Code session</div><div class="d">hooks + statusLine JSON per pane</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node" style="border-color:var(--amber)"><div class="t">① agent-indicator</div><div class="d"><span class="badge b-adapt">Adapt</span> pane/title/icon state → status-right</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="node"><div class="t">tmux status bar</div><div class="d">already: <code>tmux-nexus-creds</code> 5H/7D usage</div></div>
+  </div>
+  <div class="flow">
+    <div class="node" style="border-color:var(--red)"><div class="t">② claude-usage</div><div class="d"><span class="badge b-skip">Skip</span> duplicate of nexus-creds</div></div>
+    <div class="arrow" style="opacity:.4">⇢</div>
+    <div class="node" style="border-color:var(--purple)"><div class="t">③ harvester + chain.sh</div><div class="d"><span class="badge b-monitor">Monitor</span> token-free usage source pattern</div></div>
+  </div>
+
+  <div class="legend">
+    <span><span class="badge b-adapt">Adapt</span> extend/modify before adopting</span>
+    <span><span class="badge b-skip">Skip</span> coverage FULL — path cited</span>
+    <span><span class="badge b-monitor">Monitor</span> no caller yet — revisit</span>
+  </div>
+
+  <h2>Findings</h2>
+
+  <div class="card adapt">
+    <span class="badge b-adapt">Adapt</span>
+    <h3>① tmux-agent-indicator</h3>
+    <div class="src">accessd/tmux-agent-indicator · <code>scripts/agent-state.sh</code>, <code>hooks/claude-hooks.json</code></div>
+    <div class="cov">Coverage: NONE — rg -il "needs-input|agent.state|pane.border.*yellow" home/dot_config/tmux/ → no match</div>
+    <div class="ba">
+      <div><div class="lbl">Before</div>N parallel Claude panes (cmux); switch panes to see which finished or is blocked on a permission prompt — no ambient signal.</div>
+      <div><div class="lbl">After</div>Pane border + window-title color + status icon flips on <code>done</code>/<code>needs-input</code>; session-dots row shows which session needs you.</div>
+    </div>
+    <div class="pv">
+      <b>Layer:</b> external tmux plugin + <code>run_onchange</code> install script (dotfile-managed tool).<br>
+      <b>Landing:</b> <code>home/run_onchange_after_install-tmux-agent-indicator.sh.tmpl</code> · load in <code>tmux.conf.tmpl</code> · <code>#{agent_indicator}</code> in theme status-right.<br>
+      <b>Extend-before-create:</b> mirror <code>run_onchange_after_install-tmux-which-key.sh.tmpl</code> (shipped this session) — same manual-clone-no-TPM shape.<br>
+      <b>Caller:</b> Leo's tmux, every Claude-pane session (high). <b>Effort:</b> medium.
+    </div>
+    <div class="pv flag">⚠ Cross-repo decision: Claude hooks write into <code>~/.claude/settings.json</code> → symlink to <code>~/dev/cc</code> (cc-governed). Options: (a) wire hooks in cc, (b) process-detection fallback only (no cc change), (c) scope to a non-cc <code>CLAUDE_CONFIG_DIR</code>. STOP-and-ask before any cc settings write.</div>
+  </div>
+
+  <div class="card skip">
+    <span class="badge b-skip">Skip (duplicate)</span>
+    <h3>② tmux-claude-usage</h3>
+    <div class="src">docker-run/tmux-claude-usage</div>
+    <div class="cov">Coverage: FULL — home/dot_local/bin/executable_tmux-nexus-creds</div>
+    <p style="font-size:.88rem">Already rendered in <code>status-right</code> of every theme via <code>#(tmux-nexus-creds)</code>, and the existing impl is <b>superior</b> for this setup:</p>
+    <ul>
+      <li><b>Multi-account</b> — nexus-agent tracks <code>active_account</code> + per-account 5H/7D (matches the BBAdmin/O365/Civalent/personal identity split). claude-usage is single-account.</li>
+      <li><b>Central agent</b> vs claude-usage's <b>shared-cache-clobber</b> — every session writes one <code>~/.cache/claude-usage/usage</code> file (its own code guards against the stale-replay flicker that causes).</li>
+      <li>Same cyan/yellow/red threshold UX already present.</li>
+    </ul>
+    <p style="font-size:.88rem">Adopting it would be a regression.</p>
+  </div>
+
+  <div class="card monitor">
+    <span class="badge b-monitor">Monitor</span>
+    <h3>③ statusLine harvester + chain.sh single-slot chaining</h3>
+    <div class="src">docker-run/tmux-claude-usage · <code>scripts/{statusline.sh,chain.sh}</code></div>
+    <p style="font-size:.88rem">Genuinely novel: read official <code>rate_limits</code> from statusLine stdin JSON (token-free) and chain it behind an existing statusLine via a file-stored, quoting-safe passthrough. Not actionable now — nexus-agent already sources this data. Revisit only if nexus-agent ever needs a token-free on-device source or a statusLine-slot coexistence trick.</p>
+  </div>
+
+  <div class="callout">
+    <b>Implementation order (quickest wins first)</b>
+    <ol>
+      <li><b>agent-indicator, no-cc path</b> (small) — clone plugin + wire status-right, rely on process-detection fallback. Zero cc-settings change. Gets session-dots + status icon immediately.</li>
+      <li><b>agent-indicator hooks</b> (medium, gated) — decide cc hook placement for precise <code>needs-input</code>/<code>done</code> transitions. <span class="flag">Requires explicit approval — cc-governed surface.</span></li>
+      <li><b>claude-usage</b> — do nothing (Skip). nexus-creds wins.</li>
+    </ol>
+  </div>
+
+  <p class="sub" style="margin-top:2rem">Recon artifacts: <code>docs/recon/tmux-claude-plugins.md</code> · <code>docs/recon/tmux-claude-plugins.html</code></p>
+</body>
+</html>
