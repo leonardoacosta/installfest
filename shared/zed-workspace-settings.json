@@ -1,0 +1,78 @@
+{
+  // Zed LOCAL project settings for $HOME.
+  // This file IS the deployed local settings via a chezmoi symlink at
+  //   ~/.zed/settings.json -> ~/dev/if/shared/zed-workspace-settings.json
+  //
+  // Applies ONLY when ~ is opened directly as a Zed project/worktree root.
+  // Subprojects under ~/dev/* get their own worktree root and never consult
+  // this file. Sister file: ~/dev/if/shared/vscode-workspace-settings.json
+  // (same intent, VS Code + Cursor schema).
+  //
+  // Zed has one exclusion knob, not VS Code's exclude/watcherExclude/search
+  // split: file_scan_exclusions keeps a path out of the worktree scan
+  // entirely, so it's never indexed, watched, or searched. Local project
+  // settings REPLACE this array rather than merging with the global
+  // ~/.config/zed/settings.json list, so the generic build-artifact
+  // excludes are repeated here alongside the home-only personal dirs.
+  //
+  // Cross-platform: Zed silently ignores exclusion entries for paths that
+  // don't exist, so Mac-only dirs (Library, Movies, …) and Linux-only dirs
+  // (Templates, Videos, snap) coexist safely in one shared list below.
+  "file_scan_exclusions": [
+    // --- Generic excludes (mirrors global zed-settings.json) ---
+    "**/.git",
+    "**/.svn",
+    "**/.hg",
+    "**/CVS",
+    "**/.DS_Store",
+    "**/Thumbs.db",
+    "**/.classpath",
+    "**/.settings",
+    "**/node_modules",
+    "**/.next",
+    "**/.turbo",
+    "**/.cursor-server",
+    "**/.vscode-server",
+    "**/.zed-server",
+    "**/.cargo",
+    "**/.cache",
+    "**/.npm",
+    "**/.bun",
+    "**/.pnpm-store",
+    "**/dist",
+    "**/build",
+    "**/.expo",
+    "**/.steam",
+    "**/Steam",
+    "**/.nuget",
+    "**/.dotnet",
+    "**/.azure",
+    "**/.beads/embeddeddolt",
+    "**/openspec/changes/archive",
+
+    // --- Home-root-only personal dirs (bare name = top-level relative to
+    // this worktree root, since this file is scoped to ~ specifically) ---
+    "Applications",
+    "Desktop",
+    "Documents",
+    "Downloads",
+    "Library",
+    "Movies",
+    "Music",
+    "Pictures",
+    "Public",
+    "Templates",
+    "Videos",
+    "snap",
+    ".Trash",
+    ".local",
+    ".config",
+    ".docker",
+    ".agents",
+    ".vscode",
+    ".cursor",
+    ".zed_server",
+    ".ssh",
+    ".gnupg"
+  ]
+}

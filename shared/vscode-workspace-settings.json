@@ -40,12 +40,48 @@
   "cSpell.words": ["HMAC", "POSTHOG", "Vercel", "homelab", "Workgroups"],
 
   // Performance: only care about dev/ and .claude/ — ignore everything else
+  //
+  // IMPORTANT: files.exclude below only hides paths from the Explorer tree —
+  // it does NOT stop the recursive fs watcher (chokidar). Only
+  // files.watcherExclude does that. Every entry in files.exclude MUST also
+  // appear here (with a /** suffix) or VS Code/Cursor keeps watching Library,
+  // Downloads, Documents, etc. at full CPU cost even though they're hidden
+  // from view. This was the actual cause of Cursor maxing out CPU on ~ open
+  // (2026-07-09) — files.exclude alone gave a false sense of coverage.
   "files.watcherExclude": {
     "**/node_modules/**": true,
     "**/.git/**": true,
     "**/dist/**": true,
     "**/.next/**": true,
     "**/.turbo/**": true,
+    // macOS user dirs
+    "Applications/**": true,
+    "Desktop/**": true,
+    "Documents/**": true,
+    "Downloads/**": true,
+    "Library/**": true,
+    "Movies/**": true,
+    "Music/**": true,
+    "Pictures/**": true,
+    "Public/**": true,
+    // Linux/XDG user dirs (harmless on Mac, ignored if absent)
+    "Templates/**": true,
+    "Videos/**": true,
+    "snap/**": true,
+    // Cross-platform: caches, dotdirs, runtime
+    ".Trash/**": true,
+    ".npm/**": true,
+    ".nvm/**": true,
+    ".pnpm-store/**": true,
+    ".local/**": true,
+    ".config/**": true,
+    ".cache/**": true,
+    ".docker/**": true,
+    ".bun/**": true,
+    ".agents/**": true,
+    ".cursor/**": true,
+    ".cursor-server/**": true,
+    ".vscode-server/**": true,
   },
   "search.exclude": {
     "**/node_modules/**": true,
