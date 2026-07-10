@@ -6,11 +6,12 @@ name is stored in ``args.command`` and :mod:`cc_tmux.cli` maps it to a
 import (cli imports the parser; the parser references no handlers).
 
 Subcommands split into two ownership groups:
-  * Implemented here (Script batch core): register, cycle, back, switch,
-    discover, clear, self-test.
-  * Stubbed for other engineers: inbox, inbox-clear, picker-data, status,
-    status-inbox, usage, conductor. The parser registers the name so wiring is
-    complete; the handler raises NotImplementedError until its owner lands it.
+  * Implemented: register, cycle, back, switch, discover, clear, self-test
+    (core); inbox, inbox-clear, picker-data, status, status-inbox (integration
+    surface — these take no arguments, so their parsers stay bare).
+  * Stubbed for another engineer: usage, conductor. The parser registers the
+    name so wiring is complete; the handler prints a not-implemented message
+    until its owner lands it.
 """
 
 from __future__ import annotations
@@ -100,13 +101,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print each test result, not just the summary.",
     )
 
-    # -- stubs owned by other engineers ---------------------------------------
-    sub.add_parser("inbox", help="Notification inbox (fzf/menu).")  # owned by task 1.6
-    sub.add_parser("inbox-clear", help="Dismiss inbox waiting/idle entries.")  # owned by task 1.6
-    sub.add_parser("picker-data", help="Emit picker rows for the fzf popup.")  # owned by task 1.6
-    sub.add_parser("status", help="Emit status-bar pane counts.")  # owned by task 1.7
-    sub.add_parser("status-inbox", help="Emit clickable pending-pane badges.")  # owned by task 1.7
-    sub.add_parser("usage", help="Emit the Claude usage status segment.")  # owned by task 1.8
-    sub.add_parser("conductor", help="Conductor dispatch / popup.")  # owned by task 1.9
+    # -- integration surface (no arguments; handlers in cli.py) ---------------
+    sub.add_parser("inbox", help="Notification inbox rows (fzf/menu data).")
+    sub.add_parser("inbox-clear", help="Dismiss inbox waiting/idle entries (view filter).")
+    sub.add_parser("picker-data", help="Emit picker rows for the jump-to popup.")
+    sub.add_parser("status", help="Emit status-bar pane counts.")
+    sub.add_parser("status-inbox", help="Emit clickable pending-pane badges.")
+
+    # -- stubs owned by another engineer --------------------------------------
+    sub.add_parser("usage", help="Emit the Claude usage status segment.")  # owned by E3
+    sub.add_parser("conductor", help="Conductor dispatch / popup.")  # owned by E3
 
     return parser

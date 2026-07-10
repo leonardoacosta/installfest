@@ -11,27 +11,37 @@ report failure via a non-zero exit).
 
 from __future__ import annotations
 
+import os
 import subprocess
+import time
 from typing import Callable, Dict, List, Optional
 
-from . import log, tmux
+from . import log, notify, render, tmux
 from .parser import build_parser
-from .priority import VALID_STATES, select_next
+from .priority import (
+    STATE_PRIORITY,
+    VALID_STATES,
+    group_by_state,
+    pending_panes,
+    select_next,
+    sort_panes,
+)
 
 # Global navigation breadcrumb (NOT tracked-pane state — see invariant 1). Records
 # the pane we hopped away from so `back` can return to it.
 _PREV_PANE_OPT = "@cc-prev-pane"
 _CYCLE_MODE_OPT = "@cc-cycle-mode"
 
-# Stub subcommands owned by other engineers (task ids for the not-implemented msg).
+# View / rendering options (Req-5/Req-7).
+_INBOX_CLEARED_OPT = "@cc-inbox-cleared-at"   # dismiss stamp (a view filter)
+_STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
+_WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
+_STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
+
+# Stub subcommands still owned by other engineers (task ids for the message).
 _STUB_OWNERS: Dict[str, str] = {
-    "inbox": "task 1.6",
-    "inbox-clear": "task 1.6",
-    "picker-data": "task 1.6",
-    "status": "task 1.7",
-    "status-inbox": "task 1.7",
-    "usage": "task 1.8",
-    "conductor": "task 1.9",
+    "usage": "task 1.8 (usage segment, E3)",
+    "conductor": "task 1.9 (conductor, E3)",
 }
 
 
@@ -45,15 +55,17 @@ def cmd_register(args) -> int:
     if not pane:
         return 0  # fail open: no pane context, nothing to record
 
-    # set_pane_state returns whether this was a REAL transition. The auto-hop /
-    # OS-notification reaction to that boolean is owned by the notify engine
-    # (task 1.6); register's job is only to write the authoritative state.
-    tmux.set_pane_state(
+    # set_pane_state returns whether this was a REAL transition (invariant 3).
+    changed = tmux.set_pane_state(
         pane,
         args.state,
         task=args.task,
         wait_reason=args.reason,
     )
+    # OS notification + terminal focus fire ONLY on a real transition (Req-6).
+    notify.react(pane, args.state, changed)
+    # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
+    _maybe_rename_window(pane)
     return 0
 
 
@@ -125,6 +137,160 @@ def cmd_self_test(args) -> int:
     from .testing import run_self_test
 
     return run_self_test(verbose=args.verbose)
+
+
+# ---------------------------------------------------------------------------
+# Inbox / picker (Req-5, task 1.6)
+# ---------------------------------------------------------------------------
+
+def cmd_inbox(args) -> int:
+    """Emit the notification-inbox rows (attention first, dismiss-filtered).
+
+    Data only: ``label\\tpane_id`` per line, consumed by the fzf popup / menu in
+    the tmux entrypoint. ``ctrl-x`` in that view runs ``inbox-clear`` (a view
+    filter, never a state mutation — invariant 2), so status counts are
+    unaffected and active rows always stay visible.
+    """
+    panes = _self_heal(tmux.get_hop_panes())
+    cleared_at = _float_opt(_INBOX_CLEARED_OPT)
+    visible = []
+    for pane in sort_panes(panes):
+        # active is never hidden; waiting/idle hide only if dismissed (older than
+        # the cleared-at stamp). A fresh transition (newer timestamp) reappears.
+        if pane.state == "active" or pane.timestamp > cleared_at:
+            visible.append(pane)
+    _emit_rows(visible)
+    return 0
+
+
+def cmd_inbox_clear(args) -> int:
+    """Dismiss the current waiting/idle inbox entries (a view filter, Req-5).
+
+    Bumps a global cleared-at stamp; the inbox hides pending panes whose state
+    predates it. NEVER mutates pane state, so status counts are untouched.
+    """
+    tmux.set_global_option(_INBOX_CLEARED_OPT, str(time.time()))
+    return 0
+
+
+def cmd_picker_data(args) -> int:
+    """Emit every tracked pane for the jump-to picker (``label\\tpane_id``).
+
+    Unlike the inbox, the picker is unfiltered (no dismiss stamp) so any pane —
+    including ``active`` — can be jumped to.
+    """
+    _emit_rows(sort_panes(_self_heal(tmux.get_hop_panes())))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Status sources + window rename (Req-7, task 1.8)
+# ---------------------------------------------------------------------------
+
+def cmd_status(args) -> int:
+    """Emit the status-bar pane counts via ``@cc-status-format`` (Req-7)."""
+    groups = group_by_state(tmux.get_hop_panes())
+    counts = {state: len(members) for state, members in groups.items()}
+    fmt = tmux.get_global_option(_STATUS_FORMAT_OPT) or render.DEFAULT_STATUS_FORMAT
+    icons = render.resolve_icons(tmux.get_global_option)
+    out = render.render_status(fmt, counts, icons)
+    if out:
+        print(out)
+    return 0
+
+
+def cmd_status_inbox(args) -> int:
+    """Emit clickable pending-pane badges for an optional second status line.
+
+    Each badge is wrapped in ``#[range=pane|<id>]`` so tmux's default
+    ``MouseDown1Status`` switch-client gives click-to-hop for free. Per-state
+    styling comes from ``@cc-status-inbox-<state>-style``.
+    """
+    icons = render.resolve_icons(tmux.get_global_option)
+    badges: List[str] = []
+    for pane in pending_panes(tmux.get_hop_panes()):
+        style = tmux.get_global_option(_STATUS_INBOX_STYLE_OPT.format(state=pane.state))
+        icon = icons.get(pane.state, pane.state)
+        label = pane.project or pane.session
+        prefix = f"#[{style}]" if style else ""
+        badges.append(
+            f"#[range=pane|{pane.id}]{prefix} {icon} {label} #[norange]#[default]"
+        )
+    if badges:
+        print(" ".join(badges))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# View helpers (shared by inbox / picker / status)
+# ---------------------------------------------------------------------------
+
+def _emit_rows(panes: List["tmux.PaneInfo"]) -> None:
+    """Print aligned ``label\\tpane_id`` rows for fzf / menu consumption."""
+    icons = render.resolve_icons(tmux.get_global_option)
+    for label, pane_id in render.inbox_rows(panes, icons, time.time()):
+        print(f"{label}\t{pane_id}")
+
+
+def _float_opt(option: str) -> float:
+    raw = tmux.get_global_option(option)
+    try:
+        return float(raw) if raw else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _self_heal(panes: List["tmux.PaneInfo"]) -> List["tmux.PaneInfo"]:
+    """Clear stale state left by a kill -9'd Claude (Req-5 self-heal).
+
+    A tracked pane still present in tmux but no longer running Claude gets its
+    ``@cc-*`` state cleared. A FAILED process scan (empty result) shows
+    everything rather than mass-clearing live sessions.
+    """
+    rows = tmux.iter_panes_with_process()
+    if not rows:
+        return panes  # scan failed / unavailable -> do not clear anything
+    claude_ids = _pane_ids_running_claude(rows)
+    present = {row["id"] for row in rows}
+    healed = False
+    for pane in panes:
+        if pane.id in present and pane.id not in claude_ids:
+            tmux.clear_pane_state(pane.id)
+            healed = True
+    return tmux.get_hop_panes() if healed else panes
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in ("1", "on", "true", "yes")
+
+
+def _maybe_rename_window(pane_id: str) -> None:
+    """Rename a pane's window to ``<state-icon> <dir basename>`` when enabled.
+
+    Icon tracks the highest-priority Claude state in the window; the directory
+    basename stays a stable label. ``automatic-rename`` is forced off so tmux
+    does not clobber the name. Opt-in via ``@cc-window-rename`` (default off).
+    """
+    if not _truthy(tmux.get_global_option(_WINDOW_RENAME_OPT)):
+        return
+    panes = tmux.get_hop_panes()
+    me = next((p for p in panes if p.id == pane_id), None)
+    if me is None:
+        return
+    siblings = [p for p in panes if p.session == me.session and p.window == me.window]
+    if not siblings:
+        return
+    top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
+    icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
+
+    cwd = tmux._run_tmux(
+        ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
+    )
+    base = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
+    name = f"{icon} {base}".strip()
+
+    tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
+    tmux._run_tmux(["rename-window", "-t", pane_id, name])
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +387,11 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "switch": cmd_switch,
     "discover": cmd_discover,
     "self-test": cmd_self_test,
+    "inbox": cmd_inbox,
+    "inbox-clear": cmd_inbox_clear,
+    "picker-data": cmd_picker_data,
+    "status": cmd_status,
+    "status-inbox": cmd_status_inbox,
 }
 
 

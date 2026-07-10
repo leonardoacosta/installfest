@@ -15,7 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
-from . import paths, priority, tmux
+from . import paths, priority, render, tmux
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +261,70 @@ def _test_find_plugin_dir() -> None:
 
 
 # ---------------------------------------------------------------------------
+# render.py tests (pure presentation logic — Req-5 / Req-7)
+# ---------------------------------------------------------------------------
+
+def _test_render_format_duration() -> None:
+    _check(render.format_duration(5) == "5s", "5s")
+    _check(render.format_duration(59) == "59s", "59s")
+    _check(render.format_duration(60) == "1m", "1m")
+    _check(render.format_duration(3600) == "1h", "1h")
+    _check(render.format_duration(90000) == "1d", "1d")
+    _check(render.format_duration(-3) == "0s", "negative floors to 0s")
+
+
+def _test_render_status() -> None:
+    icons = {"waiting": "W", "idle": "I", "active": "A"}
+    fmt = "{waiting:icon} {idle:icon} {active:icon}"
+    # zero-count states drop out and whitespace collapses.
+    out = render.render_status(fmt, {"waiting": 2, "idle": 0, "active": 1}, icons)
+    _check(out == "W 2 A 1", f"status render wrong: {out!r}")
+    # all zero -> empty string.
+    _check(render.render_status(fmt, {}, icons) == "", "empty counts -> empty status")
+
+
+def _test_render_resolve_icons() -> None:
+    # default when no override
+    icons = render.resolve_icons(lambda _opt: "")
+    _check(icons == render.DEFAULT_ICONS, "defaults when unset")
+    # per-state override honored
+    overrides = {"@cc-icon-waiting": "!!"}
+    icons2 = render.resolve_icons(lambda opt: overrides.get(opt, ""))
+    _check(icons2["waiting"] == "!!", "waiting override applied")
+    _check(icons2["idle"] == render.DEFAULT_ICONS["idle"], "idle keeps default")
+
+
+def _test_render_inbox_rows() -> None:
+    panes = [
+        _FakePaneFull("%1", "waiting", 100.0, "s1", "0", "proj", "main", "permission", "do X"),
+        _FakePaneFull("%2", "idle", 90.0, "s1", "1", "proj2", "dev", "", "done"),
+    ]
+    rows = render.inbox_rows(panes, render.DEFAULT_ICONS, now=110.0)
+    _check(len(rows) == 2, "one row per pane")
+    _check(rows[0][1] == "%1" and rows[1][1] == "%2", "pane_id preserved as field 2")
+    # session:window column present; time-in-state rendered.
+    _check("s1:0" in rows[0][0], "session:window column")
+    _check("10s" in rows[0][0], "duration column")
+    # empty branch/reason render as '-'
+    _check("-" in rows[1][0], "empty fields render as '-'")
+
+
+@dataclass
+class _FakePaneFull:
+    """Full PaneInfo stand-in for render.inbox_rows tests."""
+
+    id: str
+    state: str
+    timestamp: float
+    session: str
+    window: str
+    project: str
+    branch: str
+    wait_reason: str
+    task: str
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -280,6 +344,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("paths.tmux_conf_candidates", _test_tmux_conf_candidates),
     ("paths.find_tmux_conf_override", _test_find_tmux_conf_override),
     ("paths.find_plugin_dir", _test_find_plugin_dir),
+    ("render.format_duration", _test_render_format_duration),
+    ("render.render_status", _test_render_status),
+    ("render.resolve_icons", _test_render_resolve_icons),
+    ("render.inbox_rows", _test_render_inbox_rows),
 ]
 
 
