@@ -9,6 +9,7 @@ The tracked options on each Claude pane:
 
     @cc-state        waiting | idle | active
     @cc-timestamp    epoch seconds when the state was last set
+    @cc-visited      epoch seconds the pane was last focused (recency tiebreak)
     @cc-task         short human summary of what the pane is doing
     @cc-wait-reason  question | plan | permission | elicitation  (only when waiting)
     @cc-project      resolved project name (git toplevel basename, or dir name)
@@ -47,6 +48,7 @@ _FS = "\x1f"
 # Pane-option names (single source of the @cc-* namespace).
 OPT_STATE = "@cc-state"
 OPT_TIMESTAMP = "@cc-timestamp"
+OPT_VISITED = "@cc-visited"
 OPT_TASK = "@cc-task"
 OPT_WAIT_REASON = "@cc-wait-reason"
 OPT_PROJECT = "@cc-project"
@@ -55,11 +57,19 @@ OPT_BRANCH = "@cc-branch"
 _ALL_OPTS = (
     OPT_STATE,
     OPT_TIMESTAMP,
+    OPT_VISITED,
     OPT_TASK,
     OPT_WAIT_REASON,
     OPT_PROJECT,
     OPT_BRANCH,
 )
+
+# Global (server) options for the daemon-free reconcile rate limit (design.md
+# Decision 1). The stamp lives in a tmux GLOBAL option, dies with the server, and
+# never touches an external file.
+OPT_LAST_RECONCILE = "@cc-last-reconcile"
+OPT_RECONCILE_INTERVAL = "@cc-reconcile-interval"
+_DEFAULT_RECONCILE_INTERVAL = 10.0
 
 
 @dataclass
@@ -71,6 +81,7 @@ class PaneInfo:
     window: str
     state: str
     timestamp: float
+    visited: float = 0.0
     task: str = ""
     wait_reason: str = ""
     project: str = ""
@@ -130,6 +141,7 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
             "#{window_index}",
             "#{@cc-state}",
             "#{@cc-timestamp}",
+            "#{@cc-visited}",
             "#{@cc-task}",
             "#{@cc-wait-reason}",
             "#{@cc-project}",
@@ -145,9 +157,9 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
         if not line:
             continue
         parts = line.split(_FS)
-        if len(parts) != 9:
+        if len(parts) != 10:
             continue
-        pane_id, session, window, state, ts, task, reason, project, branch = parts
+        pane_id, session, window, state, ts, visited, task, reason, project, branch = parts
         if state not in VALID_STATES:
             continue  # untracked pane (no @cc-state, or garbage)
         if exclude_session is not None and session == exclude_session:
@@ -156,6 +168,10 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
             timestamp = float(ts) if ts else 0.0
         except ValueError:
             timestamp = 0.0
+        try:
+            visited_at = float(visited) if visited else 0.0
+        except ValueError:
+            visited_at = 0.0
         panes.append(
             PaneInfo(
                 id=pane_id,
@@ -163,6 +179,7 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
                 window=window,
                 state=state,
                 timestamp=timestamp,
+                visited=visited_at,
                 task=task,
                 wait_reason=reason,
                 project=project,
@@ -350,12 +367,100 @@ def set_pane_git_identity(pane_id: str) -> None:
         _set_opt(pane_id, OPT_BRANCH, branch)
 
 
+def set_pane_visited(pane_id: str, timestamp: Optional[float] = None) -> None:
+    """Stamp ``@cc-visited`` with the current epoch (MRU recency tiebreak).
+
+    Called on ``pane-focus-in`` for tracked panes so the most-recently-focused
+    pane surfaces first within its priority group. Fail-open: no tmux -> no-op.
+    """
+    if not tmux_available():
+        return
+    _set_opt(pane_id, OPT_VISITED, str(timestamp if timestamp is not None else time.time()))
+
+
 def clear_pane_state(pane_id: str) -> None:
     """Remove every ``@cc-*`` option from a pane (SessionEnd cleanup). Fail-open."""
     if not tmux_available():
         return
     for opt in _ALL_OPTS:
         _unset_opt(pane_id, opt)
+
+
+# ---------------------------------------------------------------------------
+# Daemon-free reconcile (design.md Decision 1)
+# ---------------------------------------------------------------------------
+
+def should_reconcile(last: float, now: float, interval: float) -> bool:
+    """Pure rate-limit gate: True when at least ``interval`` seconds elapsed since
+    ``last`` (``last`` == 0 means never reconciled -> always True). Unit-testable
+    without a live tmux (task 1.6)."""
+    return (now - last) >= interval
+
+
+def _float_global(option: str) -> float:
+    raw = get_global_option(option)
+    try:
+        return float(raw) if raw else 0.0
+    except ValueError:
+        return 0.0
+
+
+def _reconcile_interval() -> float:
+    """Min seconds between process scans; overridable via ``@cc-reconcile-interval``."""
+    raw = get_global_option(OPT_RECONCILE_INTERVAL)
+    try:
+        val = float(raw) if raw else _DEFAULT_RECONCILE_INTERVAL
+    except ValueError:
+        val = _DEFAULT_RECONCILE_INTERVAL
+    return val if val > 0 else _DEFAULT_RECONCILE_INTERVAL
+
+
+def _heal_stale(
+    panes: List[PaneInfo],
+    claude_ids_fn: Callable[[List[dict]], set],
+) -> List[PaneInfo]:
+    """Clear stale ``@cc-state`` left by a kill -9'd Claude.
+
+    A tracked pane still present in tmux but no longer running Claude gets its
+    ``@cc-*`` state cleared. A FAILED process scan (empty result) clears nothing
+    rather than mass-wiping live sessions. Returns a fresh read when anything was
+    healed, else the input list.
+    """
+    rows = iter_panes_with_process()
+    if not rows:
+        return panes  # scan failed / unavailable -> do not clear anything
+    claude_ids = claude_ids_fn(rows)
+    present = {row["id"] for row in rows}
+    healed = False
+    for pane in panes:
+        if pane.id in present and pane.id not in claude_ids:
+            clear_pane_state(pane.id)
+            healed = True
+    return get_hop_panes() if healed else panes
+
+
+def reconcile(
+    claude_ids_fn: Callable[[List[dict]], set],
+    *,
+    now: Optional[float] = None,
+) -> List[PaneInfo]:
+    """Rate-limited self-heal shared by the read entry points (design.md Dec. 1).
+
+    Returns the current (possibly healed) hop-pane list. The process scan runs at
+    most once per ``@cc-reconcile-interval`` seconds, gated by the
+    ``@cc-last-reconcile`` global-option stamp, so the status bar's frequent
+    render never pays a scan on every tick. ``claude_ids_fn`` maps
+    :func:`iter_panes_with_process` rows to the set of pane ids running Claude
+    (injected by the caller to avoid a cli<->tmux import cycle). Fail-open.
+    """
+    panes = get_hop_panes()
+    if not tmux_available():
+        return panes
+    now = now if now is not None else time.time()
+    if not should_reconcile(_float_global(OPT_LAST_RECONCILE), now, _reconcile_interval()):
+        return panes
+    set_global_option(OPT_LAST_RECONCILE, str(now))
+    return _heal_stale(panes, claude_ids_fn)
 
 
 # ---------------------------------------------------------------------------

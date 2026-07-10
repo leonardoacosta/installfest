@@ -33,11 +33,12 @@ def _check(cond: bool, msg: str) -> None:
 
 @dataclass
 class _FakePane:
-    """Minimal stand-in for PaneInfo — priority.py only reads state/timestamp/id."""
+    """Minimal stand-in for PaneInfo — priority.py reads state/timestamp/visited/id."""
 
     id: str
     state: str
     timestamp: float
+    visited: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +119,48 @@ def _test_cycle_bad_mode_falls_back() -> None:
     ring = [p.id for p in priority.cycle_order(_sample_panes(), "nonsense")]
     priority_ring = [p.id for p in priority.cycle_order(_sample_panes(), "priority")]
     _check(ring == priority_ring, "bad mode should fall back to priority")
+
+
+def _test_recency_tiebreak_within_group() -> None:
+    # Same state: the more-recently-VISITED pane wins even with an OLDER timestamp
+    # (Decision 2 — visited is the primary within-group key, timestamp the fallback).
+    panes = [
+        _FakePane("%stale_ts_recent_visit", "waiting", timestamp=10.0, visited=99.0),
+        _FakePane("%fresh_ts_no_visit", "waiting", timestamp=50.0, visited=0.0),
+    ]
+    ordered = [p.id for p in priority.sort_panes(panes)]
+    _check(ordered[0] == "%stale_ts_recent_visit", f"visited must beat timestamp: {ordered}")
+    grouped = [p.id for p in priority.group_by_state(panes)["waiting"]]
+    _check(grouped[0] == "%stale_ts_recent_visit", f"group_by_state tiebreak wrong: {grouped}")
+
+
+def _test_group_order_unchanged_by_visits() -> None:
+    # A never-visited waiting pane still outranks a heavily-visited active pane:
+    # the priority GROUP dominates; recency is only a within-group tiebreak.
+    panes = [
+        _FakePane("%active_visited", "active", timestamp=100.0, visited=1000.0),
+        _FakePane("%waiting_unvisited", "waiting", timestamp=1.0, visited=0.0),
+    ]
+    ordered = [p.id for p in priority.sort_panes(panes)]
+    _check(ordered == ["%waiting_unvisited", "%active_visited"], f"group order broke: {ordered}")
+
+
+def _test_missing_visited_timestamp_fallback() -> None:
+    # No visits anywhere -> fall back to timestamp desc (legacy ordering preserved).
+    panes = [
+        _FakePane("%old", "idle", timestamp=10.0),
+        _FakePane("%new", "idle", timestamp=20.0),
+    ]
+    ordered = [p.id for p in priority.sort_panes(panes)]
+    _check(ordered == ["%new", "%old"], f"timestamp fallback wrong: {ordered}")
+
+
+def _test_reconcile_rate_limit() -> None:
+    # Pure rate-limit gate for the daemon-free reconcile (Decision 1).
+    _check(tmux.should_reconcile(0.0, 100.0, 10.0) is True, "last=0 (never) -> reconcile")
+    _check(tmux.should_reconcile(95.0, 100.0, 10.0) is False, "5s elapsed < 10s -> skip")
+    _check(tmux.should_reconcile(90.0, 100.0, 10.0) is True, "exactly interval -> reconcile")
+    _check(tmux.should_reconcile(80.0, 100.0, 10.0) is True, ">interval -> reconcile")
 
 
 def _test_select_next() -> None:
@@ -410,6 +453,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("priority.cycle_priority_mode", _test_cycle_priority_mode),
     ("priority.cycle_flat_mode", _test_cycle_flat_mode),
     ("priority.cycle_bad_mode_fallback", _test_cycle_bad_mode_falls_back),
+    ("priority.recency_tiebreak", _test_recency_tiebreak_within_group),
+    ("priority.group_order_unchanged_by_visits", _test_group_order_unchanged_by_visits),
+    ("priority.missing_visited_fallback", _test_missing_visited_timestamp_fallback),
+    ("tmux.reconcile_rate_limit", _test_reconcile_rate_limit),
     ("priority.select_next", _test_select_next),
     ("tmux.is_real_transition", _test_is_real_transition_pure),
     ("tmux.set_pane_state_change", _test_set_pane_state_returns_change),

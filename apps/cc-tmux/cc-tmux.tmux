@@ -88,11 +88,13 @@ tmux bind-key -n "$back_key" run-shell "$CMD back"
 
 if supports_popup; then
   # fzf popup: --with-nth=1 shows only the aligned label; field 2 is the pane id.
+  # --preview renders the highlighted pane's live tail in a right-side panel
+  # (field 2 = {2} drives it); enter still switches to that pane.
   tmux bind-key "$picker_key" display-popup -E \
-    "$CMD picker-data | fzf --delimiter='\\t' --with-nth=1 --reverse --prompt='jump> ' | cut -f2 | xargs -I{} $CMD switch --pane {}"
+    "$CMD picker-data | fzf --delimiter='\\t' --with-nth=1 --reverse --prompt='jump> ' --preview 'tmux capture-pane -ep -t {2} | tail -40' --preview-window='right:55%:wrap' | cut -f2 | xargs -I{} $CMD switch --pane {}"
   # inbox popup: ctrl-x dismisses (view filter) and reloads; enter switches.
   tmux bind-key "$inbox_key" display-popup -E \
-    "$CMD inbox | fzf --delimiter='\\t' --with-nth=1 --reverse --prompt='inbox> ' --bind 'ctrl-x:execute-silent($CMD inbox-clear)+reload($CMD inbox)' | cut -f2 | xargs -I{} $CMD switch --pane {}"
+    "$CMD inbox | fzf --delimiter='\\t' --with-nth=1 --reverse --prompt='inbox> ' --preview 'tmux capture-pane -ep -t {2} | tail -40' --preview-window='right:55%:wrap' --bind 'ctrl-x:execute-silent($CMD inbox-clear)+reload($CMD inbox)' | cut -f2 | xargs -I{} $CMD switch --pane {}"
 else
   # Fallback: this script's own __menu mode builds a display-menu.
   tmux bind-key "$picker_key" run-shell "'$CURRENT_DIR/cc-tmux.tmux' __menu picker-data"
@@ -117,5 +119,20 @@ esac
 # ---------------------------------------------------------------------------
 tmux set-option -g @cc-status "#($CMD status)"
 tmux set-option -g @cc-status-inbox "#($CMD status-inbox)"
+
+# ---------------------------------------------------------------------------
+# MRU focus tracking — stamp @cc-visited on pane focus (recency tiebreak).
+# The fixed hook slot [9909] is idempotent (overwrites itself on every reload)
+# and coexists with any user-owned bare `pane-focus-in` hook. Opt out entirely
+# via `@cc-track-focus off`, which unsets the slot.
+# ---------------------------------------------------------------------------
+case "$(_opt @cc-track-focus on)" in
+  off | 0 | false | no)
+    tmux set-hook -gu 'pane-focus-in[9909]'
+    ;;
+  *)
+    tmux set-hook -g 'pane-focus-in[9909]' "run-shell -b '$CMD focus #{pane_id}'"
+    ;;
+esac
 
 "$CMD" discover --quiet >/dev/null 2>&1 &

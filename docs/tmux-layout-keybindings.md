@@ -83,14 +83,18 @@ all overridable via `@cc-*-key` options.
 | Key | Action |
 |---|---|
 | `prefix + o` | cycle to next pending Claude pane (priority: waiting → idle), newest-first |
-| `prefix + C-f` | pane picker popup (fzf, or `display-menu` fallback) |
-| `prefix + i` | notification inbox — every tracked pane, attention-first; `enter` switches, `ctrl-x` dismisses |
+| `prefix + C-f` | pane picker popup (fzf, or `display-menu` fallback); fzf shows a right-side preview of the highlighted pane's live tail |
+| `prefix + i` | notification inbox — every tracked pane, attention-first; `enter` switches, `ctrl-x` dismisses; fzf preview pane shows the highlighted pane's tail |
 | `C-Space` (root, no prefix) | jump back to the previous pane across sessions/windows |
 | `prefix + y` | open the Conductor popup (only when `@cc-conductor-enabled`) |
 | `prefix + Y` | kill + respawn the Conductor (destructive; only when `@cc-conductor-enabled`) |
 
 Cycle moved off `prefix + Space` to `prefix + o` to avoid colliding with tmux-which-key's menu
 (which keeps `Space`); see `openspec/changes/cc-tmux-plugin/design.md` § collision.
+
+Troubleshooting: run `cc-tmux doctor` for a PASS/FAIL environment checklist (tmux/fzf/python
+versions, `$TMUX`, plugin symlink, hook wiring, tracked-pane count) — always exits 0, the rows
+are the signal.
 
 ## Customization points
 

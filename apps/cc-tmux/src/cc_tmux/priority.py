@@ -7,9 +7,11 @@ live tmux server (design.md invariant: views derive, they do not store).
 
 Priority model (Req-4):
     waiting (0)  >  idle (1)  >  active (2)
-Lower number == higher attention priority. Within a group, newest-first
-(most-recent ``timestamp`` first) so the pane that most recently changed state
-surfaces at the top.
+Lower number == higher attention priority. Within a group, the most-recently
+*visited* pane surfaces first (``@cc-visited`` desc), falling back to the
+most-recent state change (``timestamp`` desc) for never-visited panes
+(cc-tmux-scout-adoptions Decision 2 — recency is a within-group tiebreak only,
+the group order itself is unchanged).
 
 Only ``waiting`` and ``idle`` panes are *pending* (cyclable / dismissable);
 ``active`` panes are shown for overview but never cycled to.
@@ -58,6 +60,19 @@ def _timestamp_of(pane: object) -> float:
         return 0.0
 
 
+def _visited_of(pane: object) -> float:
+    """Numeric last-visited epoch for the recency tiebreak; missing/garbage -> 0.
+
+    Sibling of :func:`_timestamp_of`: a never-visited pane reads 0.0 and thus
+    falls back to timestamp ordering within its group.
+    """
+    v = getattr(pane, "visited", None)
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def group_by_state(panes: Sequence[T]) -> Dict[str, List[T]]:
     """Bucket panes by state, each bucket sorted newest-first.
 
@@ -71,18 +86,20 @@ def group_by_state(panes: Sequence[T]) -> Dict[str, List[T]]:
         if state in groups:
             groups[state].append(pane)
     for state in groups:
-        groups[state].sort(key=_timestamp_of, reverse=True)
+        # visited desc, then timestamp desc (recency tiebreak within the group).
+        groups[state].sort(key=lambda p: (-_visited_of(p), -_timestamp_of(p)))
     return groups
 
 
 def sort_panes(panes: Sequence[T]) -> List[T]:
-    """All panes ordered by (state priority asc, timestamp desc).
+    """All panes ordered by (state priority asc, visited desc, timestamp desc).
 
-    The canonical global ordering used by inbox / status views: waiting first
-    (newest-first), then idle (newest-first), then active (newest-first).
-    Unknown-state panes sort to the very end.
+    The canonical global ordering used by inbox / status views: waiting first,
+    then idle, then active — and within each group the most-recently-visited pane
+    first (recency tiebreak), falling back to newest state change. Unknown-state
+    panes sort to the very end.
     """
-    return sorted(panes, key=lambda p: (_priority_of(p), -_timestamp_of(p)))
+    return sorted(panes, key=lambda p: (_priority_of(p), -_visited_of(p), -_timestamp_of(p)))
 
 
 def pending_panes(panes: Sequence[T]) -> List[T]:

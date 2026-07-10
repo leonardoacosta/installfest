@@ -35,6 +35,7 @@ _PREV_PANE_OPT = "@cc-prev-pane"
 _CYCLE_MODE_OPT = "@cc-cycle-mode"
 
 # View / rendering options (Req-5/Req-7).
+_TRACK_FOCUS_OPT = "@cc-track-focus"           # MRU visit tracking (default on)
 _INBOX_CLEARED_OPT = "@cc-inbox-cleared-at"   # dismiss stamp (a view filter)
 _STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
 _WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
@@ -80,7 +81,7 @@ def cmd_clear(args) -> int:
 def cmd_cycle(args) -> int:
     """Hop to the next pending pane in attention-priority order (Req-4)."""
     mode = args.mode or tmux.get_global_option(_CYCLE_MODE_OPT) or "priority"
-    panes = tmux.get_hop_panes()
+    panes = tmux.reconcile(_pane_ids_running_claude)
     current = tmux.current_pane_id()
     target = select_next(panes, current, mode)
     if target is None:
@@ -113,6 +114,23 @@ def cmd_switch(args) -> int:
     return 0
 
 
+def cmd_focus(args) -> int:
+    """Record a pane visit for the MRU recency tiebreak (Decision 2).
+
+    Invoked by the ``pane-focus-in[9909]`` hook on every focus. Stamps
+    ``@cc-visited`` IFF the pane is tracked (carries a valid ``@cc-state``);
+    silent no-op for untracked panes so a plain terminal focus writes nothing.
+    Fail-open: never crashes the hook.
+    """
+    pane = getattr(args, "pane_id", "")
+    if not pane:
+        return 0
+    if tmux.get_pane_option(pane, tmux.OPT_STATE) not in VALID_STATES:
+        return 0  # untracked pane -> do not stamp
+    tmux.set_pane_visited(pane)
+    return 0
+
+
 def cmd_discover(args) -> int:
     """Auto-register already-running Claude sessions on plugin load (Req-11)."""
     rows = tmux.iter_panes_with_process()
@@ -138,6 +156,112 @@ def cmd_self_test(args) -> int:
     return run_self_test(verbose=args.verbose)
 
 
+def cmd_doctor(args) -> int:
+    """Environment diagnostics checklist — PASS/FAIL/WARN rows, ALWAYS exit 0.
+
+    Diagnostics, not tests (design.md Decision 4): doctor does environment I/O and
+    reports prose; ``self-test`` runs pure asserts and exits non-zero on failure.
+    Opposite exit contracts, deliberately separate subcommands.
+    """
+    import re
+    import shutil
+    import sys
+    from pathlib import Path
+
+    rows: List[tuple] = []
+
+    def add(status: str, label: str, detail: str = "") -> None:
+        rows.append((status, label, detail))
+
+    # tmux >= 3.2 (parse `tmux -V`; strip the trailing letter suffix like 3.6a).
+    tmux_bin = shutil.which("tmux")
+    if not tmux_bin:
+        add("FAIL", "tmux >= 3.2", "tmux not found on PATH")
+    else:
+        ver_out = tmux._run_tmux(["-V"], check_available=False) or ""
+        ver = re.sub(r"[^0-9.]", "", ver_out)
+        parts = ver.split(".") if ver else []
+        try:
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            ok = major > 3 or (major == 3 and minor >= 2)
+            add("PASS" if ok else "FAIL", "tmux >= 3.2", ver_out or ver)
+        except (ValueError, IndexError):
+            add("WARN", "tmux >= 3.2", f"could not parse version: {ver_out!r}")
+
+    # fzf on PATH
+    fzf = shutil.which("fzf")
+    add("PASS", "fzf on PATH", fzf) if fzf else add("WARN", "fzf on PATH", "fzf not found (menu fallback used)")
+
+    # python >= 3.10
+    py_ok = sys.version_info >= (3, 10)
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    add("PASS" if py_ok else "FAIL", "python >= 3.10", py_ver)
+
+    # $TMUX set
+    in_tmux = bool(os.environ.get("TMUX"))
+    add("PASS", "$TMUX set", os.environ.get("TMUX", "")) if in_tmux else add("FAIL", "$TMUX set", "not running inside tmux")
+
+    # ~/.tmux/plugins/cc-tmux symlink resolves
+    link = Path.home() / ".tmux" / "plugins" / "cc-tmux"
+    try:
+        if not link.exists():
+            add("WARN", "plugin symlink", f"{link} absent (may run from source tree)")
+        elif link.is_symlink():
+            add("PASS", "plugin symlink", f"{link} -> {link.resolve()}")
+        else:
+            add("PASS", "plugin symlink", f"{link} (real copy)")
+    except OSError as exc:
+        add("FAIL", "plugin symlink", f"{link}: {exc}")
+
+    # Claude plugin registered (WARN if `claude` absent)
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        add("WARN", "claude plugin registered", "claude not on PATH (skipped)")
+    else:
+        try:
+            proc = subprocess.run(
+                ["claude", "plugin", "list"],
+                capture_output=True, text=True, timeout=10,
+            )
+            listing = f"{proc.stdout}\n{proc.stderr}"
+            if "cc-tmux" in listing:
+                add("PASS", "claude plugin registered", "cc-tmux present")
+            else:
+                add("WARN", "claude plugin registered", "cc-tmux not in `claude plugin list`")
+        except (OSError, subprocess.SubprocessError) as exc:
+            add("WARN", "claude plugin registered", f"`claude plugin list` failed: {exc}")
+
+    # pane-focus-in[9909] hook present when @cc-track-focus is on
+    if not tmux.tmux_available():
+        add("WARN", "focus hook", "tmux unavailable (skipped)")
+    else:
+        track = tmux.get_global_option(_TRACK_FOCUS_OPT)
+        tracking_on = track.strip().lower() not in ("off", "0", "false", "no")
+        if not tracking_on:
+            add("WARN", "focus hook", "@cc-track-focus off (visit tracking disabled)")
+        else:
+            hooks = tmux._run_tmux(["show-hooks", "-g", "pane-focus-in"], check_available=False) or ""
+            if "pane-focus-in[9909]" in hooks:
+                add("PASS", "focus hook", "pane-focus-in[9909] installed")
+            else:
+                add("FAIL", "focus hook", "pane-focus-in[9909] missing (reload the plugin)")
+
+    # tracked-pane count
+    count = len(tmux.get_hop_panes())
+    add("INFO", "tracked panes", str(count))
+
+    # -- render ---------------------------------------------------------------
+    print("cc-tmux doctor")
+    width = max((len(label) for _s, label, _d in rows), default=0)
+    for status, label, detail in rows:
+        line = f"  {status:<4} {label:<{width}}"
+        if detail:
+            line += f"  {detail}"
+        print(line)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Inbox / picker (Req-5, task 1.6)
 # ---------------------------------------------------------------------------
@@ -150,7 +274,7 @@ def cmd_inbox(args) -> int:
     filter, never a state mutation — invariant 2), so status counts are
     unaffected and active rows always stay visible.
     """
-    panes = _self_heal(tmux.get_hop_panes())
+    panes = tmux.reconcile(_pane_ids_running_claude)
     cleared_at = _float_opt(_INBOX_CLEARED_OPT)
     visible = []
     for pane in sort_panes(panes):
@@ -178,7 +302,7 @@ def cmd_picker_data(args) -> int:
     Unlike the inbox, the picker is unfiltered (no dismiss stamp) so any pane —
     including ``active`` — can be jumped to.
     """
-    _emit_rows(sort_panes(_self_heal(tmux.get_hop_panes())))
+    _emit_rows(sort_panes(tmux.reconcile(_pane_ids_running_claude)))
     return 0
 
 
@@ -187,8 +311,13 @@ def cmd_picker_data(args) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_status(args) -> int:
-    """Emit the status-bar pane counts via ``@cc-status-format`` (Req-7)."""
-    groups = group_by_state(tmux.get_hop_panes())
+    """Emit the status-bar pane counts via ``@cc-status-format`` (Req-7).
+
+    The status bar is tmux's frequent-render surface, so it doubles as the
+    de-facto reconcile heartbeat — but the scan is rate-limited (design.md
+    Decision 1), so a render pays at most one process scan per interval.
+    """
+    groups = group_by_state(tmux.reconcile(_pane_ids_running_claude))
     counts = {state: len(members) for state, members in groups.items()}
     fmt = tmux.get_global_option(_STATUS_FORMAT_OPT) or render.DEFAULT_STATUS_FORMAT
     icons = render.resolve_icons(tmux.get_global_option)
@@ -237,26 +366,6 @@ def _float_opt(option: str) -> float:
         return float(raw) if raw else 0.0
     except ValueError:
         return 0.0
-
-
-def _self_heal(panes: List["tmux.PaneInfo"]) -> List["tmux.PaneInfo"]:
-    """Clear stale state left by a kill -9'd Claude (Req-5 self-heal).
-
-    A tracked pane still present in tmux but no longer running Claude gets its
-    ``@cc-*`` state cleared. A FAILED process scan (empty result) shows
-    everything rather than mass-clearing live sessions.
-    """
-    rows = tmux.iter_panes_with_process()
-    if not rows:
-        return panes  # scan failed / unavailable -> do not clear anything
-    claude_ids = _pane_ids_running_claude(rows)
-    present = {row["id"] for row in rows}
-    healed = False
-    for pane in panes:
-        if pane.id in present and pane.id not in claude_ids:
-            tmux.clear_pane_state(pane.id)
-            healed = True
-    return tmux.get_hop_panes() if healed else panes
 
 
 def _truthy(value: str) -> bool:
@@ -384,8 +493,10 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "cycle": cmd_cycle,
     "back": cmd_back,
     "switch": cmd_switch,
+    "focus": cmd_focus,
     "discover": cmd_discover,
     "self-test": cmd_self_test,
+    "doctor": cmd_doctor,
     "inbox": cmd_inbox,
     "inbox-clear": cmd_inbox_clear,
     "picker-data": cmd_picker_data,

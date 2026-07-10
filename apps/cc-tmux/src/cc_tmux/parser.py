@@ -6,10 +6,11 @@ name is stored in ``args.command`` and :mod:`cc_tmux.cli` maps it to a
 import (cli imports the parser; the parser references no handlers).
 
 Subcommands split into two ownership groups:
-  * Implemented: register, cycle, back, switch, discover, clear, self-test
-    (core); inbox, inbox-clear, picker-data, status, status-inbox (integration
-    surface — these take no arguments, so their parsers stay bare); usage
-    (argless, Req-8) and conductor (Req-9, with its own action + flags).
+  * Implemented: register, cycle, back, switch, focus, discover, clear,
+    self-test, doctor (core); inbox, inbox-clear, picker-data, status,
+    status-inbox (integration surface — these take no arguments, so their parsers
+    stay bare); usage (argless, Req-8) and conductor (Req-9, with its own action
+    + flags).
 """
 
 from __future__ import annotations
@@ -72,6 +73,16 @@ def build_parser() -> argparse.ArgumentParser:
     # -- switch: focus a specific pane ----------------------------------------
     p_switch = sub.add_parser("switch", help="Switch focus to a specific pane.")
     p_switch.add_argument("--pane", required=True, help="Target pane id to switch to.")
+
+    # -- focus: record a pane visit (pane-focus-in hook -> MRU tiebreak) -------
+    p_focus = sub.add_parser(
+        "focus",
+        help="Stamp @cc-visited on a tracked pane (invoked by the pane-focus-in hook).",
+    )
+    p_focus.add_argument("pane_id", help="Pane id that gained focus (#{pane_id}).")
+
+    # -- doctor: environment diagnostics (PASS/FAIL/WARN, always exit 0) -------
+    sub.add_parser("doctor", help="Print an environment diagnostics checklist (always exit 0).")
 
     # -- discover: auto-register already-running Claude sessions --------------
     p_discover = sub.add_parser(
