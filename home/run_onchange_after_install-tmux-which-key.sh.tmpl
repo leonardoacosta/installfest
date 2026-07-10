@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Install/update alexwforsythe/tmux-which-key — popup action-menu plugin
+# (vscode-which-key style), installed manually since this repo runs no TPM
+# (see docs/audit/tmux.md N5 — deliberate: single run-shell line is cleaner
+# than TPM for one plugin).
+#
+# Re-runs whenever tmux.conf changes (the file that wires this plugin in) so
+# a fresh machine picks up the clone automatically on first `chezmoi apply`.
+#
+#   tmux.conf: {{ include "dot_config/tmux/tmux.conf.tmpl" | sha256sum }}
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+PLUGIN_DIR="$HOME/.tmux/plugins/tmux-which-key"
+REPO="https://github.com/alexwforsythe/tmux-which-key"
+
+if ! command -v git >/dev/null 2>&1; then
+  warning "tmux-which-key: git not available; skipping install"
+  exit 0
+fi
+
+if [ -d "$PLUGIN_DIR/.git" ]; then
+  info "tmux-which-key: updating existing clone"
+  git -C "$PLUGIN_DIR" pull --ff-only --recurse-submodules || \
+    warning "tmux-which-key: pull failed — leaving existing clone as-is"
+else
+  info "tmux-which-key: cloning to $PLUGIN_DIR"
+  mkdir -p "$(dirname "$PLUGIN_DIR")"
+  if git clone --recursive "$REPO" "$PLUGIN_DIR"; then
+    success "tmux-which-key: cloned"
+  else
+    warning "tmux-which-key: clone failed — plugin will not load until this succeeds"
+  fi
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  success "tmux-which-key: python3 present, YAML config autobuild available"
+else
+  warning "tmux-which-key: python3 not found — YAML config.yaml customization won't autobuild"
+fi

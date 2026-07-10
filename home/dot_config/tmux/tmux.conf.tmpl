@@ -196,6 +196,17 @@ bind -T copy-mode-vi WheelUpPane   send-keys -X -N 3 scroll-up
 bind -T copy-mode-vi WheelDownPane send-keys -X -N 3 scroll-down
 
 # -----------------------------------------------------------------------------
+# Plugins (manual install, no TPM — see docs/audit/tmux.md N5)
+# -----------------------------------------------------------------------------
+
+# tmux-which-key: popup action menu (prefix+space / Ctrl+Space), installed by
+# run_onchange_after_install-tmux-which-key.sh.tmpl into ~/.tmux/plugins/.
+# Guarded with if-shell so a fresh machine that hasn't run chezmoi's install
+# script yet doesn't fail to load the rest of this config.
+if-shell "test -f ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux" \
+  "run-shell ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux"
+
+# -----------------------------------------------------------------------------
 # Status Bar - Tab-like Appearance
 # -----------------------------------------------------------------------------
 
