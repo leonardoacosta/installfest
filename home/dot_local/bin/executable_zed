@@ -1,0 +1,30 @@
+#!/usr/bin/env zsh
+# Zed wrapper — this dotfile is chezmoi-applied on every machine (Mac client AND
+# the Linux/homelab remote target), so it must behave differently on each:
+#   - On the machine with the real Zed install (the client), delegate straight to
+#     the real `zed` binary — this file must never shadow the native CLI.
+#   - On a remote host with no local Zed install, ssh back to the client and
+#     trigger `zed ssh://<this-host>/<path>` there — Zed's own CLI auto-starts
+#     (and auto-updates) the remote server and opens the window; no manual
+#     "Open Remote" step needed first.
+
+self="${0:A}"
+for candidate in ${(f)"$(whence -ap zed 2>/dev/null)"}; do
+  [[ "$candidate" == "$self" ]] && continue
+  exec "$candidate" "$@"
+done
+
+# No local Zed install — trigger the client's real `zed` over SSH.
+CLIENT_HOST="${EDITOR_REMOTE_CLIENT:-mac}"
+REMOTE_ALIAS="${EDITOR_REMOTE_ALIAS:-$(hostname)}"
+
+target_path="$PWD"
+for a in "$@"; do
+  [[ "$a" != -* ]] && { target_path="${a:A}"; break; }
+done
+
+ssh -o BatchMode=yes -o ConnectTimeout=5 "$CLIENT_HOST" \
+  "zed ssh://$REMOTE_ALIAS$target_path"
+rc=$?
+[[ $rc -ne 0 ]] && echo "error: could not reach $CLIENT_HOST to auto-open Zed" >&2
+exit $rc

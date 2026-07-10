@@ -1,10 +1,12 @@
 #!/usr/bin/env zsh
 # Cursor wrapper — this dotfile is chezmoi-applied on every machine (Mac client AND
 # the Linux/homelab remote target), so it must behave differently on each:
-#   - On the machine with the real Cursor.app install (the client), delegate straight
-#     to the real `cursor` binary — this file must never shadow the native CLI.
-#   - On a remote host with no local Cursor install, attach to the connected remote-cli
-#     session so `cursor .` works from an SSH terminal, not just Cursor's integrated one.
+#   - On the machine with the real Cursor install (the client), delegate straight to
+#     the real `cursor` binary — this file must never shadow the native CLI.
+#   - On a remote host with no local Cursor install, ssh back to the client and
+#     trigger `cursor --remote ssh-remote+<this-host>` there — Cursor's Remote-SSH
+#     extension auto-starts cursor-server and opens the window, no manual
+#     "Connect via SSH" step needed first.
 
 self="${0:A}"
 for candidate in ${(f)"$(whence -ap cursor 2>/dev/null)"}; do
@@ -12,28 +14,17 @@ for candidate in ${(f)"$(whence -ap cursor 2>/dev/null)"}; do
   exec "$candidate" "$@"
 done
 
-# No other `cursor` binary on this host — remote-cli fallback (server side).
-cursor_cli=("$HOME"/.cursor-server/bin/linux-x64/*/bin/remote-cli(Nom[1])) 2>/dev/null
-if [[ ! -x "$cursor_cli/cursor" ]]; then
-  echo "error: cursor-server not installed (no remote-cli found)" >&2
-  exit 1
-fi
+# No local Cursor install — trigger the client's real `cursor` over SSH.
+CLIENT_HOST="${EDITOR_REMOTE_CLIENT:-mac}"
+REMOTE_ALIAS="${EDITOR_REMOTE_ALIAS:-$(hostname)}"
 
-# IPC sockets go stale (owning window closed) but the file lingers — mtime-newest
-# isn't always live, so try each candidate, newest first, until one connects.
-socks=(/run/user/$(id -u)/vscode-ipc-*.sock(Nom))
-if [[ ${#socks[@]} -eq 0 ]]; then
-  echo "error: no Cursor IPC socket found — is Cursor connected via SSH?" >&2
-  exit 1
-fi
-
-for sock in "${socks[@]}"; do
-  out=$(VSCODE_IPC_HOOK_CLI="$sock" "$cursor_cli/cursor" "$@" 2>&1)
-  rc=$?
-  if [[ $rc -eq 0 || "$out" != *ECONNREFUSED* ]]; then
-    [[ -n "$out" ]] && print -r -- "$out"
-    exit $rc
-  fi
+target_path="$PWD"
+for a in "$@"; do
+  [[ "$a" != -* ]] && { target_path="${a:A}"; break; }
 done
-echo "error: no live Cursor IPC socket found (${#socks[@]} stale)" >&2
-exit 1
+
+ssh -o BatchMode=yes -o ConnectTimeout=5 "$CLIENT_HOST" \
+  "cursor --remote ssh-remote+$REMOTE_ALIAS '$target_path'"
+rc=$?
+[[ $rc -ne 0 ]] && echo "error: could not reach $CLIENT_HOST to auto-open Cursor" >&2
+exit $rc
