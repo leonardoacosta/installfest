@@ -34,7 +34,7 @@
 #   COPEN_FULLSCREEN   set 0 to skip the fullscreen attempt
 (return 0 2>/dev/null) || set -euo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 [ -r "$DOTFILES/scripts/lib/registry.sh" ] || { echo "copen: registry lib not found: $DOTFILES/scripts/lib/registry.sh" >&2; exit 1; }
 # shellcheck source=/dev/null
 source "$DOTFILES/scripts/lib/registry.sh"

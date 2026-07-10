@@ -7,12 +7,12 @@
 # platform/bootstrap.sh — PHASE 2 of the documented 2-phase cold-start.
 #
 # The 2-phase cold-start (see README.md § Quick Start):
-#   PHASE 1 (automated):  chezmoi init --apply leonardoacosta/if --source ~/dev/if
+#   PHASE 1 (automated):  chezmoi init --apply leonardoacosta/installfest --source ~/dev/personal/installfest
 #                         -> home/run_once_install-packages.sh.tmpl installs Homebrew,
 #                            runs `brew bundle` (apps + CLIs, incl. xcodes), deploys all
 #                            dotfiles/settings, runs generators. MUST be non-interactive
 #                            (chezmoi run_once cannot pause for a prompt).
-#   PHASE 2 (this script, interactive):  ~/dev/if/platform/bootstrap.sh
+#   PHASE 2 (this script, interactive):  ~/dev/personal/installfest/platform/bootstrap.sh
 #                         -> the supervised Apple gates (Remote Login, Xcode/2FA, signing
 #                            cert) + Tailscale hostname + Xcode first-launch + Metal
 #                            toolchain + gh auth + the projects.toml clone+install loop.
@@ -124,7 +124,7 @@ if [[ $IS_MAC -eq 1 ]]; then
 		error "============================================================"
 		error "  Phase 1 has not completed: 'brew' and/or 'xcodes' missing."
 		error "  Run Phase 1 first (installs apps + all settings):"
-		error "      chezmoi init --apply leonardoacosta/if --source ~/dev/if"
+		error "      chezmoi init --apply leonardoacosta/installfest --source ~/dev/personal/installfest"
 		error "  Then re-run this script (Phase 2)."
 		error "============================================================"
 		exit 1

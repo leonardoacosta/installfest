@@ -17,9 +17,9 @@
 # Newly-scaffolded files are left UNCOMMITTED for review + `git add` (never auto-committed).
 (return 0 2>/dev/null) || set -euo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 REGISTRY="${WSENV_REGISTRY:-$DOTFILES/home/projects.toml}"
-[[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
+[[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/personal/installfest/home/projects.toml"
 PROFILES_DIR="$DOTFILES/packages/workspace/profiles"
 SYMLINK_TMPL_DIR="$DOTFILES/home/dot_config/workspace"
 

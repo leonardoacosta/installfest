@@ -39,7 +39,7 @@ registry — new subcommands appear the moment they land on PATH. Run `wk` (or
 ## How it deploys (both machines, in sync)
 
 - `bin/wsenv` is symlinked onto PATH by chezmoi: `home/dot_local/bin/symlink_wsenv.tmpl`
-  → `~/.local/bin/wsenv` → `~/dev/if/packages/workspace/bin/wsenv`. `~/.local/bin` is already
+  → `~/.local/bin/wsenv` → `~/dev/personal/installfest/packages/workspace/bin/wsenv`. `~/.local/bin` is already
   on PATH (`.zshenv`), so bare `wsenv` works.
 - `profiles/<org>/` are **committed dirs**; chezmoi symlinks each into place via
   `home/dot_config/workspace/symlink_<org>.tmpl` → `~/.config/workspace/<org>`. The live file IS
@@ -50,12 +50,12 @@ registry — new subcommands appear the moment they land on PATH. Run `wk` (or
 - Machine-coupled bits (the SOCKS/cloudpc tunnel ensure-block) live in a chezmoi-**rendered**
   overlay `home/dot_config/workspace-local/<org>/env.local.sh.tmpl` → `~/.config/workspace-local/<org>/env.local.sh`
   (OS-branched `systemctl`/`launchctl`), sourced transitively by the committed `env.sh`.
-- `sourceDir = ~/dev/if` on BOTH machines + the `post-merge` → `chezmoi apply` hook means a
+- `sourceDir = ~/dev/personal/installfest` on BOTH machines + the `post-merge` → `chezmoi apply` hook means a
   `git pull` redeploys the symlinks + overlay locally. No SSH coordination, no per-machine manual step.
 
 ## Registry (source of truth)
 
-Currently `~/dev/if/home/projects.toml` (the `category` field), read in-place — it is also consumed
+Currently `~/dev/personal/installfest/home/projects.toml` (the `category` field), read in-place — it is also consumed
 by generate-raycast.sh / cmux-workspaces.sh / mux-remote.sh, so it stays there for now.
 **Convergence (deferred):** fold cc's `projects.json` (deploy fields) in, and let cc derive from
 this registry — IF becomes the single source of truth.

@@ -19,7 +19,7 @@
 VERSION="1.0.0"
 OPEN_CORE_SELF="$0"
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 # shellcheck source=/dev/null
 . "$DOTFILES/scripts/lib/open-core.sh"
 

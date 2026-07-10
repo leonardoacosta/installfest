@@ -172,7 +172,7 @@ vercel() {
 # github-auth bootstrap), so the two never drift. Run after a PAT rotation
 # (e.g. `gh auth refresh`) so gk drops the stale token.
 gkauth() {
-  source "${DOTFILES:-$HOME/dev/if}/scripts/gk-github-auth.sh" 2>/dev/null \
+  source "${DOTFILES:-$HOME/dev/personal/installfest}/scripts/gk-github-auth.sh" 2>/dev/null \
     || { print -u2 "gkauth: helper missing at \$DOTFILES/scripts/gk-github-auth.sh"; return 1; }
   gk_attach_github "$GH_TOKEN"
 }

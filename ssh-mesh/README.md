@@ -106,7 +106,7 @@ All machines use the same ED25519 keypair:
 ### Mac
 
 ```bash
-cd ~/dev/if/ssh-mesh
+cd ~/dev/personal/installfest/ssh-mesh
 bash scripts/setup-mac.sh
 ```
 
@@ -114,7 +114,7 @@ bash scripts/setup-mac.sh
 
 ```bash
 # From Mac, copy files and run setup
-scp -r ~/dev/if/ssh-mesh homelab:~/
+scp -r ~/dev/personal/installfest/ssh-mesh homelab:~/
 ssh homelab "cd ~/ssh-mesh && bash scripts/setup-homelab.sh"
 ```
 

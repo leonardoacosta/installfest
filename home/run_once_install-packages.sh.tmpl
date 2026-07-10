@@ -159,7 +159,7 @@ if [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
 else
     warning "SSH key not found (~/.ssh/id_ed25519)"
     warning "Copy the mesh key pair to this machine for SSH mesh connectivity"
-    warning "  scp <source>:~/dev/if/ssh-mesh/keys/id_ed25519* ~/.ssh/"
+    warning "  scp <source>:~/dev/personal/installfest/ssh-mesh/keys/id_ed25519* ~/.ssh/"
 fi
 
 # === Final messages ===
@@ -174,7 +174,7 @@ info "  2. Verify starship prompt is working"
 info "  3. Run 'z --help' to learn zoxide"
 info "  4. Run 'atuin login' to sync history (optional)"
 if [[ ! -f "$HOME/.ssh/id_ed25519" ]]; then
-    info "  5. Copy SSH mesh keys: scp <source>:~/dev/if/ssh-mesh/keys/id_ed25519* ~/.ssh/"
+    info "  5. Copy SSH mesh keys: scp <source>:~/dev/personal/installfest/ssh-mesh/keys/id_ed25519* ~/.ssh/"
 fi
 echo
 
@@ -183,5 +183,5 @@ echo
 # Point the operator at the interactive Phase 2 (Apple-ID/2FA gates + project
 # clones) — see README.md § Quick Start. Just an echo: run_once stays
 # non-interactive and completes cleanly.
-success "Phase 1 complete. Next: run ~/dev/if/platform/bootstrap.sh for interactive setup (Xcode signing, project clones)."
+success "Phase 1 complete. Next: run ~/dev/personal/installfest/platform/bootstrap.sh for interactive setup (Xcode signing, project clones)."
 echo

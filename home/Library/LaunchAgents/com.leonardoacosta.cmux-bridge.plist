@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/leonardoacosta/dev/if/ssh-mesh/scripts/remote/cmux-bridge/target/release/cmux-bridge</string>
+        <string>/Users/leonardoacosta/dev/personal/installfest/ssh-mesh/scripts/remote/cmux-bridge/target/release/cmux-bridge</string>
     </array>
 
     <key>RunAtLoad</key>

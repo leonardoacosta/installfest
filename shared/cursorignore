@@ -1,6 +1,6 @@
 # Cursor home-workspace ignore.
 # This file IS the deployed ignore via a chezmoi symlink at
-#   ~/.cursorignore -> ~/dev/if/shared/cursorignore
+#   ~/.cursorignore -> ~/dev/personal/installfest/shared/cursorignore
 #
 # Gitignore-style. Applies when Cursor (or its AI features) walks ~ as a
 # workspace. Mirrors vscode-workspace-settings.json files.exclude semantics

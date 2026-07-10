@@ -3,7 +3,7 @@
 # Creates identity directories, verifies dependencies, and runs device-code login
 set -euo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 source "$DOTFILES/scripts/utils.sh" 2>/dev/null || {
     info() { echo "[INFO] $*"; }
     success() { echo "[OK] $*"; }

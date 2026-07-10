@@ -85,7 +85,7 @@ if [[ ! -f "$PROFILE_TOML" ]]; then
 fi
 
 # shellcheck source=../../../scripts/lib/registry.sh
-source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
+source "${DOTFILES:-$HOME/dev/personal/installfest}/scripts/lib/registry.sh"
 PY=$(registry_python) || exit 1
 
 # Read tracker name from profile.toml.

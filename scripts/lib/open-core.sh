@@ -23,7 +23,7 @@ ATLAS_FETCH_TIMEOUT="${ATLAS_FETCH_TIMEOUT:-2}"
 
 mkdir -p "$STATE_DIR"
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 if [ -r "$DOTFILES/scripts/lib/registry.sh" ]; then
   # shellcheck source=/dev/null
   . "$DOTFILES/scripts/lib/registry.sh"

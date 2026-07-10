@@ -16,8 +16,8 @@ _REGISTRY_PY=""
 # registry_path — echo the projects.toml path, or return 1 with a stderr
 # message if it can't be found.
 registry_path() {
-  local reg="${PROJECTS_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
-  [[ -f "$reg" ]] || reg="$HOME/dev/if/home/projects.toml"
+  local reg="${PROJECTS_REGISTRY:-${DOTFILES:-$HOME/dev/personal/installfest}/home/projects.toml}"
+  [[ -f "$reg" ]] || reg="$HOME/dev/personal/installfest/home/projects.toml"
   if [[ ! -f "$reg" ]]; then
     echo "registry: not found: $reg" >&2
     return 1

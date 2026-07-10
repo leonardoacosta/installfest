@@ -1,5 +1,5 @@
 // Zed settings — managed by chezmoi. Source of truth for ~/.config/zed/settings.json.
-// Sister file: ~/dev/if/shared/vscode-user-settings.json (VS Code + Cursor).
+// Sister file: ~/dev/personal/installfest/shared/vscode-user-settings.json (VS Code + Cursor).
 //
 // === Parity goal: Zed mirrors VS Code/Cursor wherever the schema permits ===
 // Translatable keys (font, format_on_save, autosave, language formatters, watcher

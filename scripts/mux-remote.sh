@@ -2,20 +2,20 @@
 # mux-remote.sh — Remote-invokable wrapper for cmux-workspaces
 # Called via Apple Shortcuts, NFC, or SSH
 # Uses zsh for Shortcuts compatibility (/bin/bash on macOS is 3.2)
-# Project data: ~/dev/if/home/projects.toml
+# Project data: ~/dev/personal/installfest/home/projects.toml
 #
 # Usage:
-#   ~/dev/if/scripts/mux-remote.sh         # Interactive picker
-#   ~/dev/if/scripts/mux-remote.sh b       # Launch B&B
-#   ~/dev/if/scripts/mux-remote.sh c       # Launch Clients
-#   ~/dev/if/scripts/mux-remote.sh p       # Launch Personal
-#   ~/dev/if/scripts/mux-remote.sh b c p   # Launch everything
+#   ~/dev/personal/installfest/scripts/mux-remote.sh         # Interactive picker
+#   ~/dev/personal/installfest/scripts/mux-remote.sh b       # Launch B&B
+#   ~/dev/personal/installfest/scripts/mux-remote.sh c       # Launch Clients
+#   ~/dev/personal/installfest/scripts/mux-remote.sh p       # Launch Personal
+#   ~/dev/personal/installfest/scripts/mux-remote.sh b c p   # Launch everything
 
 set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-SCRIPT=~/dev/if/scripts/cmux-workspaces.sh
-source ~/dev/if/scripts/lib/registry.sh
+SCRIPT=~/dev/personal/installfest/scripts/cmux-workspaces.sh
+source ~/dev/personal/installfest/scripts/lib/registry.sh
 TOML_FILE="$(registry_path)"
 
 # Verify cmux is running

@@ -8,7 +8,7 @@ Used by ~/.local/bin/ropen (CLI) for both:
 Reads:
   - mounts state at $1 (path to mounts.json under /tmp/ropen-<uid>/)
   - registered projects from this repo's home/projects.toml (read on every
-    render — DOTFILES env var if set, else ~/dev/if)
+    render — DOTFILES env var if set, else ~/dev/personal/installfest)
 
 Args:
   sys.argv[1] = port (int)

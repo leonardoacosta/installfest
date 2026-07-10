@@ -22,7 +22,7 @@ PRE_SHA="${1:-}"
 {
     echo "=== if-deploy $(date -u +%FT%TZ) ==="
 
-    REPO_ROOT="$HOME/dev/if"
+    REPO_ROOT="$HOME/dev/personal/installfest"
     if [ ! -d "$REPO_ROOT" ]; then
         echo "ERR: $REPO_ROOT missing — bootstrap required"
         exit 0

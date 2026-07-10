@@ -298,8 +298,8 @@ OUTPUT_PATH=".vscode/settings.json"
 
 **IMPORTANT — globals live elsewhere.** Editor ergonomics (`formatOnSave`, prettier defaults,
 ESLint, `typescript.tsdk`, git.*, common excludes, language formatters) are managed centrally
-in **`~/dev/if/shared/vscode-user-settings.json`** and deployed to canonical OS locations via
-**chezmoi symlink-stubs** under `~/dev/if/home/`. Run `chezmoi apply` to install/refresh
+in **`~/dev/personal/installfest/shared/vscode-user-settings.json`** and deployed to canonical OS locations via
+**chezmoi symlink-stubs** under `~/dev/personal/installfest/home/`. Run `chezmoi apply` to install/refresh
 globals — `/project:init` does NOT install globals itself.
 
 The per-project `.vscode/settings.json` should contain ONLY repo-specific overrides:
@@ -326,17 +326,17 @@ config and should be deleted to avoid drift.
      - `files.exclude`: merge individual exclude entries (add missing keys, preserve existing)
      - Top-level keys (editor, typescript, etc.): add if missing, skip if present c. Detect any
        globalized keys present in the existing file and list them under a "REDUNDANT (now in
-       ~/dev/if/shared/vscode-user-settings.json — deployed via chezmoi)" section of the
+       ~/dev/personal/installfest/shared/vscode-user-settings.json — deployed via chezmoi)" section of the
        MERGE preview d. Render `MERGE` box showing additions + redundant keys -> prompt
        `[Y]es / [e]dit / [s]kip`
    - When applying MERGE: add missing keys to the existing JSON structure. Removal of redundant
      globalized keys requires explicit user opt-in via `[e]dit`; default is preserve.
    - Apply only after user confirms
-3. **Advisory check**: If `~/dev/if/shared/vscode-user-settings.json` is missing on this
-   machine, warn the user that the chezmoi-managed dotfiles repo (`~/dev/if`) is not present —
+3. **Advisory check**: If `~/dev/personal/installfest/shared/vscode-user-settings.json` is missing on this
+   machine, warn the user that the chezmoi-managed dotfiles repo (`~/dev/personal/installfest`) is not present —
    the per-project settings here assume it is. Suggest:
    ```bash
-   git clone <if-repo> ~/dev/if && chezmoi init --source=~/dev/if && chezmoi apply
+   git clone <if-repo> ~/dev/personal/installfest && chezmoi init --source=~/dev/personal/installfest && chezmoi apply
    ```
    Do NOT block the rest of the steps.
 

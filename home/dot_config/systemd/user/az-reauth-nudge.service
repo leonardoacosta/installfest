@@ -1,10 +1,10 @@
 [Unit]
 Description=Proactive Azure CA re-auth nudge (day-55 of the 60-day window)
-Documentation=file:%h/dev/if/openspec/changes/add-auth-resilience-and-hygiene/proposal.md
+Documentation=file:%h/dev/personal/installfest/openspec/changes/add-auth-resilience-and-hygiene/proposal.md
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash %h/dev/if/scripts/az-reauth-nudge.sh
+ExecStart=/usr/bin/bash %h/dev/personal/installfest/scripts/az-reauth-nudge.sh
 EnvironmentFile=-%h/.env
 StandardOutput=append:%h/.local/state/az-reauth-nudge.systemd.log
 StandardError=append:%h/.local/state/az-reauth-nudge.systemd.log

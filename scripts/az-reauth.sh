@@ -25,7 +25,7 @@
 
 set -uo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 STATE_DIR="$HOME/.local/state/az-reauth-nudge"
 MAC_HOST="${CC_BROWSER_MAC_HOST:-mac}"
 

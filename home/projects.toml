@@ -204,7 +204,7 @@ code = "if"
 name = "Installfest"
 category = "personal"
 icon = "📦"
-path = "dev/if"
+path = "dev/personal/installfest"
 tiers = ["remote", "local"]
 
 [[projects]]

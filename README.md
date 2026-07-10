@@ -9,9 +9,9 @@ Cold-starting a fresh machine is a **two-phase** flow:
 ### Phase 1 — automated (apps + settings)
 
 ```bash
-# New machine: clones repo to ~/dev/if, installs apps (brew bundle), deploys
+# New machine: clones repo to ~/dev/personal/installfest, installs apps (brew bundle), deploys
 # all dotfiles/settings, runs generators. Fully automated, no prompts.
-chezmoi init --apply leonardoacosta/if --source ~/dev/if
+chezmoi init --apply leonardoacosta/installfest --source ~/dev/personal/installfest
 ```
 
 `chezmoi init --apply` runs `home/run_once_install-packages.sh.tmpl`, which installs
@@ -22,7 +22,7 @@ including `xcodes`), and lays down every managed dotfile.
 
 ```bash
 # After Phase 1 finishes:
-~/dev/if/platform/bootstrap.sh
+~/dev/personal/installfest/platform/bootstrap.sh
 ```
 
 `bootstrap.sh` runs the supervised steps that **cannot** be automated: the Apple-ID
@@ -41,7 +41,7 @@ packages and exits with an error pointing back to Phase 1 if `brew`/`xcodes` are
 ### Existing clone
 
 ```bash
-chezmoi init --source ~/dev/if
+chezmoi init --source ~/dev/personal/installfest
 chezmoi apply
 ```
 
@@ -83,7 +83,7 @@ All three machines share an ED25519 keypair over Tailscale. See `ssh-mesh/README
 ## Directory Structure
 
 ```
-if/                                     # repo root (~/dev/if)
+if/                                     # repo root (~/dev/personal/installfest)
 ├── .chezmoiroot                        # tells chezmoi: source lives in home/
 ├── home/                               # chezmoi source root (all deployed files)
 │   ├── .chezmoi.toml.tmpl              #   Machine-specific config (hostname, theme, ssh user)

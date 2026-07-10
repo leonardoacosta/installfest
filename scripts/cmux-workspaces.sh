@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # cmux-workspaces.sh — Launch dev workspaces in cmux over SSH
-# Source of truth: ~/dev/if/scripts/cmux-workspaces.sh
-# Project data: ~/dev/if/home/projects.toml
+# Source of truth: ~/dev/personal/installfest/scripts/cmux-workspaces.sh
+# Project data: ~/dev/personal/installfest/home/projects.toml
 #
 # Requires bash 4+ (uses `declare -A`). macOS ships only bash 3.2 at /bin/bash and
 # interactive PATH often resolves it ahead of Homebrew's, so re-exec under a bash 4+

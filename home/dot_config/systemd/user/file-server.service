@@ -5,7 +5,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 %h/dev/if/scripts/file-server.py --port 8787 --bind 0.0.0.0
+ExecStart=/usr/bin/python3 %h/dev/personal/installfest/scripts/file-server.py --port 8787 --bind 0.0.0.0
 Restart=on-failure
 RestartSec=5
 Environment=FILE_SERVER_PORT=8787

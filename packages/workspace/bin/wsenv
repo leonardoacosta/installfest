@@ -44,7 +44,7 @@
 #
 # Environment overrides:
 #   WSENV_REGISTRY   path to projects.toml (default: $DOTFILES/home/projects.toml,
-#                    falling back to ~/dev/if/home/projects.toml)
+#                    falling back to ~/dev/personal/installfest/home/projects.toml)
 #   WSENV_PROFILE_DIR  profile root (default: ~/.config/workspace)
 #
 set -euo pipefail
@@ -93,8 +93,8 @@ if [[ -n "$PROFILE_NAME" ]]; then
   ORG="$PROFILE_NAME"
   CODE="$PROFILE_NAME"
 else
-  REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/if}/home/projects.toml}"
-  [[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/if/home/projects.toml"
+  REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/personal/installfest}/home/projects.toml}"
+  [[ -f "$REGISTRY" ]] || REGISTRY="$HOME/dev/personal/installfest/home/projects.toml"
 
   if [[ ! -f "$REGISTRY" ]]; then
     echo "wsenv: registry not found: $REGISTRY" >&2
@@ -102,7 +102,7 @@ else
   fi
 
   # shellcheck source=../../../scripts/lib/registry.sh
-  source "${DOTFILES:-$HOME/dev/if}/scripts/lib/registry.sh"
+  source "${DOTFILES:-$HOME/dev/personal/installfest}/scripts/lib/registry.sh"
   WS_PY=$(registry_python) || exit 1
 
   # Resolve code from cwd if not given (match a project whose path is a suffix of $PWD).

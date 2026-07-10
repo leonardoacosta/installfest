@@ -1,6 +1,6 @@
 [Unit]
 Description=SOCKS5 tunnel to CloudPC for Microsoft CAE bypass
-Documentation=file://%h/dev/if/docs/cloudpc-proxy-setup.md
+Documentation=file://%h/dev/personal/installfest/docs/cloudpc-proxy-setup.md
 After=network-online.target
 Wants=network-online.target
 

@@ -9,7 +9,7 @@ Personal dotfiles and development environment configuration for macOS and Arch L
 ## Directory Structure
 
 ```
-if/                                    # repo root (~/dev/if)
+if/                                    # repo root (~/dev/personal/installfest)
 ├── .chezmoiroot                       # points chezmoi at home/ subdirectory
 ├── home/                              # chezmoi source root (all deployed files)
 │   ├── .chezmoi.toml.tmpl             # chezmoi config template (machine-specific data)
@@ -91,7 +91,7 @@ chezmoi re-add ~/.zshrc   # Pull changes from deployed file back to source
 ### Installation (first-time setup)
 
 ```bash
-chezmoi init --source=~/dev/if   # Point chezmoi at this repo
+chezmoi init --source=~/dev/personal/installfest   # Point chezmoi at this repo
 chezmoi apply                     # Deploy dotfiles + run install script
 ```
 
@@ -109,7 +109,7 @@ source ~/.zshrc           # Reload config (or: reload)
 - **No duplicate inits**: Tool inits happen ONCE in `.zshrc`, never in `.zshenv`
 - **chezmoi managed**: All dotfiles are deployed via `chezmoi apply`. Source lives in `home/` (via `.chezmoiroot`)
 - **dot_ prefix**: `dot_foo` in source deploys to `~/.foo`; `.tmpl` suffix = Go template
-- **$DOTFILES**: Set in `.zshenv`, points to `~/dev/if` (repo root). Used for `scripts/` references
+- **$DOTFILES**: Set in `.zshenv`, points to `~/dev/personal/installfest` (repo root). Used for `scripts/` references
 - **.chezmoiroot**: Tells chezmoi to read source from `home/` — all chezmoi commands resolve transparently
 - **Deployed paths**: Shell config sources from `~/.zsh/` (deployed), not `$DOTFILES/home/dot_zsh/` (source)
 - **projects.toml**: Lives in `home/` (for chezmoi template `{{ include }}`), scripts reference via `$DOTFILES/home/projects.toml`

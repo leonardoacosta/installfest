@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # generate-raycast.sh — Generate Raycast scripts from projects.toml
-# Source of truth: ~/dev/if/home/projects.toml
+# Source of truth: ~/dev/personal/installfest/home/projects.toml
 #
 # Usage:
 #   bash scripts/generate-raycast.sh          # Generate all scripts

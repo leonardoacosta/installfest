@@ -9,7 +9,7 @@
 # (~/Library/Containers/). Run manually to check rules: bash validate-proxy.sh --rules
 set -uo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 RULES_SOURCE="$DOTFILES/scripts/proxybridge-rules.json"
 STATE_FILE="$HOME/.local/logs/validate-proxy.state"
 LOG_FILE="$HOME/.local/logs/validate-proxy.err.log"

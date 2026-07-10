@@ -32,7 +32,7 @@
 
 set -uo pipefail
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 
 # shellcheck source=../utils.sh
 . "$DOTFILES/scripts/utils.sh"

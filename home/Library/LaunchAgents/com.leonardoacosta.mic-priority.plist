@@ -9,7 +9,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>/Users/leonardoacosta/dev/if/scripts/mic-priority.sh</string>
+        <string>/Users/leonardoacosta/dev/personal/installfest/scripts/mic-priority.sh</string>
     </array>
 
     <!-- Run at login -->

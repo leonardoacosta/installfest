@@ -1,11 +1,11 @@
 {
   // Zed LOCAL project settings for $HOME.
   // This file IS the deployed local settings via a chezmoi symlink at
-  //   ~/.zed/settings.json -> ~/dev/if/shared/zed-workspace-settings.json
+  //   ~/.zed/settings.json -> ~/dev/personal/installfest/shared/zed-workspace-settings.json
   //
   // Applies ONLY when ~ is opened directly as a Zed project/worktree root.
   // Subprojects under ~/dev/* get their own worktree root and never consult
-  // this file. Sister file: ~/dev/if/shared/vscode-workspace-settings.json
+  // this file. Sister file: ~/dev/personal/installfest/shared/vscode-workspace-settings.json
   // (same intent, VS Code + Cursor schema).
   //
   // Zed has one exclusion knob, not VS Code's exclude/watcherExclude/search

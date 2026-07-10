@@ -3,7 +3,7 @@
 # Managed by chezmoi: ~/.zshrc
 
 # Ensure DOTFILES is set (should be set by .zshenv)
-export DOTFILES="${DOTFILES:-$HOME/dev/if}"
+export DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 
 # Collapse duplicate PATH entries (keep first occurrence). Constrains every
 # subsequent append from sourced rc files + mise activation to stay unique.

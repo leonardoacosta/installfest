@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 $Config = @{
     # Dotfiles repo (cloned inside WSL2)
     DotfilesRepo   = "git@github.com:leonardoacosta/dotfiles.git"
-    DotfilesPath   = "~/dev/if"
+    DotfilesPath   = "~/dev/personal/installfest"
 
     # WSL2 username (should match your other machines)
     WslUser        = "nyaptor"

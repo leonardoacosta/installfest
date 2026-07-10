@@ -57,9 +57,9 @@ If prompted for LUKS passphrase: initramfs lacks the sd-encrypt chain. `sudo che
 ### 3. Run chezmoi apply
 
 ```
-cd ~/dev/if
+cd ~/dev/personal/installfest
 git pull --ff-only
-chezmoi init --source=~/dev/if     # only if .chezmoi.toml.tmpl changed
+chezmoi init --source=~/dev/personal/installfest     # only if .chezmoi.toml.tmpl changed
 chezmoi state delete-bucket --bucket=scriptState   # force run_once scripts to replay
 TERM=xterm-256color chezmoi apply
 ```
@@ -169,7 +169,7 @@ All three dashboards should return 200/307. Any non-healthy container needs inve
 ## Reference material
 
 - **Session commits**: `git log --oneline | grep -E "(harden|install-arch|tailscale|rollback)"` on the `if` repo.
-- **Source-of-truth configs**: `~/dev/hl/homelab/` (configs), `~/dev/if/home/dot_config/systemd/user/` (user services), `~/dev/nx/packages/db/` (schema + migrations).
+- **Source-of-truth configs**: `~/dev/hl/homelab/` (configs), `~/dev/personal/installfest/home/dot_config/systemd/user/` (user services), `~/dev/nx/packages/db/` (schema + migrations).
 - **Backups per operation**: `limine.conf.pre-rollback`, `*.bak-pre-pacdiff`, `@.broken-YYYYMMDD` btrfs subvol (delete once recovery is confirmed).
 
 ## Quick-start appendix
@@ -178,7 +178,7 @@ If the machine is up and you want a one-shot "restore everything that chezmoi ca
 
 ```bash
 ssh homelab
-cd ~/dev/if && git pull
+cd ~/dev/personal/installfest && git pull
 chezmoi state delete-bucket --bucket=scriptState
 TERM=xterm-256color chezmoi apply
 pm2 resurrect                          # after PATH has node

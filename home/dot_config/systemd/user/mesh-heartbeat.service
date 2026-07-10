@@ -1,10 +1,10 @@
 [Unit]
 Description=Mesh + broker heartbeat (Tailscale mac/cloudpc, mx-broker /health, SOCKS tunnel)
-Documentation=file:%h/dev/if/openspec/changes/add-auth-resilience-and-hygiene/proposal.md
+Documentation=file:%h/dev/personal/installfest/openspec/changes/add-auth-resilience-and-hygiene/proposal.md
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash %h/dev/if/scripts/mesh-heartbeat.sh
+ExecStart=/usr/bin/bash %h/dev/personal/installfest/scripts/mesh-heartbeat.sh
 EnvironmentFile=-%h/.env
 StandardOutput=append:%h/.local/state/mesh-heartbeat.systemd.log
 StandardError=append:%h/.local/state/mesh-heartbeat.systemd.log

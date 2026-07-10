@@ -44,7 +44,7 @@ TUNNEL_TTL="${CC_BROWSER_TUNNEL_TTL:-180}"
 FILE_ROOT="${MAC_OPEN_ROOT:-$HOME}"
 DRYRUN="${CC_BROWSER_DRYRUN:-}"
 
-DOTFILES="${DOTFILES:-$HOME/dev/if}"
+DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 
 # --- Arg parsing -------------------------------------------------------------
 mode="browser"   # browser | cmux | print

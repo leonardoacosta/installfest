@@ -17,7 +17,7 @@ deploy_remote() {
     # Capture pre-deploy SHA so remote-apply.sh can diff raycast-scripts/
     # and notify (Mac-only) when scripts changed in this deploy.
     (sleep 2 && IF_REMOTE_DEPLOY=1 ssh "$target" \
-        "cd ~/dev/if && \
+        "cd ~/dev/personal/installfest && \
          pre_sha=\$(git rev-parse HEAD 2>/dev/null) && \
          git fetch origin main -q && git reset --hard origin/main -q && \
          bash scripts/hooks/remote-apply.sh \"\$pre_sha\"" &) 2>/dev/null

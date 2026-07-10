@@ -9,7 +9,7 @@
       Bun-based replacement for the bash `nexus-notifier.sh listen`. The
       bash version stalls on macOS 3.2 process-substitution races; this
       uses native fetch streaming so there's no pipe-handling involved.
-      See ~/dev/if/home/dot_local/share/nexus-listener.ts for the source.
+      See ~/dev/personal/installfest/home/dot_local/share/nexus-listener.ts for the source.
     -->
     <key>ProgramArguments</key>
     <array>
