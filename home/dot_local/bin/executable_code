@@ -1,0 +1,31 @@
+#!/usr/bin/env zsh
+# VS Code remote CLI wrapper — finds the latest IPC socket and remote-cli binary
+# so `code .` works from any SSH terminal, not just VS Code's integrated terminal.
+# Mirrors executable_cursor; VS Code's remote-server layout differs from Cursor's
+# (cli/servers/Stable-<commit>/server/bin/remote-cli vs bin/linux-x64/<version>/bin/remote-cli).
+
+# Find the latest remote-cli binary (newest connected VS Code server)
+code_cli=("$HOME"/.vscode-server/cli/servers/Stable-*/server/bin/remote-cli(Nom[1])) 2>/dev/null
+if [[ ! -x "$code_cli/code" ]]; then
+  echo "error: vscode-server not installed (no remote-cli found)" >&2
+  exit 1
+fi
+
+# IPC sockets go stale (owning window closed) but the file lingers — mtime-newest
+# isn't always live, so try each candidate, newest first, until one connects.
+socks=(/run/user/$(id -u)/vscode-ipc-*.sock(Nom))
+if [[ ${#socks[@]} -eq 0 ]]; then
+  echo "error: no VS Code IPC socket found — is VS Code connected via SSH?" >&2
+  exit 1
+fi
+
+for sock in "${socks[@]}"; do
+  out=$(VSCODE_IPC_HOOK_CLI="$sock" "$code_cli/code" "$@" 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 || "$out" != *ECONNREFUSED* ]]; then
+    [[ -n "$out" ]] && print -r -- "$out"
+    exit $rc
+  fi
+done
+echo "error: no live VS Code IPC socket found (${#socks[@]} stale)" >&2
+exit 1

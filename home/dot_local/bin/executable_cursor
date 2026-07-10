@@ -9,12 +9,21 @@ if [[ ! -x "$cursor_cli/cursor" ]]; then
   exit 1
 fi
 
-# Find the most recent IPC socket
-ipc_sock=$(/usr/bin/ls -t /run/user/$(id -u)/vscode-ipc-*.sock 2>/dev/null | head -1)
-if [[ -z "$ipc_sock" ]]; then
+# IPC sockets go stale (owning window closed) but the file lingers — mtime-newest
+# isn't always live, so try each candidate, newest first, until one connects.
+socks=(/run/user/$(id -u)/vscode-ipc-*.sock(Nom))
+if [[ ${#socks[@]} -eq 0 ]]; then
   echo "error: no Cursor IPC socket found — is Cursor connected via SSH?" >&2
   exit 1
 fi
 
-export VSCODE_IPC_HOOK_CLI="$ipc_sock"
-exec "$cursor_cli/cursor" "$@"
+for sock in "${socks[@]}"; do
+  out=$(VSCODE_IPC_HOOK_CLI="$sock" "$cursor_cli/cursor" "$@" 2>&1)
+  rc=$?
+  if [[ $rc -eq 0 || "$out" != *ECONNREFUSED* ]]; then
+    [[ -n "$out" ]] && print -r -- "$out"
+    exit $rc
+  fi
+done
+echo "error: no live Cursor IPC socket found (${#socks[@]} stale)" >&2
+exit 1
