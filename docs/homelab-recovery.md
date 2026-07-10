@@ -138,8 +138,11 @@ cd ~/dev/nx && POSTGRES_URL="$(grep ^POSTGRES_URL ~/.env | cut -d= -f2-)" pnpm -
 ### 6. Verify
 
 ```
-curl -s -o /dev/null -w "nova(3000):%{http_code} nexus(3100):%{http_code} guardian(3150):%{http_code}\n" \
-  http://localhost:3000/ http://localhost:3100/ http://localhost:3150/
+# nova moved 2026-07-10 (was :3000 -- collided with Grafana's host-port once a
+# real container recreate was needed; see hl/homelab/compose/observability.yml
+# and hl/homelab/traefik/dynamic/nova-dashboard.yml). nexus/guardian unchanged.
+curl -s -o /dev/null -w "nova(6200):%{http_code} nexus(3100):%{http_code} guardian(3150):%{http_code}\n" \
+  http://localhost:6200/ http://localhost:3100/ http://localhost:3150/
 docker ps --format "{{.Names}}: {{.Status}}" | grep -v healthy || echo "all healthy"
 ```
 

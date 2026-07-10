@@ -9,7 +9,12 @@ WorkingDirectory=%h/.local/lib/nova-ts
 EnvironmentFile=%h/.config/nova/env
 ExecStart=%h/.local/share/mise/installs/node/25.0.0/bin/node %h/.local/lib/nova-ts/apps/dashboard/server.js
 Environment=NODE_ENV=production
-Environment=PORT=3000
+# MOVED 2026-07-10: was 3000, which collided with Grafana's compose host-port
+# mapping (hl repo, compose/observability.yml) once Grafana needed a real
+# recreate. Neither should default-squat well-known 3000 long-term. Moved to
+# 6200 (Grafana -> 6100); see if/docs/homelab-recovery.md's health-check line
+# and hl/homelab/traefik/dynamic/nova-dashboard.yml, both updated to match.
+Environment=PORT=6200
 Environment=HOSTNAME=0.0.0.0
 # Secrets (DATABASE_URL, BETTER_AUTH_SECRET, NV_API_TOKEN, etc.) come from .env.production.
 # Fleet services run on the host — no Docker bridge needed from systemd.
