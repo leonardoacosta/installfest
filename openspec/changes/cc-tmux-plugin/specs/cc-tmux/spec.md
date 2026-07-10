@@ -3,9 +3,9 @@
 ## ADDED Requirements
 
 ### Requirement: Claude pane state is tracked in tmux pane options
-The `cc-tmux` plugin tracks each Claude Code pane's state (`waiting`/`idle`/`active`) using tmux
-pane options as the single source of truth, driven by Claude Code hooks. State auto-deletes when
-the pane closes.
+The `cc-tmux` plugin SHALL track each Claude Code pane's state (`waiting`/`idle`/`active`) using
+tmux pane options as the single source of truth, driven by Claude Code hooks. State MUST
+auto-delete when the pane closes.
 
 #### Scenario: session start registers idle
 - Given: the cc-tmux Claude Code plugin is installed
@@ -33,9 +33,9 @@ the pane closes.
 - Then: no external state file retains the pane's state
 
 ### Requirement: Hooks self-register via the Claude Code plugin manifest
-The plugin ships a `.claude-plugin/plugin.json` + `hooks/hooks.json` so `claude plugin install`
+The plugin SHALL ship a `.claude-plugin/plugin.json` + `hooks/hooks.json` so `claude plugin install`
 registers the state-tracking hooks without editing the global `settings.json`. Every hook command
-carries a 10-second timeout.
+MUST carry a 10-second timeout.
 
 #### Scenario: install self-registers hooks
 - Given: the cc-tmux plugin directory
@@ -48,8 +48,9 @@ carries a 10-second timeout.
 - Then: it is killed at 10 seconds rather than blocking Claude for the 60-second default
 
 ### Requirement: Priority-based cycling and jump-back
-Panes cycle in priority order `waiting` > `idle` > `active`, newest-first within each group, in a
-`priority` or `flat` mode. Jump-back returns to the previous pane across sessions and windows.
+The plugin MUST cycle panes in priority order `waiting` > `idle` > `active`, newest-first within
+each group, in a `priority` or `flat` mode. Jump-back SHALL return to the previous pane across
+sessions and windows.
 
 #### Scenario: priority cycle targets waiting first
 - Given: panes in `waiting`, `idle`, and `active`, and `@cc-cycle-mode` is `priority`
@@ -67,9 +68,10 @@ Panes cycle in priority order `waiting` > `idle` > `active`, newest-first within
 - Then: focus returns to pane A even across a session/window boundary
 
 ### Requirement: Notification inbox lists tracked panes
-`cc-tmux inbox` lists tracked panes — waiting and idle first, then active — as aligned columns
+`cc-tmux inbox` MUST list tracked panes — waiting and idle first, then active — as aligned columns
 (state icon, session:window, project, branch, time, wait reason, task), in an fzf popup with a
-`display-menu` fallback. Enter switches; ctrl-x dismisses waiting/idle as a view filter.
+`display-menu` fallback. Enter SHALL switch to the selected pane; ctrl-x SHALL dismiss waiting/idle
+entries as a view filter only.
 
 #### Scenario: inbox opens in an fzf popup when available
 - Given: tmux ≥ 3.2 and fzf installed, with ≥1 tracked pane
@@ -92,9 +94,9 @@ Panes cycle in priority order `waiting` > `idle` > `active`, newest-first within
 - Then: that pane's stale state is cleared
 
 ### Requirement: OS notification and terminal focus fire on real transitions
-`@cc-notify` and `@cc-focus-app` (state lists, default empty) fire an OS notification / terminal
-focus only on a genuine state transition, with smart suppression when the terminal is already
-focused, via per-OS Strategy modules.
+`@cc-notify` and `@cc-focus-app` (state lists, default empty) MUST fire an OS notification /
+terminal focus only on a genuine state transition, via per-OS Strategy modules. The plugin SHALL
+smart-suppress notify/focus when the terminal is already focused.
 
 #### Scenario: notify only on a real transition
 - Given: a pane already `idle` from a Stop hook
@@ -112,9 +114,9 @@ focused, via per-OS Strategy modules.
 - Then: it is delivered via `notify-send`
 
 ### Requirement: Status-bar integration and window auto-rename
-`cc-tmux status` emits pane counts for the status bar; `cc-tmux status-inbox` emits a clickable
-pending-pane badge list; `@cc-window-rename` (default off) renames a window to
-`<state-icon> <dir basename>`.
+`cc-tmux status` SHALL emit pane counts for the status bar; `cc-tmux status-inbox` SHALL emit a
+clickable pending-pane badge list. When `@cc-window-rename` is on, the plugin MUST rename the
+window to `<state-icon> <dir basename>`.
 
 #### Scenario: status shows counts
 - Given: two waiting and one idle pane
@@ -127,9 +129,9 @@ pending-pane badge list; `@cc-window-rename` (default off) renames a window to
 - Then: the icon reflects `waiting` (highest priority) and the label is the directory basename
 
 ### Requirement: Multi-account Claude usage segment replaces tmux-nexus-creds
-`cc-tmux usage` renders the multi-account Claude usage segment (account + 5H/7D utilization with
-color thresholds) by querying nexus-agent, replacing the standalone `tmux-nexus-creds` script,
-which is removed.
+`cc-tmux usage` SHALL render the multi-account Claude usage segment (account + 5H/7D utilization
+with color thresholds) by querying nexus-agent. This MUST replace the standalone
+`tmux-nexus-creds` script, which SHALL be removed in the same change.
 
 #### Scenario: usage segment renders from nexus-agent
 - Given: nexus-agent is serving credentials at `http://localhost:7402/credentials`
@@ -147,9 +149,9 @@ which is removed.
 - Then: `home/dot_local/bin/executable_tmux-nexus-creds` no longer exists and `status-right` calls the cc-tmux segment
 
 ### Requirement: Conductor dispatches tasks to panes (opt-in)
-With `@cc-conductor-enabled on`, a persistent detached Claude session dispatches tasks to other
-panes via four modes (switch / send-prompt / spawn-task / spawn-in-worktree), seeing a live pane
-snapshot each prompt. Disabled by default.
+The plugin MUST be disabled by default (`@cc-conductor-enabled` off). When enabled, a persistent
+detached Claude session SHALL dispatch tasks to other panes via four modes (switch / send-prompt /
+spawn-task / spawn-in-worktree) and MUST see a live pane snapshot on each prompt.
 
 #### Scenario: conductor is inert when disabled
 - Given: `@cc-conductor-enabled` is off (default)
@@ -167,8 +169,8 @@ snapshot each prompt. Disabled by default.
 - Then: the dispatch is refused
 
 ### Requirement: The plugin ships Claude Code skills
-`cc-status`, `cc-config`, and `cc-dispatch` skills are bundled and usable in any Claude session
-once installed.
+The plugin SHALL bundle `cc-status`, `cc-config`, and `cc-dispatch` skills, usable in any Claude
+session once installed.
 
 #### Scenario: cc-status summarizes sessions
 - Given: the plugin is installed with tracked panes
@@ -181,8 +183,9 @@ once installed.
 - Then: it changes in exactly one place (the `cc-dispatch` skill)
 
 ### Requirement: tmux entrypoint binds keys without colliding with which-key
-`cc-tmux.tmux` loads via `run-shell` under an `if-shell` presence guard and binds cycle/picker/inbox/
-back/conductor keys, resolving the `prefix + Space` collision with the installed `tmux-which-key`.
+`cc-tmux.tmux` MUST load via `run-shell` under an `if-shell` presence guard and SHALL bind
+cycle/picker/inbox/back/conductor keys without colliding with the installed `tmux-which-key`
+`prefix + Space` binding.
 
 #### Scenario: no double-bind of prefix + Space
 - Given: `tmux-which-key` binds `prefix + Space`
@@ -195,8 +198,8 @@ back/conductor keys, resolving the `prefix + Space` collision with the installed
 - Then: the rest of the config still loads (the cc-tmux load is skipped by the if-shell guard)
 
 ### Requirement: chezmoi install wiring and graceful degradation
-A `run_onchange` install script deploys the plugin (tmux clone + `claude plugin install`) and all
-subcommands fail open.
+A `run_onchange` install script MUST deploy the plugin (tmux clone + `claude plugin install`), and
+every subcommand MUST fail open (exit 0) on a missing dependency or environment.
 
 #### Scenario: install is idempotent
 - Given: the plugin is already installed
