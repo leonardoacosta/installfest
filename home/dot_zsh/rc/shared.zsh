@@ -104,6 +104,48 @@ alias reload="source ~/.zshrc"
 # foot-gun (it word-split --as-admin etc.) and has been removed. Per-org default
 # identity now flows from the workspace profile env.sh, not this file.
 
+# Editor home-directory guard — code/cursor/zed
+# Opening any of these at $HOME (or with no path arg from a $HOME cwd) makes
+# their startup "detect project type" scans (workspaceContains probes for
+# package.json/*.tf/*.cshtml/playwright-config) walk --hidden --no-ignore
+# --follow across the ENTIRE home tree. These probes ignore files.exclude/
+# search.exclude/files.watcherExclude — confirmed empirically 2026-07-10
+# (if-gi3 incident: 4 ripgrep procs, ~1967% combined CPU for 9+ min). Settings
+# can't fix this; only not opening the workspace there does.
+_editor_home_guard() {
+  local name="$1"; shift
+  local force=0
+  local -a filtered=()
+  local a
+  for a in "$@"; do
+    if [[ "$a" == "--force-home" ]]; then
+      force=1
+    else
+      filtered+=("$a")
+    fi
+  done
+
+  local target="$PWD"
+  for a in "${filtered[@]}"; do
+    [[ "$a" != -* ]] && { target="${a:a}"; break; }
+  done
+
+  if [[ "$force" -eq 0 && -z "$FORCE_HOME_EDITOR" && ( "$target" == "$HOME" || "$target" == "/" ) ]]; then
+    print -u2 "refuse: $name would open workspace root at '$target'."
+    print -u2 "  startup workspaceContains scans peg ~20 CPU cores for minutes (if-gi3, 2026-07-10)."
+    print -u2 "  open a specific project instead: $name ~/dev/<project>"
+    print -u2 "  really mean it: $name --force-home $* (or FORCE_HOME_EDITOR=1 $name $*)"
+    return 1
+  fi
+
+  _editor_guard_args=("${filtered[@]}")
+  return 0
+}
+
+code() { _editor_home_guard code "$@" || return 1; command code "${_editor_guard_args[@]}"; }
+cursor() { _editor_home_guard cursor "$@" || return 1; command cursor "${_editor_guard_args[@]}"; }
+zed() { _editor_home_guard zed "$@" || return 1; command zed "${_editor_guard_args[@]}"; }
+
 # SSH — notify on connection failure via nexus TTS
 ssh() {
   command ssh "$@"
