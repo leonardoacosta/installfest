@@ -28,7 +28,7 @@ code = "fb"
 name = "Fireball"
 category = "b-and-b"
 icon = "🔥"
-path = "dev/fb"
+path = "dev/brown/fireball"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -44,7 +44,7 @@ code = "ws"
 name = "Wholesale Architecture"
 category = "b-and-b"
 icon = "🏗️"
-path = "dev/ws"
+path = "dev/brown/ws"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -52,7 +52,7 @@ code = "sc"
 name = "Sales CRM"
 category = "b-and-b"
 icon = "💰"
-path = "dev/sc"
+path = "dev/brown/salescrm"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -60,7 +60,7 @@ code = "se"
 name = "Submission Engine"
 category = "b-and-b"
 icon = "📥"
-path = "dev/se"
+path = "dev/brown/submissionengine"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -68,7 +68,7 @@ code = "ba"
 name = "B3 Admin"
 category = "b-and-b"
 icon = "💻"
-path = "dev/ba"
+path = "dev/brown/b3admin"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -76,7 +76,7 @@ code = "bo"
 name = "B3 OWA"
 category = "b-and-b"
 icon = "🏢"
-path = "dev/bo"
+path = "dev/brown/b3owa"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -112,7 +112,7 @@ code = "oo"
 name = "Otaku Odyssey"
 category = "priceless"
 icon = "👘"
-path = "dev/oo"
+path = "dev/priceless/otaku-odyssey"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -120,7 +120,7 @@ code = "mv"
 name = "Modern Visa"
 category = "priceless"
 icon = "🌐"
-path = "dev/mv"
+path = "dev/priceless/modern-visa"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -128,7 +128,7 @@ code = "ct"
 name = "Civalent"
 category = "priceless"
 icon = "🔥"
-path = "dev/ct"
+path = "dev/priceless/civalent"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -136,7 +136,7 @@ code = "tl"
 name = "Tavern Ledger"
 category = "priceless"
 icon = "🍺"
-path = "dev/tl"
+path = "dev/personal/tl"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -144,7 +144,7 @@ code = "tc"
 name = "Tribal Cities"
 category = "priceless"
 icon = "⛺"
-path = "dev/tc"
+path = "dev/personal/tribal-cities"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -152,7 +152,7 @@ code = "ss"
 name = "Styles by Silas"
 category = "priceless"
 icon = "💇🏼"
-path = "dev/ss"
+path = "dev/priceless/styles-silas"
 tiers = ["remote", "local"]
 
 # =============================================================================
@@ -164,7 +164,7 @@ code = "cl"
 name = "Central Leo"
 category = "personal"
 icon = "💻"
-path = "dev/cl"
+path = "dev/archive/cl"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -172,7 +172,7 @@ code = "co"
 name = "Central Orchestrator"
 category = "personal"
 icon = "🌍"
-path = "dev/co"
+path = "dev/archive/co"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -180,7 +180,7 @@ code = "cw"
 name = "Central Wholesale"
 category = "personal"
 icon = "🏢"
-path = "dev/cw"
+path = "dev/archive/cw"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]
@@ -188,7 +188,7 @@ code = "cx"
 name = "Cortex"
 category = "personal"
 icon = "◎"
-path = "dev/cx"
+path = "dev/archive/cx"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -212,7 +212,7 @@ code = "cs"
 name = "Card Scope"
 category = "personal"
 icon = "🃏"
-path = "dev/cardscope"
+path = "dev/priceless/card-scope"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -228,7 +228,7 @@ code = "la"
 name = "Leonardo Acosta"
 category = "personal"
 icon = "🏗️"
-path = "dev/la"
+path = "dev/personal/la"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -244,7 +244,7 @@ code = "lv"
 name = "Las Vegas"
 category = "personal"
 icon = "♣️"
-path = "dev/lv"
+path = "dev/personal/lv"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -252,7 +252,7 @@ code = "mx"
 name = "MX Mesh"
 category = "personal"
 icon = "🛰️"
-path = "dev/mx"
+path = "dev/personal/mx"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -260,7 +260,7 @@ code = "nv"
 name = "Nova"
 category = "personal"
 icon = "✨"
-path = "dev/nv"
+path = "dev/personal/nv"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -268,7 +268,7 @@ code = "nx"
 name = "Nexus"
 category = "personal"
 icon = "🌐"
-path = "dev/nx"
+path = "dev/personal/nexus"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -276,5 +276,5 @@ code = "xx"
 name = "XX"
 category = "personal"
 icon = "📡"
-path = "dev/xx"
+path = "dev/archive/xx"
 tiers = ["remote", "local"]
