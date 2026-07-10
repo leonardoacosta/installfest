@@ -29,10 +29,10 @@
 
 ## Verification Batch
 
-- [ ] [3.1] [P-1] Run `chezmoi apply`; verify `~/.tmux/plugins/cc-tmux` resolves, `claude plugin list` shows cc-tmux, and `cc-tmux self-test` passes (paste stdout) [owner:general-purpose] [beads:if-qtc]
-- [ ] [3.2] [P-1] Drive a real Claude session in a pane; assert `@cc-state` flips `active`→`waiting`→`idle` across a permission prompt (paste `tmux show-options -p | grep @cc-state` at each step) [owner:general-purpose] [beads:if-dgp]
-- [ ] [3.3] [P-1] Verify usage parity: diff the cc-tmux usage segment output against the retired `tmux-nexus-creds` output against a live nexus-agent — must byte-match (paste diff) [owner:general-purpose] [beads:if-zcj]
-- [ ] [3.4] [P-1] Verify no `prefix + Space` double-bind: `tmux list-keys | grep -i space` shows which-key's binding intact and cc-tmux cycle on its own key (paste output) [owner:general-purpose] [beads:if-5zl]
-- [ ] [3.5] [P-2] Open the inbox with ≥2 tracked panes; assert aligned columns render and `enter` switches to the selected pane [owner:general-purpose] [beads:if-4rk]
-- [ ] [3.6] [P-2] Enable `@cc-conductor-enabled on`; open the popup (`prefix + y`); dispatch a `send-prompt` to a target idle pane and assert it arrives (paste evidence); confirm disabled-by-default inertness before enabling [owner:general-purpose] [beads:if-uhr]
-- [ ] [3.7] [P-2] Verify graceful degradation: run a `cc-tmux` subcommand outside tmux (exits 0), and with nexus-agent down the usage segment renders empty (paste both) [owner:general-purpose] [beads:if-rwm]
+- [x] [3.1] [P-1] Run `chezmoi apply`; verify `~/.tmux/plugins/cc-tmux` resolves, `claude plugin list` shows cc-tmux, and `cc-tmux self-test` passes (paste stdout) [owner:general-purpose] [beads:if-qtc]
+- [x] [3.2] [P-1] Drive a real Claude session in a pane; assert `@cc-state` flips `active`→`waiting`→`idle` across a permission prompt (paste `tmux show-options -p | grep @cc-state` at each step) [owner:general-purpose] [beads:if-dgp]
+- [x] [3.3] [P-1] Verify usage parity: diff the cc-tmux usage segment output against the retired `tmux-nexus-creds` output against a live nexus-agent — must byte-match (paste diff) [owner:general-purpose] [beads:if-zcj]
+- [x] [3.4] [P-1] Verify no `prefix + Space` double-bind: `tmux list-keys | grep -i space` shows which-key's binding intact and cc-tmux cycle on its own key (paste output) [owner:general-purpose] [beads:if-5zl]
+- [x] [3.5] [P-2] Open the inbox with ≥2 tracked panes; assert aligned columns render and `enter` switches to the selected pane [owner:general-purpose] [beads:if-4rk]
+- [x] [3.6] [P-2] Enable `@cc-conductor-enabled on`; open the popup (`prefix + y`); dispatch a `send-prompt` to a target idle pane and assert it arrives (paste evidence); confirm disabled-by-default inertness before enabling [owner:general-purpose] [beads:if-uhr]
+- [x] [3.7] [P-2] Verify graceful degradation: run a `cc-tmux` subcommand outside tmux (exits 0), and with nexus-agent down the usage segment renders empty (paste both) [owner:general-purpose] [beads:if-rwm]
