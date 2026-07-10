@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# cc-tmux CLI shim.
+#
+# Runs the bundled cc_tmux package with no install step: tmux keybindings and
+# Claude Code hooks invoke this script by absolute path. It points PYTHONPATH at
+# the bundled src/ tree and execs the module.
+#
+# Fail-open contract: this shim never depends on tmux itself; it only needs
+# python3. The Python layer (tmux.py) handles absent $TMUX / missing tmux binary.
+set -euo pipefail
+
+# Resolve this script's real directory even through symlinks (chezmoi may symlink
+# apps/cc-tmux into ~/.tmux/plugins/cc-tmux, or the plugin may be a real copy).
+_src="${BASH_SOURCE[0]}"
+while [ -h "$_src" ]; do
+  _dir="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
+  _src="$(readlink "$_src")"
+  case "$_src" in
+    /*) ;;
+    *) _src="$_dir/$_src" ;;
+  esac
+done
+_bin_dir="$(cd -P "$(dirname "$_src")" >/dev/null 2>&1 && pwd)"
+
+# bin/ sits beside src/ inside apps/cc-tmux/.
+_pkg_root="$(cd -P "$_bin_dir/.." >/dev/null 2>&1 && pwd)"
+_src_dir="$_pkg_root/src"
+
+export PYTHONPATH="$_src_dir${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m cc_tmux "$@"

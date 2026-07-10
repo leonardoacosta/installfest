@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Install/wire cc-tmux — the first-party Claude Code + tmux plugin that tracks,
+# cycles, and dispatches parallel Claude panes (apps/cc-tmux/). Installed
+# manually (symlink + run-shell load), same as tmux-which-key, since this repo
+# runs no TPM (see docs/audit/tmux.md N5).
+#
+# Two install actions:
+#   (a) symlink apps/cc-tmux -> ~/.tmux/plugins/cc-tmux so tmux.conf's
+#       `run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` load line resolves.
+#   (b) register the Claude Code plugin from the local clone so its state hooks
+#       (waiting/idle/active) self-register WITHOUT editing cc's settings.json.
+#
+# Re-runs whenever the plugin's install-relevant surface changes (the tmux
+# entrypoint, the Claude hooks manifest, or the plugin manifest), so a fresh
+# machine picks up the symlink + registration on first `chezmoi apply`. The
+# `../apps/...` include escapes the chezmoi source root (home/) up to the repo
+# root — verified with `chezmoi execute-template` that this resolves.
+#
+#   cc-tmux.tmux: {{ include "../apps/cc-tmux/cc-tmux.tmux" | sha256sum }}
+#   hooks.json:   {{ include "../apps/cc-tmux/hooks/hooks.json" | sha256sum }}
+#   plugin.json:  {{ include "../apps/cc-tmux/.claude-plugin/plugin.json" | sha256sum }}
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+PLUGIN_SRC="$DOTFILES/apps/cc-tmux"
+PLUGIN_LINK="$HOME/.tmux/plugins/cc-tmux"
+
+# --- (a) symlink into ~/.tmux/plugins so the tmux run-shell load resolves ----
+if [ ! -d "$PLUGIN_SRC" ]; then
+  warning "cc-tmux: source $PLUGIN_SRC missing — skipping install"
+  exit 0
+fi
+
+mkdir -p "$(dirname "$PLUGIN_LINK")"
+if ln -sfn "$PLUGIN_SRC" "$PLUGIN_LINK"; then
+  success "cc-tmux: linked $PLUGIN_LINK -> $PLUGIN_SRC"
+else
+  warning "cc-tmux: failed to symlink into ~/.tmux/plugins — tmux load will not resolve"
+fi
+
+# --- (b) register the Claude Code plugin from the local clone (idempotent) ----
+# The plugin manifest self-registers its state hooks, so no settings.json edit
+# is needed. Fail open: a registration failure must NOT abort `chezmoi apply`
+# (the tmux side still loads via the symlink above).
+if command -v claude >/dev/null 2>&1; then
+  if claude plugin list 2>/dev/null | grep -q 'cc-tmux'; then
+    success "cc-tmux: Claude plugin already registered"
+  elif [ -f "$PLUGIN_SRC/.claude-plugin/marketplace.json" ]; then
+    # Local-path marketplace present: add it, then install the plugin from it.
+    if claude plugin marketplace add "$PLUGIN_SRC" >/dev/null 2>&1 \
+      && claude plugin install "cc-tmux@cc-tmux" >/dev/null 2>&1; then
+      success "cc-tmux: Claude plugin registered from local clone"
+    else
+      warning "cc-tmux: 'claude plugin install' failed — state hooks not registered (tmux load unaffected). Register manually: claude plugin marketplace add $PLUGIN_SRC && claude plugin install cc-tmux@cc-tmux"
+    fi
+  else
+    # No marketplace.json in the plugin dir yet: `claude plugin install` needs a
+    # marketplace manifest to resolve a local plugin. Warn (don't fail) — this is
+    # a plugin-packaging concern (apps/cc-tmux), not a deploy-wiring one.
+    warning "cc-tmux: no .claude-plugin/marketplace.json in $PLUGIN_SRC — skipping Claude-hook registration. Add a marketplace manifest, then: claude plugin marketplace add $PLUGIN_SRC && claude plugin install cc-tmux@cc-tmux"
+  fi
+else
+  warning "cc-tmux: 'claude' CLI not found — skipping Claude-hook registration (tmux load unaffected)"
+fi
+
+# --- (c) prerequisite checks (warn, never fail) ------------------------------
+if command -v fzf >/dev/null 2>&1; then
+  success "cc-tmux: fzf present — inbox/picker use the fzf popup"
+else
+  warning "cc-tmux: fzf not found — inbox/picker fall back to display-menu"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  success "cc-tmux: python3 present"
+else
+  warning "cc-tmux: python3 not found — cc-tmux CLI will not run until it is installed"
+fi

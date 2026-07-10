@@ -206,6 +206,11 @@ bind -T copy-mode-vi WheelDownPane send-keys -X -N 3 scroll-down
 if-shell "test -f ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux" \
   "run-shell ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux"
 
+# cc-tmux: Claude Code session tracker / hop / usage (apps/cc-tmux, installed by
+# run_onchange_after_install-cc-tmux.sh.tmpl). if-shell guard mirrors which-key.
+if-shell "test -f ~/.tmux/plugins/cc-tmux/cc-tmux.tmux" \
+  "run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux"
+
 # -----------------------------------------------------------------------------
 # Status Bar - Tab-like Appearance
 # -----------------------------------------------------------------------------
