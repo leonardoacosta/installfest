@@ -20,7 +20,7 @@ Personal dotfiles and development environment configuration for macOS and Arch L
 - `private_dot_` prefix → deployed with restricted permissions
 - `run_once_*` → one-time setup scripts
 - `run_onchange_*` → re-run when content hash changes
-- `$DOTFILES` env var points to repo root (`~/dev/if`)
+- `$DOTFILES` env var points to repo root (`~/dev/personal/installfest`)
 
 ## Machines
 
