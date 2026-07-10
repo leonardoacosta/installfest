@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recon Verdict — qeesung/tmux-scout vs cc-tmux</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0a0a; --surface:#111113; --surface-2:#17171a; --border:rgba(255,255,255,.09);
+    --text:#ededed; --dim:#8f8f92; --faint:#6b6b6f;
+    --steal:#7dd3a8; --adapt:#e6b566; --adapt-bg:rgba(230,181,102,.12);
+    --monitor:#7aa2f7; --monitor-bg:rgba(122,162,247,.12);
+    --skip:#8f8f92; --skip-bg:rgba(143,143,146,.10);
+    --scout:#d7875f; --cc:#5f9ea0;
+    --font:"Space Grotesk",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --bg:#f6f6f4; --surface:#fff; --surface-2:#efefec; --border:rgba(0,0,0,.10);
+      --text:#191919; --dim:#5c5c5c; --faint:#8a8a8a;
+      --adapt-bg:rgba(180,120,20,.12); --monitor-bg:rgba(50,90,200,.10); --skip-bg:rgba(0,0,0,.05);}
+  }
+  *{box-sizing:border-box;min-width:0}
+  body{margin:0;background:
+      radial-gradient(1100px 500px at 80% -10%,rgba(215,135,95,.10),transparent 60%),
+      radial-gradient(900px 500px at 0% 0%,rgba(95,158,160,.08),transparent 55%),
+      var(--bg);
+    color:var(--text);font-family:var(--font);line-height:1.55;
+    -webkit-font-smoothing:antialiased;padding:clamp(20px,5vw,64px)}
+  .wrap{max-width:1040px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+  h1{font-size:clamp(28px,5vw,44px);font-weight:700;letter-spacing:-.02em;margin:.25em 0 .1em}
+  h1 .scout{color:var(--scout)}
+  .sub{color:var(--dim);font-size:15px;max-width:70ch}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 8px;font-family:var(--mono);font-size:12px}
+  .chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;color:var(--dim)}
+  .chip b{color:var(--text);font-weight:500}
+  .tally{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:28px 0 8px}
+  .t{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px}
+  .t .n{font-size:34px;font-weight:700;font-family:var(--mono);line-height:1}
+  .t .l{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin-top:6px}
+  .t.steal .n{color:var(--steal)} .t.adapt .n{color:var(--adapt)}
+  .t.monitor .n{color:var(--monitor)} .t.skip .n{color:var(--skip)}
+  section{margin-top:44px}
+  h2{font-size:22px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px}
+  h2 .k{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:400}
+  .mermaid-wrap{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;overflow:auto}
+  .mermaid{display:flex;justify-content:center}
+  .arch{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:0;overflow:hidden;margin-top:18px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--border);vertical-align:top}
+  thead th{position:sticky;top:0;background:var(--surface);font-family:var(--mono);font-size:11px;
+    text-transform:uppercase;letter-spacing:.1em;color:var(--dim);font-weight:500}
+  tbody tr:last-child td{border-bottom:none}
+  td .s{color:var(--scout);font-family:var(--mono);font-size:13px}
+  td .c{color:var(--cc);font-family:var(--mono);font-size:13px}
+  code{font-family:var(--mono);font-size:.85em;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:6px;padding:1px 6px;word-break:break-word}
+  .cards{display:grid;gap:18px;margin-top:18px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px}
+  .card.adapt{border-left:3px solid var(--adapt)}
+  .badge{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    padding:3px 9px;border-radius:6px}
+  .badge.adapt{background:var(--adapt-bg);color:var(--adapt)}
+  .badge.monitor{background:var(--monitor-bg);color:var(--monitor)}
+  .badge.skip{background:var(--skip-bg);color:var(--skip)}
+  .card h3{font-size:18px;margin:12px 0 4px;font-weight:600}
+  .src{font-family:var(--mono);font-size:12px;color:var(--faint);margin-bottom:12px}
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+  @media(max-width:640px){.ba{grid-template-columns:1fr}.tally{grid-template-columns:repeat(2,1fr)}}
+  .ba div{background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .ba .lab{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+  .ba .before .lab{color:var(--dim)} .ba .after .lab{color:var(--adapt)}
+  .pv{width:100%;font-size:13px;margin-top:10px}
+  .pv td:first-child{font-family:var(--mono);color:var(--dim);width:180px;white-space:nowrap}
+  .cov{font-family:var(--mono);font-size:12.5px;background:var(--adapt-bg);border-radius:8px;padding:9px 12px;margin:6px 0 4px}
+  .skiplist{display:grid;gap:10px;margin-top:16px}
+  .sk{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;display:flex;gap:14px;align-items:flex-start}
+  .sk .why{color:var(--dim);font-size:13.5px}
+  .impl{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;margin-top:18px}
+  .impl ol{margin:10px 0 0;padding-left:20px}
+  .impl li{margin:8px 0}
+  .eff{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;background:var(--surface-2);border:1px solid var(--border);color:var(--dim)}
+  footer{margin-top:48px;color:var(--faint);font-family:var(--mono);font-size:12px;border-top:1px solid var(--border);padding-top:16px}
+  .z{display:flex;gap:6px;margin-bottom:10px}
+  .z button{font-family:var(--mono);font-size:13px;background:var(--surface-2);border:1px solid var(--border);
+    color:var(--dim);border-radius:7px;width:30px;height:28px;cursor:pointer}
+  .z button:hover{color:var(--text)}
+  @media(prefers-reduced-motion:no-preference){
+    .card,.t,.sk{animation:fu .5s cubic-bezier(.2,.7,.3,1) both}
+    @keyframes fu{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Recon · External-Adoption Intake · project context</div>
+  <h1>tmux&#8209;scout <span style="color:var(--faint);font-weight:400">→</span> <span class="scout">cc&#8209;tmux</span></h1>
+  <p class="sub">Does <code>qeesung/tmux-scout</code> — a 10-agent tmux session monitor — offer anything the
+    just-shipped first-party <code>apps/cc-tmux/</code> plugin doesn't? The two share a problem space but
+    take <b>opposite architectures</b>: tmux-scout is external-JSON + watchdog daemon; cc-tmux is
+    pane-options + daemon-free. That split decides every verdict.</p>
+
+  <div class="meta">
+    <span class="chip"><b>Stars</b> 26</span>
+    <span class="chip"><b>License</b> MIT (Steal-eligible)</span>
+    <span class="chip"><b>Lang</b> Node.js ≥16</span>
+    <span class="chip"><b>Pushed</b> 2026-07-09</span>
+    <span class="chip"><b>Ask</b> none — general sweep</span>
+  </div>
+
+  <div class="tally">
+    <div class="t steal"><div class="n">0</div><div class="l">Steal</div></div>
+    <div class="t adapt"><div class="n">2</div><div class="l">Adapt</div></div>
+    <div class="t monitor"><div class="n">1</div><div class="l">Monitor</div></div>
+    <div class="t skip"><div class="n">4</div><div class="l">Skip</div></div>
+  </div>
+
+  <section>
+    <h2>Integration map <span class="k">— findings at their landing points in the cc-tmux picker pipeline</span></h2>
+    <div class="mermaid-wrap">
+      <div class="z"><button onclick="zc(1.2)">+</button><button onclick="zc(.83)">−</button><button onclick="zr()">⟲</button></div>
+      <div class="mermaid" id="mm">
+flowchart LR
+  H[Claude Code hooks] --> S["@cc-state pane options<br/>single source of truth"]
+  S --> P["priority.py<br/>sort: waiting&gt;idle&gt;active"]
+  P --> I["cc-tmux inbox<br/>fzf popup rows"]
+  I --> J[Hop to pane]
+  S --> ST["cc-tmux status<br/>count badges"]
+  A1["ADAPT 1<br/>fzf --preview pane"]:::adapt -.-> I
+  A2["ADAPT 2<br/>cc-tmux doctor"]:::adapt -.-> S
+  M1["MONITOR<br/>MRU visit-recency sort"]:::mon -.-> P
+  SK["SKIP · watchdog daemon<br/>+ socket bridge<br/>· 10-agent adapter<br/>· CLI hook installer"]:::skip -.-x S
+  classDef adapt fill:#3a2e12,stroke:#e6b566,color:#e6b566;
+  classDef mon fill:#16233f,stroke:#7aa2f7,color:#7aa2f7;
+  classDef skip fill:#1a1a1c,stroke:#5a5a5e,color:#9a9a9e,stroke-dasharray:4 3;
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Architecture split <span class="k">— why most of tmux-scout is Skip-by-design</span></h2>
+    <div class="arch">
+      <table>
+        <thead><tr><th>Axis</th><th>tmux-scout</th><th>cc-tmux (local)</th></tr></thead>
+        <tbody>
+          <tr><td>State store</td><td class="s">external JSON in ~/.tmux-scout/</td><td class="c">tmux pane options — dies with pane</td></tr>
+          <tr><td>Freshness</td><td class="s">watchdog daemon + Unix socket bridge</td><td class="c">hook-driven, self-heal on open</td></tr>
+          <tr><td>Agent scope</td><td class="s">10 CLIs (generic adapter)</td><td class="c">Claude Code only (first-party)</td></tr>
+          <tr><td>Hook install</td><td class="s">setup.sh edits each CLI config</td><td class="c">claude plugin manifest self-registers</td></tr>
+          <tr><td>Picker sort</td><td class="s">MRU — most-recently-visited first</td><td class="c">attention-priority, newest-first</td></tr>
+          <tr><td>Picker UX</td><td class="s">fzf + right-side pane preview</td><td class="c">fzf rows, <b>no preview</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Adoption cards <span class="k">— the two real gaps</span></h2>
+    <div class="cards">
+
+      <div class="card adapt">
+        <span class="badge adapt">Adapt 1</span>
+        <h3>fzf <code>--preview</code> pane in the inbox popup</h3>
+        <div class="src">source: README § Usage "Pane preview — last 40 lines of each session's pane"</div>
+        <div class="cov">Coverage: PARTIAL — <code>cli.py</code> cmd_inbox + fzf wiring in <code>cc-tmux.tmux</code> own this;
+          rg for preview/capture-pane → zero hits</div>
+        <div class="ba">
+          <div class="before"><div class="lab">Before</div>Inbox lists panes as flat text rows; user hops blind, then reads.</div>
+          <div class="after"><div class="lab">After</div>fzf popup gains <code>--preview 'tmux capture-pane -ep -t {N}'</code> — highlighted session's tail renders live in the right panel.</div>
+        </div>
+        <table class="pv">
+          <tr><td>Layer</td><td>tmux keybinding → fzf popup, backed by existing <code>cli.py</code> data producer</td></tr>
+          <tr><td>Landing path</td><td><code>apps/cc-tmux/cc-tmux.tmux</code> + <code>apps/cc-tmux/src/cc_tmux/cli.py</code></td></tr>
+          <tr><td>Extend target</td><td>cmd_inbox already emits rows; extend it — no new subcommand</td></tr>
+          <tr><td>Scope</td><td>project-local; n/a global</td></tr>
+          <tr><td>Tracked medium</td><td><code>git ls-files -s</code> → 100755 cc-tmux.tmux · 100644 cli.py</td></tr>
+          <tr><td>Caller / cadence</td><td>prefix-key inbox popup, interactive, every session</td></tr>
+          <tr><td>Effort</td><td><span class="eff">small</span></td></tr>
+        </table>
+      </div>
+
+      <div class="card adapt">
+        <span class="badge adapt">Adapt 2</span>
+        <h3><code>cc-tmux doctor</code> — environment diagnostics</h3>
+        <div class="src">source: README § Hook Setup <code>setup.sh doctor</code> · scripts/doctor.js (9.7 KB)</div>
+        <div class="cov">Coverage: PARTIAL — <code>parser.py</code>/<code>cli.py</code> own the subcommand surface;
+          <code>self-test</code> is the sibling but tests pure functions, not the environment</div>
+        <div class="ba">
+          <div class="before"><div class="lab">Before</div>Missing fzf / unregistered hook / old tmux fails silently; no way to self-diagnose.</div>
+          <div class="after"><div class="lab">After</div><code>cc-tmux doctor</code> prints a PASS/FAIL checklist — tmux ≥3.2, fzf, <code>$TMUX</code>, plugin installed, hooks registered — exit 0, fail-open.</div>
+        </div>
+        <table class="pv">
+          <tr><td>Layer</td><td>CLI execution subcommand (<code>cmd_doctor</code>), stdlib-only</td></tr>
+          <tr><td>Landing path</td><td><code>apps/cc-tmux/src/cc_tmux/cli.py</code> + <code>parser.py</code></td></tr>
+          <tr><td>Extend target</td><td>argparse subcommand registry; <code>self-test</code> can't absorb (pure-function scope)</td></tr>
+          <tr><td>Scope</td><td>project-local; pattern is generic but impl cc-tmux-specific</td></tr>
+          <tr><td>Tracked medium</td><td><code>git ls-files -s</code> → 100644 cli.py · 100644 parser.py</td></tr>
+          <tr><td>Caller / cadence</td><td>manual + once per <code>chezmoi apply</code> if wired into install script</td></tr>
+          <tr><td>Effort</td><td><span class="eff">small–medium</span></td></tr>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Monitor &amp; Skip <span class="k">— why the rest stays out</span></h2>
+    <div class="skiplist">
+      <div class="sk"><span class="badge monitor">Monitor</span><div><b>MRU picker sort + <code>pane-focus-in[9909]</code> hook slot.</b>
+        <div class="why">Coverage NONE, but flips cc-tmux's core sort (urgency-first → recency-first) with no caller demanding it — a /feature-sized design call. Keep the fixed-index hook-slot idiom in mind: idempotent, coexists with a user's own hook.</div></div></div>
+      <div class="sk"><span class="badge skip">Skip 1</span><div><b>Watchdog daemon + single-writer Unix socket bridge.</b>
+        <div class="why">FULL by design — cc-tmux spec makes pane options the sole state store, no daemon (rg socket/daemon → NONE). A daemon contradicts the invariant.</div></div></div>
+      <div class="sk"><span class="badge skip">Skip 2</span><div><b>10-agent support (Codex, Gemini, Kimi, Copilot, OpenCode, Cursor, Hermes, Trae, Traex).</b>
+        <div class="why">Out of scope — cc-tmux is a first-party Claude Code plugin.</div></div></div>
+      <div class="sk"><span class="badge skip">Skip 3</span><div><b>Idempotent multi-CLI hook installer (backup + chain).</b>
+        <div class="why">FULL via a different mechanism — cc-tmux self-registers through <code>.claude-plugin/plugin.json</code> + <code>hooks/hooks.json</code>, no config surgery.</div></div></div>
+      <div class="sk"><span class="badge skip">Skip 4</span><div><b>Status-format placeholder DSL (<code>@scout-status-format</code>).</b>
+        <div class="why">cc-tmux status already emits per-state styled counts; a format mini-DSL is over-engineering for a single-user plugin.</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Implementation order <span class="k">— quickest win first</span></h2>
+    <div class="impl">
+      <ol>
+        <li><b>Adapt 1 — fzf preview</b> <span class="eff">small</span> — one fzf flag on the inbox popup; biggest UX lift, lowest cost. Pick the right pane without hopping.</li>
+        <li><b>Adapt 2 — doctor subcommand</b> <span class="eff">small–medium</span> — new <code>cmd_doctor</code> + parser entry; optionally called at the tail of the install script as a post-deploy self-check.</li>
+        <li><b>Monitor — MRU sort</b> — revisit only if urgency-first ordering proves annoying in daily use; needs a design decision, not a drop-in.</li>
+      </ol>
+    </div>
+  </section>
+
+  <footer>
+    Context saved: docs/recon/qeesung-tmux-scout.md · Verdict: docs/recon/qeesung-tmux-scout.html<br/>
+    Next: <code>/feature</code> to spec Adapt 1 (fzf preview) into apps/cc-tmux.
+  </footer>
+</div>
+<script>
+  mermaid.initialize({startOnLoad:true,theme:'base',securityLevel:'loose',
+    themeVariables:{fontFamily:'JetBrains Mono, monospace',primaryColor:'#17171a',
+      primaryTextColor:'#ededed',primaryBorderColor:'#5f9ea0',lineColor:'#6b6b6f',
+      secondaryColor:'#111113',tertiaryColor:'#111113'}});
+  let z=1;const g=()=>document.getElementById('mm').querySelector('svg');
+  function ap(){const s=g();if(s){s.style.transform='scale('+z+')';s.style.transformOrigin='center top';}}
+  function zc(f){z=Math.min(3,Math.max(.4,z*f));ap();}
+  function zr(){z=1;ap();}
+  const mmEl=document.getElementById('mm');
+  mmEl.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();zc(e.deltaY<0?1.1:.9);}},{passive:false});
+</script>
+</body>
+</html>
