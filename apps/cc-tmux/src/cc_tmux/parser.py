@@ -8,16 +8,15 @@ import (cli imports the parser; the parser references no handlers).
 Subcommands split into two ownership groups:
   * Implemented: register, cycle, back, switch, discover, clear, self-test
     (core); inbox, inbox-clear, picker-data, status, status-inbox (integration
-    surface — these take no arguments, so their parsers stay bare).
-  * Stubbed for another engineer: usage, conductor. The parser registers the
-    name so wiring is complete; the handler prints a not-implemented message
-    until its owner lands it.
+    surface — these take no arguments, so their parsers stay bare); usage
+    (argless, Req-8) and conductor (Req-9, with its own action + flags).
 """
 
 from __future__ import annotations
 
 import argparse
 
+from .conductor import CONDUCTOR_MODES
 from .priority import VALID_CYCLE_MODES, VALID_STATES
 
 # Wait reasons a `register --state waiting` may carry (Req-3 mapping).
@@ -108,8 +107,68 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("status", help="Emit status-bar pane counts.")
     sub.add_parser("status-inbox", help="Emit clickable pending-pane badges.")
 
-    # -- stubs owned by another engineer --------------------------------------
-    sub.add_parser("usage", help="Emit the Claude usage status segment.")  # owned by E3
-    sub.add_parser("conductor", help="Conductor dispatch / popup.")  # owned by E3
+    # -- usage: Claude multi-account usage status segment (Req-8) --------------
+    # Takes no arguments (mirrors the retired tmux-nexus-creds sh script).
+    sub.add_parser("usage", help="Emit the Claude usage status segment.")
+
+    # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----
+    p_conductor = sub.add_parser(
+        "conductor",
+        help="Conductor: persistent orchestrator session + task dispatch.",
+    )
+    p_conductor.add_argument(
+        "action",
+        nargs="?",
+        choices=["list", "dispatch", "context"],
+        default=None,
+        help="list: dispatchable panes; dispatch: route a task; context: hook snapshot.",
+    )
+    p_conductor.add_argument(
+        "--popup",
+        action="store_true",
+        help="Open a popup attached to the conductor session (created on demand).",
+    )
+    p_conductor.add_argument(
+        "--respawn",
+        action="store_true",
+        help="With --popup: kill and recreate the session first (picks up refreshed instructions).",
+    )
+    p_conductor.add_argument(
+        "--kill",
+        action="store_true",
+        help="Kill the conductor session.",
+    )
+    p_conductor.add_argument(
+        "--update-instructions",
+        dest="update_instructions",
+        action="store_true",
+        help="Regenerate the conductor instruction file from the built-in canon.",
+    )
+    p_conductor.add_argument(
+        "--json",
+        action="store_true",
+        help="With the 'list' action: emit JSON instead of aligned columns.",
+    )
+    p_conductor.add_argument(
+        "--mode",
+        choices=CONDUCTOR_MODES,
+        default=None,
+        help="Dispatch mode (see the cc-dispatch skill for the authoritative shape).",
+    )
+    p_conductor.add_argument(
+        "--target",
+        default=None,
+        help="Dispatch target: a pane id (switch/send-prompt) or a directory (spawn-*).",
+    )
+    p_conductor.add_argument(
+        "--force",
+        action="store_true",
+        help="With send-prompt: allow targeting an 'active' (busy) pane.",
+    )
+    p_conductor.add_argument(
+        "--prompt",
+        default=None,
+        help="Prompt / task text for send-prompt and spawn-* modes.",
+    )
 
     return parser

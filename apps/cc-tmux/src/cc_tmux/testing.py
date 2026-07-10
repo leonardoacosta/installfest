@@ -15,7 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
-from . import paths, priority, render, tmux
+from . import paths, priority, render, tmux, usage
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +325,81 @@ class _FakePaneFull:
 
 
 # ---------------------------------------------------------------------------
+# usage.py tests (pure presentation + fail-open, no nexus-agent — Req-8)
+# ---------------------------------------------------------------------------
+
+def _test_usage_color_thresholds() -> None:
+    # absent -> DIM (only a genuinely missing field dims).
+    _check(usage.color_for(None) == usage.DIM, "None -> DIM")
+    # > 0.80 -> RED; the boundary 0.80 itself is NOT red (sh used strict >).
+    _check(usage.color_for(0.81) == usage.RED, ">0.80 -> RED")
+    _check(usage.color_for(0.80) == usage.YELLOW, "0.80 exactly -> YELLOW (not RED)")
+    # >= 0.50 -> YELLOW; the boundary 0.50 IS yellow.
+    _check(usage.color_for(0.50) == usage.YELLOW, "0.50 exactly -> YELLOW")
+    _check(usage.color_for(0.49) == usage.CYAN, "<0.50 -> CYAN")
+    # present 0.0 -> CYAN, not DIM.
+    _check(usage.color_for(0.0) == usage.CYAN, "0.0 present -> CYAN, not DIM")
+
+
+def _test_usage_pct_formatting() -> None:
+    _check(usage.pct_for(None) == "--", "None -> --")
+    _check(usage.pct_for(0.0) == "0%", "0.0 -> 0%")
+    _check(usage.pct_for(0.5) == "50%", "0.5 -> 50%")
+    _check(usage.pct_for(1.0) == "100%", "1.0 -> 100%")
+    _check(usage.pct_for(0.807) == "81%", "0.807 -> 81% (rounds)")
+
+
+def _test_usage_extract_util() -> None:
+    acct = {"five_hour": {"utilization": 0.5}, "seven_day": {"utilization": 0}}
+    _check(usage._extract_util(acct, "five_hour") == 0.5, "extract 0.5")
+    _check(usage._extract_util(acct, "seven_day") == 0.0, "extract present 0")
+    # missing window / missing utilization / null -> None.
+    _check(usage._extract_util({}, "five_hour") is None, "missing window -> None")
+    _check(usage._extract_util({"five_hour": {}}, "five_hour") is None, "missing util -> None")
+    _check(
+        usage._extract_util({"five_hour": {"utilization": None}}, "five_hour") is None,
+        "null util -> None",
+    )
+
+
+def _test_usage_render_segment() -> None:
+    payload = {
+        "active_account": "work",
+        "accounts": [
+            {"name": "personal", "five_hour": {"utilization": 0.1}},
+            {"name": "work", "five_hour": {"utilization": 0.5}, "seven_day": {"utilization": 0.85}},
+        ],
+    }
+    out = usage.render_usage(payload)
+    expected = (
+        f"#[fg={usage.DIM}]work "
+        f"#[fg={usage.DIM}]5H:#[fg={usage.YELLOW}]50%#[default] "
+        f"#[fg={usage.DIM}]7D:#[fg={usage.RED}]85%#[default]"
+    )
+    _check(out == expected, f"segment mismatch: {out!r}")
+    # no trailing newline in the rendered segment.
+    _check(not out.endswith("\n"), "segment must not carry a trailing newline")
+
+
+def _test_usage_fail_open() -> None:
+    # Every "sh would exit 0 with no output" case -> ''.
+    _check(usage.render_usage({}) == "", "no active_account -> ''")
+    _check(usage.render_usage({"active_account": ""}) == "", "empty active_account -> ''")
+    _check(
+        usage.render_usage({"active_account": "x", "accounts": "nope"}) == "",
+        "non-list accounts -> ''",
+    )
+    _check(
+        usage.render_usage({"active_account": "x", "accounts": [{"name": "y"}]}) == "",
+        "active not found in accounts -> ''",
+    )
+    # missing-both-windows account renders '--' pcts and dim colours.
+    out = usage.render_usage({"active_account": "a", "accounts": [{"name": "a"}]})
+    _check("5H:" in out and "--" in out, "missing windows -> '--' pct")
+    _check(f"#[fg={usage.DIM}]5H:#[fg={usage.DIM}]--" in out, "missing 5H window -> DIM")
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -348,6 +423,11 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.render_status", _test_render_status),
     ("render.resolve_icons", _test_render_resolve_icons),
     ("render.inbox_rows", _test_render_inbox_rows),
+    ("usage.color_thresholds", _test_usage_color_thresholds),
+    ("usage.pct_formatting", _test_usage_pct_formatting),
+    ("usage.extract_util", _test_usage_extract_util),
+    ("usage.render_segment", _test_usage_render_segment),
+    ("usage.fail_open", _test_usage_fail_open),
 ]
 
 

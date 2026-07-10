@@ -17,7 +17,9 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from . import log, notify, render, tmux
+from .conductor import cmd_conductor
 from .parser import build_parser
+from .usage import cmd_usage
 from .priority import (
     STATE_PRIORITY,
     VALID_STATES,
@@ -38,11 +40,8 @@ _STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
 _WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
 _STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
 
-# Stub subcommands still owned by other engineers (task ids for the message).
-_STUB_OWNERS: Dict[str, str] = {
-    "usage": "task 1.8 (usage segment, E3)",
-    "conductor": "task 1.9 (conductor, E3)",
-}
+# No remaining stub subcommands: every registered command has a handler below.
+_STUB_OWNERS: Dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +391,8 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "picker-data": cmd_picker_data,
     "status": cmd_status,
     "status-inbox": cmd_status_inbox,
+    "usage": cmd_usage,
+    "conductor": cmd_conductor,
 }
 
 
