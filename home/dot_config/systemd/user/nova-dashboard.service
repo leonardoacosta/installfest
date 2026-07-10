@@ -7,7 +7,7 @@ StartLimitBurst=10
 Type=simple
 WorkingDirectory=%h/.local/lib/nova-ts
 EnvironmentFile=%h/.config/nova/env
-ExecStart=/home/nyaptor/.local/share/mise/shims/node %h/.local/lib/nova-ts/apps/dashboard/server.js
+ExecStart=%h/.local/share/mise/installs/node/25.0.0/bin/node %h/.local/lib/nova-ts/apps/dashboard/server.js
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOSTNAME=0.0.0.0
