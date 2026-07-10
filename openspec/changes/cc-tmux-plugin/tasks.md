@@ -21,11 +21,11 @@
 
 ## Config Batch
 
-- [ ] [2.1] [P-1] Create `home/run_onchange_after_install-cc-tmux.sh.tmpl` (mirror `run_onchange_after_install-tmux-which-key.sh.tmpl`): `DOTFILES="{{ .chezmoi.workingTree }}"`, source `scripts/utils.sh`, source-guard strict mode; symlink `apps/cc-tmux` → `~/.tmux/plugins/cc-tmux`, run `claude plugin install` from the local clone (idempotent), warn (not fail) if `fzf`/`python3` absent [owner:general-purpose] [beads:if-9ot]
-- [ ] [2.2] [P-1] Add the `if-shell`-guarded `run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` load to the Plugins block in `home/dot_config/tmux/tmux.conf.tmpl` (below the which-key block) [owner:general-purpose] [beads:if-9h4]
-- [ ] [2.3] [P-1] Switch `status-right` in `home/dot_config/tmux/vercel-theme.conf` from `#(tmux-nexus-creds)` to the cc-tmux usage segment; remove `home/dot_local/bin/executable_tmux-nexus-creds` (replaced, no dead duplicate) [owner:general-purpose] [beads:if-z6i]
-- [ ] [2.4] [P-2] Add `fzf` to `platform/homebrew/Brewfile` and the Arch package list in `scripts/install-arch.sh` if not already present [owner:general-purpose] [beads:if-1pk]
-- [ ] [2.5] [P-2] Update `docs/tmux-layout-keybindings.md` with the new cc-tmux keybindings (cycle/picker/inbox/back/conductor) and a pointer to `apps/cc-tmux/` [owner:general-purpose] [beads:if-156]
+- [x] [2.1] [P-1] Create `home/run_onchange_after_install-cc-tmux.sh.tmpl` (mirror `run_onchange_after_install-tmux-which-key.sh.tmpl`): `DOTFILES="{{ .chezmoi.workingTree }}"`, source `scripts/utils.sh`, source-guard strict mode; symlink `apps/cc-tmux` → `~/.tmux/plugins/cc-tmux`, run `claude plugin install` from the local clone (idempotent), warn (not fail) if `fzf`/`python3` absent [owner:general-purpose] [beads:if-9ot]
+- [x] [2.2] [P-1] Add the `if-shell`-guarded `run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` load to the Plugins block in `home/dot_config/tmux/tmux.conf.tmpl` (below the which-key block) [owner:general-purpose] [beads:if-9h4]
+- [x] [2.3] [P-1] Switch `status-right` in `home/dot_config/tmux/vercel-theme.conf` from `#(tmux-nexus-creds)` to the cc-tmux usage segment; remove `home/dot_local/bin/executable_tmux-nexus-creds` (replaced, no dead duplicate) [owner:general-purpose] [beads:if-z6i]
+- [x] [2.4] [P-2] Add `fzf` to `platform/homebrew/Brewfile` and the Arch package list in `scripts/install-arch.sh` if not already present [owner:general-purpose] [beads:if-1pk]
+- [x] [2.5] [P-2] Update `docs/tmux-layout-keybindings.md` with the new cc-tmux keybindings (cycle/picker/inbox/back/conductor) and a pointer to `apps/cc-tmux/` [owner:general-purpose] [beads:if-156]
 
 ## Verification Batch
 

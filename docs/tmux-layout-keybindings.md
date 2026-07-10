@@ -77,6 +77,21 @@ arranged manually via splits (see below), not via a fixed layout preset.
 | `prefix + r` | reload config in-place | 152 |
 | `Cmd+K` | clear scrollback history | 108-110 |
 
+**cc-tmux (Claude pane tracker)** — bound by `apps/cc-tmux/cc-tmux.tmux` (loaded via `run-shell`),
+all overridable via `@cc-*-key` options.
+
+| Key | Action |
+|---|---|
+| `prefix + o` | cycle to next pending Claude pane (priority: waiting → idle), newest-first |
+| `prefix + C-f` | pane picker popup (fzf, or `display-menu` fallback) |
+| `prefix + i` | notification inbox — every tracked pane, attention-first; `enter` switches, `ctrl-x` dismisses |
+| `C-Space` (root, no prefix) | jump back to the previous pane across sessions/windows |
+| `prefix + y` | open the Conductor popup (only when `@cc-conductor-enabled`) |
+| `prefix + Y` | kill + respawn the Conductor (destructive; only when `@cc-conductor-enabled`) |
+
+Cycle moved off `prefix + Space` to `prefix + o` to avoid colliding with tmux-which-key's menu
+(which keeps `Space`); see `openspec/changes/cc-tmux-plugin/design.md` § collision.
+
 ## Customization points
 
 1. **Theme** — swapped via chezmoi templating, not tmux itself. `home/.chezmoi.toml.tmpl:2` sets
@@ -95,6 +110,18 @@ arranged manually via splits (see below), not via a fixed layout preset.
    escape-sequence-triplication risk documented in `docs/audit/tmux.md` § 9).
 4. **Pane layout defaults** — not currently pinned. Add `set -g main-pane-height 70%` etc. for a
    fixed `main-horizontal` ratio, or bind a key to `select-layout tiled` for a one-key grid reset.
+
+## Plugins
+
+Installed by manual clone/symlink (no TPM — see `docs/audit/tmux.md` N5), each guarded by an
+`if-shell` presence check in `tmux.conf.tmpl` so a fresh machine still loads the rest of the config:
+
+- **tmux-which-key** — popup action menu on `prefix + Space` (third-party, `run_onchange_after_install-tmux-which-key.sh.tmpl`).
+- **cc-tmux** — first-party Claude Code + tmux plugin (`apps/cc-tmux/`): tracks parallel Claude
+  pane state (waiting/idle/active), priority cycling/jump-back, an fzf inbox, the multi-account
+  usage segment in `status-right` (replaces the retired `tmux-nexus-creds`), and an opt-in
+  Conductor. Symlinked into `~/.tmux/plugins/cc-tmux` and Claude-hook-registered by
+  `run_onchange_after_install-cc-tmux.sh.tmpl`. Keybindings above.
 
 ## Related
 

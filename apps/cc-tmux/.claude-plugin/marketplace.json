@@ -1,0 +1,20 @@
+{
+  "name": "cc-tmux",
+  "metadata": {
+    "description": "First-party marketplace for cc-tmux — Claude Code + tmux session tracker/hop/usage/conductor"
+  },
+  "owner": {
+    "name": "Leonardo Acosta"
+  },
+  "plugins": [
+    {
+      "name": "cc-tmux",
+      "source": "./",
+      "description": "Track, cycle, and dispatch parallel Claude Code panes in tmux. Self-registers state hooks (waiting/idle/active) with no settings.json edit.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Leonardo Acosta"
+      }
+    }
+  ]
+}
