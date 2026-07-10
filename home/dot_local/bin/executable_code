@@ -1,10 +1,20 @@
 #!/usr/bin/env zsh
-# VS Code remote CLI wrapper — finds the latest IPC socket and remote-cli binary
-# so `code .` works from any SSH terminal, not just VS Code's integrated terminal.
-# Mirrors executable_cursor; VS Code's remote-server layout differs from Cursor's
-# (cli/servers/Stable-<commit>/server/bin/remote-cli vs bin/linux-x64/<version>/bin/remote-cli).
+# VS Code wrapper — this dotfile is chezmoi-applied on every machine (Mac client AND
+# the Linux/homelab remote target), so it must behave differently on each:
+#   - On the machine with the real VS Code install (the client), delegate straight to
+#     the real `code` binary — this file must never shadow the native CLI.
+#   - On a remote host with no local VS Code install, attach to the connected remote-cli
+#     session so `code .` works from an SSH terminal, not just VS Code's integrated one.
 
-# Find the latest remote-cli binary (newest connected VS Code server)
+self="${0:A}"
+for candidate in ${(f)"$(whence -ap code 2>/dev/null)"}; do
+  [[ "$candidate" == "$self" ]] && continue
+  exec "$candidate" "$@"
+done
+
+# No other `code` binary on this host — remote-cli fallback (server side).
+# VS Code's remote-server layout differs from Cursor's: cli/servers/Stable-<commit>/
+# server/bin/remote-cli, not bin/linux-x64/<version>/bin/remote-cli.
 code_cli=("$HOME"/.vscode-server/cli/servers/Stable-*/server/bin/remote-cli(Nom[1])) 2>/dev/null
 if [[ ! -x "$code_cli/code" ]]; then
   echo "error: vscode-server not installed (no remote-cli found)" >&2

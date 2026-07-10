@@ -1,8 +1,18 @@
 #!/usr/bin/env zsh
-# Cursor remote CLI wrapper — finds the latest IPC socket and remote-cli binary
-# so `cursor .` works from any SSH terminal, not just Cursor's integrated terminal.
+# Cursor wrapper — this dotfile is chezmoi-applied on every machine (Mac client AND
+# the Linux/homelab remote target), so it must behave differently on each:
+#   - On the machine with the real Cursor.app install (the client), delegate straight
+#     to the real `cursor` binary — this file must never shadow the native CLI.
+#   - On a remote host with no local Cursor install, attach to the connected remote-cli
+#     session so `cursor .` works from an SSH terminal, not just Cursor's integrated one.
 
-# Find the latest remote-cli binary (newest cursor-server version)
+self="${0:A}"
+for candidate in ${(f)"$(whence -ap cursor 2>/dev/null)"}; do
+  [[ "$candidate" == "$self" ]] && continue
+  exec "$candidate" "$@"
+done
+
+# No other `cursor` binary on this host — remote-cli fallback (server side).
 cursor_cli=("$HOME"/.cursor-server/bin/linux-x64/*/bin/remote-cli(Nom[1])) 2>/dev/null
 if [[ ! -x "$cursor_cli/cursor" ]]; then
   echo "error: cursor-server not installed (no remote-cli found)" >&2
