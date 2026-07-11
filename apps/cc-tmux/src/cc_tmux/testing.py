@@ -433,25 +433,44 @@ def _test_usage_pct_formatting() -> None:
 
 
 def _test_usage_extract_util() -> None:
-    acct = {"five_hour": {"utilization": 0.5}, "seven_day": {"utilization": 0}}
-    _check(usage._extract_util(acct, "five_hour") == 0.5, "extract 0.5")
-    _check(usage._extract_util(acct, "seven_day") == 0.0, "extract present 0")
-    # missing window / missing utilization / null -> None.
-    _check(usage._extract_util({}, "five_hour") is None, "missing window -> None")
-    _check(usage._extract_util({"five_hour": {}}, "five_hour") is None, "missing util -> None")
+    cred = {"usage5hUsed": 50.0, "usage5hLimit": 100.0, "usage7dUsed": 0.0, "usage7dLimit": 200.0}
+    _check(usage._extract_util(cred, "usage5hUsed", "usage5hLimit") == 0.5, "extract 0.5")
+    _check(usage._extract_util(cred, "usage7dUsed", "usage7dLimit") == 0.0, "extract present 0")
+    # missing / null used or limit, or a zero/negative limit -> None (not polled yet).
+    _check(usage._extract_util({}, "usage5hUsed", "usage5hLimit") is None, "missing fields -> None")
     _check(
-        usage._extract_util({"five_hour": {"utilization": None}}, "five_hour") is None,
-        "null util -> None",
+        usage._extract_util({"usage5hUsed": None, "usage5hLimit": None}, "usage5hUsed", "usage5hLimit")
+        is None,
+        "null used/limit -> None",
     )
+    _check(
+        usage._extract_util({"usage5hUsed": 10.0, "usage5hLimit": 0.0}, "usage5hUsed", "usage5hLimit")
+        is None,
+        "zero limit -> None",
+    )
+
+
+def _test_usage_account_label() -> None:
+    _check(usage._account_label({"accountName": "Leo", "accountEmail": "leo@x.dev"}) == "Leo", "prefers accountName")
+    _check(usage._account_label({"accountEmail": "leo@x.dev"}) == "leo@x.dev", "falls back to accountEmail")
+    _check(usage._account_label({"name": "acct-abc123"}) == "acct-abc123", "falls back to raw name")
+    _check(usage._account_label({}) == "", "nothing present -> ''")
 
 
 def _test_usage_render_segment() -> None:
     payload = {
-        "active_account": "work",
-        "accounts": [
-            {"name": "personal", "five_hour": {"utilization": 0.1}},
-            {"name": "work", "five_hour": {"utilization": 0.5}, "seven_day": {"utilization": 0.85}},
+        "credentials": [
+            {"isActive": False, "accountName": "personal", "usage5hUsed": 10.0, "usage5hLimit": 100.0},
+            {
+                "isActive": True,
+                "accountName": "work",
+                "usage5hUsed": 50.0,
+                "usage5hLimit": 100.0,
+                "usage7dUsed": 85.0,
+                "usage7dLimit": 100.0,
+            },
         ],
+        "activeFingerprint": "abc",
     }
     out = usage.render_usage(payload)
     expected = (
@@ -465,20 +484,21 @@ def _test_usage_render_segment() -> None:
 
 
 def _test_usage_fail_open() -> None:
-    # Every "sh would exit 0 with no output" case -> ''.
-    _check(usage.render_usage({}) == "", "no active_account -> ''")
-    _check(usage.render_usage({"active_account": ""}) == "", "empty active_account -> ''")
+    # Every "would render nothing" case -> ''.
+    _check(usage.render_usage({}) == "", "no credentials key -> ''")
+    _check(usage.render_usage({"credentials": "nope"}) == "", "non-list credentials -> ''")
     _check(
-        usage.render_usage({"active_account": "x", "accounts": "nope"}) == "",
-        "non-list accounts -> ''",
+        usage.render_usage({"credentials": [{"isActive": False, "accountName": "x"}]}) == "",
+        "no isActive credential -> ''",
     )
     _check(
-        usage.render_usage({"active_account": "x", "accounts": [{"name": "y"}]}) == "",
-        "active not found in accounts -> ''",
+        usage.render_usage({"credentials": [{"isActive": True, "accountName": ""}]}) == "",
+        "active credential with no usable label -> ''",
     )
-    # missing-both-windows account renders '--' pcts and dim colours.
-    out = usage.render_usage({"active_account": "a", "accounts": [{"name": "a"}]})
-    _check("5H:" in out and "--" in out, "missing windows -> '--' pct")
+    # active-but-unpolled account (usage5h/7d absent) renders '--' pcts and dim colours —
+    # the expected nexus-agent state before it has ever polled that account.
+    out = usage.render_usage({"credentials": [{"isActive": True, "accountName": "a"}]})
+    _check("5H:" in out and "--" in out, "unpolled windows -> '--' pct")
     _check(f"#[fg={usage.DIM}]5H:#[fg={usage.DIM}]--" in out, "missing 5H window -> DIM")
 
 
@@ -515,6 +535,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.color_thresholds", _test_usage_color_thresholds),
     ("usage.pct_formatting", _test_usage_pct_formatting),
     ("usage.extract_util", _test_usage_extract_util),
+    ("usage.account_label", _test_usage_account_label),
     ("usage.render_segment", _test_usage_render_segment),
     ("usage.fail_open", _test_usage_fail_open),
 ]
