@@ -520,7 +520,7 @@ td code, .note code {
     <h2><span class="h-tag">Design</span> Planned: usage consolidation + full-parity harvest</h2>
     <p class="section-sub">
       <span class="badge b-gap">PLANNED — NOT YET IMPLEMENTED</span>
-      Designed (background plan pass, 28 tool-calls across both repos), then simplified twice since: the layout shrank from a 13-field "full parity" line to a lean left/right split, and that shrink revealed Pipeline 2 doesn't need nexus-statusline's per-render harvest at all — every remaining field is either data cc-tmux already tracks or a one-line addition to a hook it already reads. Layout: THREE tmux bars — the existing tabs row, a new session/usage row, and a new beads/proposals row. (Also flipped mid-session: first scoped as two bars, briefly folded into one when asked "can we not have this be a separate bar?", flipped back to two when the combined line proved too cluttered, then to three when beads/proposals joined the ask.)
+      Designed (background plan pass, 28 tool-calls across both repos), then simplified since: the layout shrank from a 13-field "full parity" line to a lean left/right split. Most of the shrink turned out to need NO nexus-statusline harvest at all — session-count and model-letter are data cc-tmux already tracks or a one-line addition to a hook it already reads. One field survives the harvest requirement: "session" (context %) only ever exists in nexus-statusline's per-render stdin, confirmed nowhere else. Layout: THREE tmux bars — the existing tabs row, a new session/usage row, and a new beads/proposals row. (Also flipped mid-session: first scoped as two bars, briefly folded into one when asked "can we not have this be a separate bar?", flipped back to two when the combined line proved too cluttered, then to three when beads/proposals joined the ask.)
     </p>
 
     <div class="src-card" style="margin-bottom:16px">
@@ -561,11 +561,12 @@ td code, .note code {
     </div>
 
     <div class="src-card" style="margin:20px 0 16px">
-      <span class="num">PIPELINE 2 — SUPERSEDED BY THE SIMPLER LAYOUT</span>
-      <h3>Session count + model letter — turns out to need NO nx-repo changes at all</h3>
-      <p>The original "full-parity harvest" design (nexus-statusline writes a per-pane cache cc-tmux reads) targeted a 13-field superset — cost, lines, clock, output style, context %, speed, worktree, spec. The revised left/right layout only needs <strong>session count</strong> and <strong>model letter</strong>, and neither actually requires that harvest:</p>
-      <p><strong>Session count</strong> — checked nexus-agent's <code>GET /sessions</code> hoping to reuse it directly; live response has 94 rows (many stale/duplicate, <code>tmuxTarget</code> often <code>null</code>) and a <code>model</code> field that's <em>always</em> the literal string <code>"claude"</code> — useless for the letter, and messier than what cc-tmux already has. cc-tmux's own <code>get_hop_panes()</code> already knows every tracked pane's <code>@cc-project</code> server-wide — counting matches IS the session count, zero new data source.</p>
-      <p><strong>Model letter</strong> — verified live (binary strings on the <code>claude</code> CLI, same technique that found <code>session_title</code>) that the <code>SessionStart</code> hook payload already carries a <code>model</code> field alongside <code>session_title</code>. Capture it the identical way <code>cmd_register</code> already captures the title — no nexus-statusline involvement.</p>
+      <span class="num">PIPELINE 2 — PARTIALLY SUPERSEDED, ONE FIELD SURVIVES</span>
+      <h3>Session count + model letter need NO harvest; "session" (context %) still does</h3>
+      <p>The original "full-parity harvest" design targeted a 13-field superset — cost, lines, clock, output style, context %, speed, worktree, spec. Checked each remaining field against what cc-tmux can already reach on its own:</p>
+      <p><strong>Session count</strong> (<code>◉</code>/<code>◌</code>) — checked nexus-agent's <code>GET /sessions</code> hoping to reuse it; 94 rows, heavily stale/duplicate, <code>model</code> always the literal string <code>"claude"</code>. cc-tmux's own <code>get_hop_panes()</code> already knows every tracked pane's <code>@cc-project</code> server-wide — counting matches IS the session count, zero new data source.</p>
+      <p><strong>Model letter</strong> (F/O/H/S) — verified live (binary strings on the <code>claude</code> CLI) that the <code>SessionStart</code> hook payload already carries <code>model</code> alongside <code>session_title</code>. Same capture path <code>cmd_register</code> already uses, no nexus-statusline involvement.</p>
+      <p><strong>"Session" usage (context %) — genuinely needs the harvest.</strong> The original ask was three peer usage windows: session, 5-hour, weekly. Checked whether <code>context_window</code> data leaks into any OTHER hook payload (<code>Stop</code>, <code>PreCompact</code> — same binary-strings check) hoping to avoid touching nexus-statusline at all: it doesn't. <code>context_window</code> only ever exists in the statusLine's own per-render stdin — nexus-statusline is the only process that ever sees it, same reasoning that originally justified the whole harvest design. Scoped down to ONE field instead of thirteen, but the mechanism (a new per-pane file, pane-correlation lookup) is unavoidable for this specific piece.</p>
     </div>
     <div class="pipeline">
       <div class="pipeline__step">
@@ -604,11 +605,36 @@ td code, .note code {
         <div class="step-name">model-letter glyph</div>
         <div class="step-detail">Fable/Opus/Haiku/Sonnet —<br>Sonnet added, wasn't in the spec</div>
       </div>
+    </div>
+    <div class="pipeline" style="margin-top:8px">
+      <div class="pipeline__step">
+        <div class="step-num">SOURCE</div>
+        <div class="step-name">CC stdin (per render)</div>
+        <div class="step-detail">context_window.used_percentage —<br>confirmed nowhere else</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · minimal (nx)</div>
+        <div class="step-name">writeSessionContext()</div>
+        <div class="step-detail">nx: nexus-statusline/index.ts<br>ONE field, not the 13-field superset</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW FILE</div>
+        <div class="step-name">session-context.&lt;pane&gt;.json</div>
+        <div class="step-detail">gated on $TMUX_PANE,<br>fail-soft, atomic write</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW (installfest)</div>
+        <div class="step-name">get_window_top_pane()</div>
+        <div class="step-detail">cc-tmux: tmux.py<br>mirrors get_window_top_state()</div>
+      </div>
       <div class="pipeline__arrow">→</div>
       <div class="pipeline__step">
         <div class="step-num">OUTCOME</div>
-        <div class="step-name">status-format[1] (row 2, left side)</div>
-        <div class="step-detail">right side = existing usage.py,<br>unchanged — just relocated off row 1</div>
+        <div class="step-name">status-format[1] (row 2, right side)</div>
+        <div class="step-detail">SES:64% joins the existing<br>5H/7D from usage.py</div>
       </div>
     </div>
 
@@ -634,6 +660,7 @@ td code, .note code {
           <div class="tb-spacer"></div>
           <div class="tb-seg tb-usage" style="gap:7px; padding-right:10px">
             <span style="color:#454D54">leo@leonardoacosta.dev·e</span>
+            <span style="color:#454D54">SES:</span><span style="color:#5BD1B9">64%</span>
             <span style="color:#454D54">5H:</span><span style="color:#FAC760">32%</span>
             <span style="color:#454D54">7D:</span><span style="color:#FAC760">68%</span>
           </div>
@@ -649,7 +676,7 @@ td code, .note code {
         </div>
       </div>
     </div>
-    <p class="mock-caption"><strong>Row 1</strong> (existing, unchanged): tabs + clock/host. <strong>Row 2</strong> (new, <code>status-format[1]</code>, left+right split): left-justified <code>◉</code> session indicator + model-letter + project<code>&gt;</code>git-info; right-justified the existing account+5H/7D usage segment (<code>usage.py</code>, unchanged content, just relocated off row 1). No cost, no lines-added/removed, no clock/context%/speed/worktree/spec — this is a deliberate simplification from the earlier 13-field mockup, not the "full parity" superset. <strong>Row 3</strong> (new, <code>status-format[2]</code>): open/ready beads + proposals — <code>next:</code> the top actionable item, then compact counts. Real captured content for this exact project (<code>roadmap-pulse.if.line</code>, read live this session): <code>next: /apply cc-tmux-scout-adop...</code> / <code>0o,2u,radar:stale</code>.</p>
+    <p class="mock-caption"><strong>Row 1</strong> (existing, unchanged): tabs + clock/host. <strong>Row 2</strong> (new, <code>status-format[1]</code>, left+right split): left-justified <code>◉</code> session indicator + model-letter + project<code>&gt;</code>git-info; right-justified the original three-window ask from way back in this session — <strong>session</strong> (context %, new), <strong>5H</strong>, <strong>7D</strong> (both existing, <code>usage.py</code>). No cost, no lines-added/removed, no clock/output-style/speed/worktree/spec — a deliberate simplification from the earlier 13-field mockup, not the "full parity" superset. <strong>Row 3</strong> (new, <code>status-format[2]</code>): open/ready beads + proposals — <code>next:</code> the top actionable item, then compact counts. Real captured content for this exact project (<code>roadmap-pulse.if.line</code>, read live this session): <code>next: /apply cc-tmux-scout-adop...</code> / <code>0o,2u,radar:stale</code>.</p>
     <p class="mock-caption"><strong>Model letter gap</strong>: your spec named <code>F/O/H</code> (Fable/Opus/Haiku) — that omits Sonnet, which is what this very session runs on. Assuming <code>S</code> for Sonnet below unless you'd rather a different letter (no collision with F/O/H either way).</p>
     <p class="mock-caption"><strong>Row 3 needs ZERO nx-repo changes</strong> — <code>~/.claude/scripts/state/roadmap-pulse.&lt;code&gt;.line</code> already exists, one per project, stale-while-revalidate (5 min TTL, background refresh spawn) via <code>nexus-statusline</code>'s existing <code>getRoadmapPulse()</code> (<code>index.ts:796-836</code>) — the exact same cache Claude Code's own statusline already reads today. cc-tmux can read this file directly with the project code it already resolves (<code>registry.resolve_project_code()</code>) — no harvest file, no write path, no nx involvement at all for this row.</p>
     <p class="mock-caption"><strong>tmux mechanics for rows 2+3</strong>: <code>set -g status 3</code> (shared, tmux.conf.tmpl — companion to the existing <code>status-interval</code>/<code>status-justify</code> lines) enables a 3-line status bar; each theme <code>.conf</code> then defines <code>status-format[1]</code> (session/usage row) and <code>status-format[2]</code> (beads/proposals row), matching the existing per-theme split (behavior in the shared tmpl, visual styling per theme). Leaving <code>status 3</code> on without a theme defining both extra rows falls back to tmux's default pane-list row for whichever is missing — land the enable and all 4 themes' format strings together.</p>
@@ -663,7 +690,9 @@ td code, .note code {
           <tbody>
             <tr><td><code>statusline-usage-file.ts</code> (write helper)</td><td><code>apps/agent/src/services/</code></td><td>Pipeline 1 only — reading the active credential's row, writing the shared cache file</td><td>nexus</td></tr>
             <tr><td><code>getPolledUsage()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>Pipeline 1 only — reading the shared cache, replaces the deleted <code>getApiUsage()</code> Anthropic caller</td><td>nexus</td></tr>
-            <tr><td><em>(buildHarvest/writeHarvest — dropped)</em></td><td><em>apps/nexus-statusline/src/index.ts</em></td><td><em>superseded — the simplified layout doesn't need per-render harvest data at all</em></td><td>—</td></tr>
+            <tr><td><em>(buildHarvest/writeHarvest — dropped)</em></td><td><em>apps/nexus-statusline/src/index.ts</em></td><td><em>superseded — 12 of 13 original fields need no harvest; only context% survives, below</em></td><td>—</td></tr>
+            <tr><td><code>writeSessionContext()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>ONE field (context_used_pct), gated on <code>$TMUX_PANE</code> — the harvest, minimized to what's actually irreplaceable</td><td>nexus</td></tr>
+            <tr><td><code>get_window_top_pane()</code></td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py</code></td><td>picks which pane's <code>session-context.&lt;pane&gt;.json</code> represents a given window, mirrors <code>get_window_top_state()</code></td><td>installfest</td></tr>
             <tr><td>session-count helper (name TBD)</td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py</code> or <code>priority.py</code></td><td>counting <code>get_hop_panes()</code> rows matching a project — no new I/O</td><td>installfest</td></tr>
             <tr><td><code>cmd_register()</code> extension</td><td><code>apps/cc-tmux/src/cc_tmux/cli.py</code> (existing function)</td><td>extend the existing <code>session_title</code> capture branch to also read <code>model</code>, write <code>@cc-model</code></td><td>installfest</td></tr>
             <tr><td><code>render_session_bar()</code></td><td><code>apps/cc-tmux/src/cc_tmux/render.py</code></td><td>pure formatting — session-count + model-letter + project + git → left-side string</td><td>installfest</td></tr>
@@ -675,7 +704,7 @@ td code, .note code {
     </div>
 
     <div class="note note-blue" style="margin-top:16px">
-      <strong>Deploy safety</strong> — with Pipeline 2 dropped, the nexus-repo surface shrinks to Pipeline 1 only (the <code>getPolledUsage()</code> swap + the write helper) — a much smaller, lower-risk change than originally scoped. <code>nexus-statusline</code> is a compiled binary with no auto-deploy hook; pushing its source touches nothing live until a manual <code>bun run build</code> + reinstall (snapshot the old binary first for instant rollback). <code>nexus-agent</code> auto-deploys (rebuild + restart) on push-to-main, same hook the credential-refresh fix went through — decided on a careful manual deploy (<code>SKIP_DEPLOY=1</code>, verify the cache file writes correctly, then deliberate rebuild+restart) rather than the automatic path.
+      <strong>Deploy safety</strong> — the nexus-statusline surface shrinks from a 13-field harvest to a single <code>context_used_pct</code> write, plus Pipeline 1's <code>getPolledUsage()</code> swap — much smaller, lower-risk than originally scoped, though nexus-statusline still needs a code change (not zero, as an earlier pass of this diagram briefly over-claimed). It's a compiled binary with no auto-deploy hook either way; pushing its source touches nothing live until a manual <code>bun run build</code> + reinstall (snapshot the old binary first for instant rollback). <code>nexus-agent</code> auto-deploys (rebuild + restart) on push-to-main, same hook the credential-refresh fix went through — decided on a careful manual deploy (<code>SKIP_DEPLOY=1</code>, verify the cache file writes correctly, then deliberate rebuild+restart) rather than the automatic path.
     </div>
   </section>
 
