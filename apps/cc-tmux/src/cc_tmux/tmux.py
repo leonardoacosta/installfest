@@ -14,6 +14,8 @@ The tracked options on each Claude pane:
     @cc-wait-reason  question | plan | permission | elicitation  (only when waiting)
     @cc-project      resolved project name (git toplevel basename, or dir name)
     @cc-branch       resolved git branch
+    @cc-title        Claude Code session title (SessionStart hook payload; opt-in
+                      `title` window-rename format only — see cli._title_window_name)
 
 **Invariant 3 (real-transition guard):** :func:`set_pane_state` returns whether
 ``@cc-state`` actually changed, so callers fire auto-hop / app-focus ONLY on a
@@ -53,6 +55,7 @@ OPT_TASK = "@cc-task"
 OPT_WAIT_REASON = "@cc-wait-reason"
 OPT_PROJECT = "@cc-project"
 OPT_BRANCH = "@cc-branch"
+OPT_TITLE = "@cc-title"
 
 _ALL_OPTS = (
     OPT_STATE,
@@ -62,6 +65,7 @@ _ALL_OPTS = (
     OPT_WAIT_REASON,
     OPT_PROJECT,
     OPT_BRANCH,
+    OPT_TITLE,
 )
 
 # Global (server) options for the daemon-free reconcile rate limit (design.md
@@ -365,6 +369,19 @@ def set_pane_git_identity(pane_id: str) -> None:
         _set_opt(pane_id, OPT_PROJECT, project)
     if branch:
         _set_opt(pane_id, OPT_BRANCH, branch)
+
+
+def set_pane_title(pane_id: str, title: str) -> None:
+    """Store the Claude Code session title for the opt-in ``title`` window-rename
+    format (``@cc-window-rename-format title`` — see cli._title_window_name).
+
+    ``title`` comes from the SessionStart hook payload's ``session_title`` field:
+    the custom title if the user set one (``/rename`` or ``-n``), else Claude's
+    own default. Fail-open: no tmux, or an empty title, writes nothing.
+    """
+    if not tmux_available() or not title:
+        return
+    _set_opt(pane_id, OPT_TITLE, title)
 
 
 def set_pane_visited(pane_id: str, timestamp: Optional[float] = None) -> None:

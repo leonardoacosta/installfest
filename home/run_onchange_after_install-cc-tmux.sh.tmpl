@@ -46,10 +46,17 @@ fi
 # is needed. Fail open: a registration failure must NOT abort `chezmoi apply`
 # (the tmux side still loads via the symlink above).
 if command -v claude >/dev/null 2>&1; then
-  if claude plugin list 2>/dev/null | grep -q 'cc-tmux'; then
-    success "cc-tmux: Claude plugin already registered"
+  # Must check ENABLED, not just LISTED — a marketplace pointing at a stale path
+  # (e.g. surviving a repo move like if -> personal/installfest) lists forever as
+  # "cc-tmux@cc-tmux ... failed to load: cache-miss", and a plain presence grep
+  # treats that as "already registered" and never re-points it (confirmed live —
+  # this is exactly how the plugin silently never loaded).
+  if claude plugin list 2>/dev/null | grep -A3 'cc-tmux@cc-tmux' | grep -q 'enabled'; then
+    success "cc-tmux: Claude plugin already registered and enabled"
   elif [ -f "$PLUGIN_SRC/.claude-plugin/marketplace.json" ]; then
-    # Local-path marketplace present: add it, then install the plugin from it.
+    # Re-point the marketplace at the current path (self-heals path drift), then
+    # (re)install. Remove-before-add is idempotent when there's nothing to remove.
+    claude plugin marketplace remove cc-tmux >/dev/null 2>&1 || true
     if claude plugin marketplace add "$PLUGIN_SRC" >/dev/null 2>&1 \
       && claude plugin install "cc-tmux@cc-tmux" >/dev/null 2>&1; then
       success "cc-tmux: Claude plugin registered from local clone"

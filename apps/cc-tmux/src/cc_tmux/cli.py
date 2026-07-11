@@ -11,12 +11,15 @@ report failure via a non-zero exit).
 
 from __future__ import annotations
 
+import json
 import os
+import select
 import subprocess
+import sys
 import time
 from typing import Callable, Dict, List, Optional
 
-from . import log, notify, render, tmux
+from . import log, notify, registry, render, tmux
 from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
@@ -39,6 +42,8 @@ _TRACK_FOCUS_OPT = "@cc-track-focus"           # MRU visit tracking (default on)
 _INBOX_CLEARED_OPT = "@cc-inbox-cleared-at"   # dismiss stamp (a view filter)
 _STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
 _WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
+_WINDOW_RENAME_FORMAT_OPT = "@cc-window-rename-format"  # "state" (default) | "title"
+_TAB_NAME_MAX = 10                             # project-code + session-title combined budget
 _STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
 
 # No remaining stub subcommands: every registered command has a handler below.
@@ -64,9 +69,42 @@ def cmd_register(args) -> int:
     )
     # OS notification + terminal focus fire ONLY on a real transition (Req-6).
     notify.react(pane, args.state, changed)
+
+    # SessionStart hook payloads carry the resolved session title (custom, via
+    # /rename or -n, else Claude's own default) — capture it for the opt-in
+    # `title` window-rename format (tab naming). Every other hook event is
+    # ignored here since only SessionStart's payload includes session_title.
+    hook_payload = _read_hook_stdin()
+    if hook_payload.get("hook_event_name") == "SessionStart":
+        title = hook_payload.get("session_title")
+        if title:
+            tmux.set_pane_title(pane, title)
+
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
     _maybe_rename_window(pane)
     return 0
+
+
+def _read_hook_stdin() -> dict:
+    """Best-effort parse of the Claude Code hook JSON payload from stdin.
+
+    Every ``cc-tmux register`` invocation wired from ``hooks.json`` gets the
+    hook's event JSON piped to stdin; the same binary also runs interactively
+    (keybindings, manual testing) with no stdin data at all. This must never
+    block either path — a short ``select()`` poll distinguishes "data already
+    buffered" from "no pipe" instead of calling the blocking ``read()``
+    unconditionally. Fail-open: any error, timeout, or non-JSON input -> {}.
+    """
+    try:
+        if sys.stdin.isatty():
+            return {}
+        ready, _, _ = select.select([sys.stdin], [], [], 0.05)
+        if not ready:
+            return {}
+        raw = sys.stdin.read()
+        return json.loads(raw) if raw.strip() else {}
+    except Exception:
+        return {}
 
 
 def cmd_clear(args) -> int:
@@ -373,11 +411,18 @@ def _truthy(value: str) -> bool:
 
 
 def _maybe_rename_window(pane_id: str) -> None:
-    """Rename a pane's window to ``<state-icon> <dir basename>`` when enabled.
+    """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
-    Icon tracks the highest-priority Claude state in the window; the directory
-    basename stays a stable label. ``automatic-rename`` is forced off so tmux
-    does not clobber the name. Opt-in via ``@cc-window-rename`` (default off).
+    Two formats, selected by ``@cc-window-rename-format`` (default ``state``):
+
+    - ``state`` (default): ``<state-icon> <dir basename>``. Icon tracks the
+      highest-priority Claude state in the window; the directory basename
+      stays a stable label.
+    - ``title``: ``<project-code>:<session-title>`` hard-truncated to
+      ``_TAB_NAME_MAX`` chars combined — see :func:`_title_window_name`.
+
+    ``automatic-rename`` is forced off either way so tmux does not clobber the
+    name tmux-conf itself already disables (see tmux.conf.tmpl).
     """
     if not _truthy(tmux.get_global_option(_WINDOW_RENAME_OPT)):
         return
@@ -388,17 +433,48 @@ def _maybe_rename_window(pane_id: str) -> None:
     siblings = [p for p in panes if p.session == me.session and p.window == me.window]
     if not siblings:
         return
-    top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
-    icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
 
-    cwd = tmux._run_tmux(
-        ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
-    )
-    base = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
-    name = f"{icon} {base}".strip()
+    fmt = (tmux.get_global_option(_WINDOW_RENAME_FORMAT_OPT) or "state").strip().lower()
+    if fmt == "title":
+        name = _title_window_name(me)
+    else:
+        top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
+        icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
+        cwd = tmux._run_tmux(
+            ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
+        )
+        base = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
+        name = f"{icon} {base}".strip()
 
+    if not name:
+        return
     tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
     tmux._run_tmux(["rename-window", "-t", pane_id, name])
+
+
+def compose_title_name(code: str, title: str, fallback: str = "") -> str:
+    """``<code>:<title>`` hard-truncated to ``_TAB_NAME_MAX`` chars combined.
+
+    Pure and unit-testable (no tmux). Falls back to whichever half resolved —
+    ``code`` alone, ``title`` alone, or ``fallback`` (e.g. ``@cc-project``) —
+    rather than going blank when only one piece is known.
+    """
+    parts = [p for p in (code, title) if p]
+    combined = ":".join(parts) if len(parts) > 1 else "".join(parts) or fallback
+    return combined[:_TAB_NAME_MAX]
+
+
+def _title_window_name(pane) -> str:
+    """``<project-code>:<session-title>`` for the ``title`` window-rename format.
+
+    ``code`` resolves from the dotfiles project registry (``registry.py``) by
+    the pane's current directory; ``title`` is whatever ``@cc-title`` holds
+    (set from the SessionStart hook payload in :func:`cmd_register`).
+    """
+    cwd = tmux._run_tmux(["display-message", "-p", "-t", pane.id, "#{pane_current_path}"])
+    code = registry.resolve_project_code(cwd) if cwd else ""
+    title = tmux.get_pane_option(pane.id, tmux.OPT_TITLE)
+    return compose_title_name(code, title, fallback=pane.project or "")
 
 
 # ---------------------------------------------------------------------------

@@ -41,7 +41,8 @@ To persist, also add the `set -g @cc-... "..."` line to the user's tmux.conf
 | `@cc-focus-app` | (empty = off) | Comma-separated states that bring the terminal to the foreground. |
 | `@cc-notify-cooldown` | `30` | Per-pane notification dedup window, seconds. |
 | `@cc-cycle-mode` | `priority` | `priority` (cycle the top non-empty group only) or `flat` (all pending panes). |
-| `@cc-window-rename` | off | When on, renames a window to `<state-icon> <dir>`. |
+| `@cc-window-rename` | off | When on, renames a window per `@cc-window-rename-format`. |
+| `@cc-window-rename-format` | `state` | `state` -> `<state-icon> <dir>`. `title` -> `<project-code>:<session-title>`, truncated to 10 chars combined. |
 | `@cc-status-format` | built-in | Template for the `cc-tmux status` counts. |
 | `@cc-icon-waiting` / `-idle` / `-active` | built-in | Per-state icon overrides. |
 | `@cc-cycle-key` / `-picker-key` / `-inbox-key` / `-back-key` | `o` / `C-f` / `i` / `C-Space` | Keybinding overrides (re-source the plugin to apply). |

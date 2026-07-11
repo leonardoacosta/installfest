@@ -11,11 +11,12 @@ Run via ``cc-tmux self-test`` (exit 0 = pass, non-zero = failure count).
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
-from . import paths, priority, render, tmux, usage
+from . import cli, paths, priority, registry, render, tmux, usage
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +272,45 @@ def _test_set_pane_state_writes_state_and_timestamp() -> None:
 
 
 # ---------------------------------------------------------------------------
+# registry.py / cli.py title window-rename tests (tab naming)
+# ---------------------------------------------------------------------------
+
+def _test_registry_resolve_project_code() -> None:
+    if registry.tomllib is None:
+        # 3.10 interpreter (no stdlib tomllib): must fail open to "", never raise.
+        _check(registry.resolve_project_code("/tmp/whatever") == "", "no tomllib -> fails open")
+        return
+
+    saved = os.environ.get("DOTFILES")
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-registry-test-")
+    try:
+        rel = "cc-tmux-test-project-zzz"
+        os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+        with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+            f.write(f'[[projects]]\ncode = "zz"\nname = "Test"\npath = "{rel}"\n')
+        os.environ["DOTFILES"] = tmpdir
+
+        nested = os.path.join(os.path.expanduser("~"), rel, "nested", "dir")
+        _check(registry.resolve_project_code(nested) == "zz", "subdir must resolve to owning project's code")
+        _check(registry.resolve_project_code("/definitely/not/tracked") == "", "unmatched cwd -> ''")
+        _check(registry.resolve_project_code("") == "", "empty cwd -> ''")
+    finally:
+        if saved is None:
+            os.environ.pop("DOTFILES", None)
+        else:
+            os.environ["DOTFILES"] = saved
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_compose_title_name() -> None:
+    _check(cli.compose_title_name("if", "Fix ssh mesh auth") == "if:Fix ssh", "10-char combined truncation")
+    _check(cli.compose_title_name("if", "") == "if", "empty title falls back to code alone")
+    _check(cli.compose_title_name("", "hello") == "hello", "empty code falls back to title alone")
+    _check(cli.compose_title_name("", "", fallback="myproj") == "myproj", "both empty -> fallback")
+    _check(len(cli.compose_title_name("if", "a very very long title indeed")) == 10, "always capped at 10")
+
+
+# ---------------------------------------------------------------------------
 # paths.py tests
 # ---------------------------------------------------------------------------
 
@@ -463,6 +503,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.set_pane_state_hot_path", _test_set_pane_state_hot_path_skips_git),
     ("tmux.set_pane_state_unknown", _test_set_pane_state_unknown_state),
     ("tmux.set_pane_state_writes", _test_set_pane_state_writes_state_and_timestamp),
+    ("registry.resolve_project_code", _test_registry_resolve_project_code),
+    ("cli.compose_title_name", _test_compose_title_name),
     ("paths.tmux_conf_candidates", _test_tmux_conf_candidates),
     ("paths.find_tmux_conf_override", _test_find_tmux_conf_override),
     ("paths.find_plugin_dir", _test_find_plugin_dir),
