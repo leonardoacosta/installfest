@@ -520,7 +520,7 @@ td code, .note code {
     <h2><span class="h-tag">Design</span> Planned: usage consolidation + full-parity harvest</h2>
     <p class="section-sub">
       <span class="badge b-gap">PLANNED — NOT YET IMPLEMENTED</span>
-      Designed (background plan pass, 28 tool-calls across both repos), not written. Two independent pipelines: one kills the 429 rate-limit competition, the other harvests everything Claude Code's own statusline shows today so cc-tmux can eventually supersede it. Explicitly ONE tmux bar — the <code>status-right</code> line the tabs already sit on — not a second <code>status-format[1]</code> row (that was the original plan; ruled out when asked "can we not have this be a separate bar?").
+      Designed (background plan pass, 28 tool-calls across both repos), not written. Two independent pipelines: one kills the 429 rate-limit competition, the other harvests everything Claude Code's own statusline shows today so cc-tmux can eventually supersede it. Layout: TWO tmux bars — the existing tabs row stays as-is, and a genuine second <code>status-format[1]</code> row underneath carries the comprehensive session info. (This flipped mid-session: first scoped as two bars, briefly folded into one when asked "can we not have this be a separate bar?", then flipped back to two when the single combined line proved too cluttered — see the mockup below.)
     </p>
 
     <div class="src-card" style="margin-bottom:16px">
@@ -619,20 +619,24 @@ td code, .note code {
       <div class="pipeline__arrow">→</div>
       <div class="pipeline__step">
         <div class="step-num">OUTCOME</div>
-        <div class="step-name">status-right (existing line)</div>
-        <div class="step-detail">folds in alongside<br>window-icon, NOT a new row</div>
+        <div class="step-name">status-format[1] (new row)</div>
+        <div class="step-detail">tmux `status 2` — second bar,<br>directly under the tabs row</div>
       </div>
     </div>
 
     <div class="term-mock" style="margin-top:20px">
-      <div class="term-titlebar">vercel-theme.conf status-right — target render, NOT yet built (field order + symbols from nexus-statusline/src/index.ts's real renderStatusline())</div>
+      <div class="term-titlebar">vercel-theme.conf — TWO bars, target render, NOT yet built (field order + symbols from nexus-statusline/src/index.ts's real renderStatusline())</div>
       <div class="term-body">
         <div class="tmux-bar">
           <div class="tb-seg tb-session">0</div>
           <div class="tb-seg tb-win">1 zsh</div>
           <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
           <div class="tb-spacer"></div>
-          <div class="tb-seg tb-usage" style="gap:7px">
+          <div class="tb-seg tb-clock">14:32</div>
+          <div class="tb-seg tb-host">homelab</div>
+        </div>
+        <div class="tmux-bar" style="margin-top:2px">
+          <div class="tb-seg tb-usage" style="gap:7px; padding-left:10px">
             <span style="color:#454D54">◉</span>
             <span style="color:#454D54">leo@leonardoacosta.dev·e</span>
             <span style="color:#5BD1B9">installfest</span>
@@ -647,12 +651,12 @@ td code, .note code {
             <span style="color:#454D54">5H:</span><span style="color:#FAC760">32%</span>
             <span style="color:#454D54">7D:</span><span style="color:#FAC760">68%</span>
           </div>
-          <div class="tb-seg tb-clock">14:32</div>
-          <div class="tb-seg tb-host">homelab</div>
+          <div class="tb-spacer"></div>
         </div>
       </div>
     </div>
-    <p class="mock-caption">Same field order and symbols nexus-statusline's <code>renderStatusline()</code> already uses today (<code>◉</code>/<code>◌</code> session count, <code>$</code> cost, <code>+/-</code> lines, <code>⧗</code> clock, model token, git branch, <code>⑂</code> worktree, context%, <code>≈…t/s</code> speed) — just rendered by cc-tmux from the harvest file instead of printed inline by Claude Code itself. Account label swaps the short <code>@domain</code> nexus-statusline shows for cc-tmux's fuller <code>email·orgchar</code> (more room in a tmux bar than CC's own compact inline prompt). Every value above is illustrative, not observed — nothing in this pipeline has been built yet.</p>
+    <p class="mock-caption"><strong>Row 1</strong> (existing, unchanged): tabs + clock/host, same as today. <strong>Row 2</strong> (new, <code>status-format[1]</code>): the full harvested session line, own row so it never crowds the tabs. Same field order and symbols nexus-statusline's <code>renderStatusline()</code> already uses today (<code>◉</code>/<code>◌</code> session count, <code>$</code> cost, <code>+/-</code> lines, <code>⧗</code> clock, model token, git branch, <code>⑂</code> worktree, context%, <code>≈…t/s</code> speed) — just rendered by cc-tmux from the harvest file instead of printed inline by Claude Code itself. Account label swaps the short <code>@domain</code> nexus-statusline shows for cc-tmux's fuller <code>email·orgchar</code>. Every value above is illustrative, not observed — nothing in this pipeline has been built yet.</p>
+    <p class="mock-caption"><strong>tmux mechanics for the second row</strong>: <code>set -g status 2</code> (shared, tmux.conf.tmpl — companion to the existing <code>status-interval</code>/<code>status-justify</code> lines) enables a 2-line status bar; each theme <code>.conf</code> then defines <code>set -g status-format[1] "…#(~/.tmux/plugins/cc-tmux/bin/cc-tmux session-bar #{window_id})"</code>, matching the existing per-theme split (behavior in the shared tmpl, visual styling per theme). Leaving <code>status 2</code> on without a theme's <code>status-format[1]</code> falls back to tmux's default pane-list row — land the enable and all 4 themes' format strings together.</p>
 
     <div class="table-wrap" style="margin-top:20px">
       <div class="table-scroll">
