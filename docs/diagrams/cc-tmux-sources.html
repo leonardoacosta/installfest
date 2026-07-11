@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cc-tmux — Data Sources &amp; Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Consolas, monospace;
+  --ds-background-100: #fafafa;
+  --ds-surface: #ffffff;
+  --ds-gray-100: #f5f5f5;
+  --ds-gray-400: rgba(0,0,0,0.08);
+  --ds-gray-500: rgba(0,0,0,0.16);
+  --ds-gray-900: #666666;
+  --ds-gray-1000: #171717;
+  --ds-blue-700: #0070f3;  --ds-blue-dim: rgba(0,112,243,0.07);
+  --ds-green-700: #0f7d3c; --ds-green-dim: rgba(15,125,60,0.08);
+  --ds-red-800: #e5484d;   --ds-red-dim: rgba(229,72,77,0.07);
+  --ds-amber-700: #a35200; --ds-amber-dim: rgba(245,166,35,0.12);
+  --ds-teal-700: #0e9384;  --ds-teal-dim: rgba(14,147,132,0.08);
+  --shadow-medium: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-large: 0 8px 30px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ds-background-100: #0a0a0a;
+    --ds-surface: #111111;
+    --ds-gray-100: #1a1a1a;
+    --ds-gray-400: rgba(255,255,255,0.09);
+    --ds-gray-500: rgba(255,255,255,0.18);
+    --ds-gray-900: #a1a1a1;
+    --ds-gray-1000: #ededed;
+    --ds-blue-700: #52a8ff;  --ds-blue-dim: rgba(82,168,255,0.10);
+    --ds-green-700: #3fca7a; --ds-green-dim: rgba(63,202,122,0.10);
+    --ds-red-800: #ff6369;   --ds-red-dim: rgba(255,99,105,0.10);
+    --ds-amber-700: #f7b955; --ds-amber-dim: rgba(247,185,85,0.10);
+    --ds-teal-700: #3ddbc9;  --ds-teal-dim: rgba(61,219,201,0.10);
+    --shadow-medium: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-large: 0 8px 30px rgba(0,0,0,0.6);
+  }
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--ds-background-100);
+  color: var(--ds-gray-1000);
+  font-family: var(--font-sans);
+  overflow-wrap: break-word;
+}
+.container { max-width: 1100px; margin: 0 auto; padding: 44px 32px 96px; }
+.grid > *, .flex > * { min-width: 0; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate { animation: fadeUp 0.4s ease-out both; animation-delay: calc(var(--i, 0) * 0.05s); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---- header ---- */
+header .meta-line {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ds-gray-900);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  margin-bottom: 14px;
+}
+header .meta-line span:not(:last-child)::after { content: '·'; margin-left: 10px; color: var(--ds-gray-500); }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 10px; text-wrap: balance; }
+h1 .dim { color: var(--ds-gray-900); font-weight: 500; }
+.subtitle { color: var(--ds-gray-900); font-size: 14px; line-height: 1.6; max-width: 780px; margin-bottom: 40px; }
+
+/* ---- sections ---- */
+section { margin-bottom: 48px; }
+h2 { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.h-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--ds-blue-dim);
+  color: var(--ds-blue-700);
+}
+.section-sub { color: var(--ds-gray-900); font-size: 13px; max-width: 840px; margin-bottom: 20px; line-height: 1.6; }
+
+/* ---- source cards ---- */
+.src-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.src-card {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-gray-400);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-medium);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.src-card .num {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ds-gray-900);
+}
+.src-card h3 { font-size: 14px; font-weight: 650; }
+.src-card p { font-size: 12.5px; color: var(--ds-gray-900); line-height: 1.55; }
+.src-card .cite {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ds-teal-700);
+  background: var(--ds-teal-dim);
+  border-radius: 5px;
+  padding: 3px 7px;
+  display: inline-block;
+  width: fit-content;
+}
+.src-card .live {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ds-green-700);
+  background: var(--ds-green-dim);
+  border-radius: 5px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--ds-green-700);
+}
+.src-card .live .k { color: var(--ds-gray-900); }
+.src-card .gap {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ds-amber-700);
+  background: var(--ds-amber-dim);
+  border-radius: 5px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--ds-amber-700);
+}
+
+/* ---- pipeline ---- */
+.pipeline { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 8px; }
+.pipeline__step {
+  min-width: 148px;
+  flex-shrink: 0;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-gray-400);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-medium);
+}
+.pipeline__step .step-num { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--ds-blue-700); margin-bottom: 4px; }
+.pipeline__step .step-name { font-size: 12.5px; font-weight: 650; margin-bottom: 3px; }
+.pipeline__step .step-detail { font-size: 11px; color: var(--ds-gray-900); line-height: 1.4; }
+.pipeline__arrow { display: flex; align-items: center; padding: 0 6px; color: var(--ds-gray-500); font-size: 16px; flex-shrink: 0; }
+
+/* ---- badges ---- */
+.badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.b-live { background: var(--ds-green-dim); color: var(--ds-green-700); border: 1px solid color-mix(in srgb, var(--ds-green-700) 32%, transparent); }
+.b-gap { background: var(--ds-amber-dim); color: var(--ds-amber-700); border: 1px solid color-mix(in srgb, var(--ds-amber-700) 32%, transparent); }
+.b-fixed { background: var(--ds-blue-dim); color: var(--ds-blue-700); border: 1px solid color-mix(in srgb, var(--ds-blue-700) 32%, transparent); }
+
+/* ---- terminal mockup (real theme colors, not Geist — this is the artifact being depicted) ---- */
+.term-mock {
+  background: #000000;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-large);
+  border: 1px solid var(--ds-gray-400);
+}
+.term-titlebar {
+  background: #0a0a0a;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #454545;
+  border-bottom: 1px solid #1a1a1a;
+}
+.term-body { padding: 22px 16px 10px; min-height: 60px; }
+.tmux-bar { display: flex; align-items: stretch; height: 26px; font-family: var(--font-mono); font-size: 12px; }
+.tb-seg { display: flex; align-items: center; padding: 0 10px; white-space: nowrap; }
+.tb-session { background: #006efe; color: #000000; font-weight: 700; }
+.tb-win { background: #0a0a0a; color: #454545; }
+.tb-win-active { background: #006efe; color: #000000; font-weight: 700; }
+.tb-spacer { flex: 1; background: #000000; }
+.tb-usage { background: #000000; letter-spacing: 0.2px; }
+.tb-clock { background: #0a0a0a; color: #454545; }
+.tb-host { background: #006efe; color: #000000; font-weight: 700; }
+.mock-caption { font-family: var(--font-mono); font-size: 11px; color: var(--ds-gray-900); margin-top: 10px; padding-left: 2px; }
+.mock-caption strong { color: var(--ds-gray-1000); }
+
+/* ---- table ---- */
+.table-wrap { background: var(--ds-surface); border: 1px solid var(--ds-gray-400); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-medium); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+thead { position: sticky; top: 0; }
+th {
+  background: var(--ds-gray-100);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--ds-gray-900);
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--ds-gray-500);
+  white-space: nowrap;
+}
+td { padding: 10px 14px; border-bottom: 1px solid var(--ds-gray-400); vertical-align: top; }
+tbody tr:nth-child(even) { background: color-mix(in srgb, var(--ds-gray-100) 55%, transparent); }
+tbody tr:hover { background: var(--ds-blue-dim); }
+tbody tr:last-child td { border-bottom: none; }
+td code, .note code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--ds-gray-100);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* ---- note callout ---- */
+.note {
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-gray-400);
+  border-left: 3px solid var(--ds-amber-700);
+  border-radius: 0 10px 10px 0;
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ds-gray-900);
+}
+.note strong { color: var(--ds-gray-1000); font-weight: 650; }
+.note.note-blue { border-left-color: var(--ds-blue-700); }
+
+/* ---- sources footer ---- */
+.cite-list { list-style: none; font-family: var(--font-mono); font-size: 11.5px; line-height: 2; color: var(--ds-gray-900); }
+.cite-list li { padding-left: 14px; position: relative; }
+.cite-list li::before { content: '›'; position: absolute; left: 0; color: var(--ds-gray-500); font-weight: 600; }
+.cite-list code { color: var(--ds-teal-700); }
+
+@media (max-width: 768px) {
+  .container { padding: 28px 18px 64px; }
+  .pipeline__arrow { display: none; }
+  .term-body { padding: 16px 10px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="animate" style="--i:0">
+    <div class="meta-line">
+      <span>apps/cc-tmux</span>
+      <span>installfest</span>
+      <span>2026-07-11</span>
+    </div>
+    <h1>cc-tmux <span class="dim">— data sources &amp; display</span></h1>
+    <p class="subtitle">
+      Every input cc-tmux reads to decide what a tmux window/status-bar shows, and exactly what
+      renders on screen from each. Built from this session's actual fixes — the plugin's marketplace
+      registration, the title window-rename feature, and the usage-segment schema — every claim
+      below cites its source file and line.
+    </p>
+  </header>
+
+  <!-- ============ DATA SOURCES ============ -->
+  <section class="animate" style="--i:1">
+    <h2><span class="h-tag">Sources</span> What cc-tmux reads</h2>
+    <p class="section-sub">Eight inputs feed the plugin's state. Each card cites the exact function that reads it and, where captured live this session, the real value it produced.</p>
+    <div class="src-grid">
+
+      <div class="src-card">
+        <span class="num">01</span>
+        <h3>tmux pane options (<code>@cc-*</code>)</h3>
+        <p>Single source of truth (invariant 1) — <code>@cc-state</code>, <code>@cc-timestamp</code>, <code>@cc-visited</code>, <code>@cc-task</code>, <code>@cc-wait-reason</code>, <code>@cc-project</code>, <code>@cc-branch</code>, <code>@cc-title</code>. No external file; dies with the pane.</p>
+        <span class="cite">tmux.py:51–68</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">02</span>
+        <h3>Claude Code hooks</h3>
+        <p>SessionStart, UserPromptSubmit, PreToolUse/PostToolUse (AskUserQuestion, ExitPlanMode), Notification, Stop/StopFailure, SessionEnd — each invokes <code>cc-tmux register</code>.</p>
+        <span class="cite">hooks/hooks.json:3–150</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">03</span>
+        <h3>SessionStart <code>session_title</code></h3>
+        <p>Undocumented hook stdin field — found via <code>strings</code> on the installed <code>claude</code> binary, not public docs. Custom title (<code>/rename</code>/<code>-n</code>) or Claude's own default.</p>
+        <span class="cite">cli.py:57, 88 · registry: session-title memory</span>
+        <span class="live"><span class="k">captured →</span> "Fix cc-tmux plugin + tab naming"</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">04</span>
+        <h3>Dotfiles project registry</h3>
+        <p><code>home/projects.toml</code> short-code lookup by longest-prefix path match — the same registry Raycast/cmux/mux-remote resolve against.</p>
+        <span class="cite">registry.py:56</span>
+        <span class="live"><span class="k">resolved →</span> code = "if"</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">05</span>
+        <h3>Git identity</h3>
+        <p>Toplevel repo basename (falls back to dir name outside a repo) + current branch, resolved only for <code>waiting</code>/<code>idle</code> states (hot-path guard).</p>
+        <span class="cite">tmux.py:353</span>
+        <span class="live"><span class="k">captured →</span> project=installfest, branch=main</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">06</span>
+        <h3>nexus-agent <code>/credentials</code></h3>
+        <p>Local daemon, port <strong>7400</strong> (was hardcoded 7402 — always wrong). Real schema: <code>credentials[]</code> + <code>isActive</code> + flat <code>usage5hUsed</code>/<code>usage5hLimit</code> fields — not the retired <code>accounts[]</code> shape this file was ported from.</p>
+        <span class="cite">usage.py:59, 126</span>
+        <span class="gap">usagePolledAt: null on every account — nexus-agent has never polled real numbers (nx-repo investigation in progress)</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">07</span>
+        <h3>Process scan</h3>
+        <p>Enumerates every tmux pane's pid + foreground command to self-heal stale <code>@cc-state</code> left by a <code>kill -9</code>'d Claude — rate-limited to once per <code>@cc-reconcile-interval</code>.</p>
+        <span class="cite">tmux.py:233</span>
+      </div>
+
+      <div class="src-card">
+        <span class="num">08</span>
+        <h3><code>pane-focus-in[9909]</code> hook</h3>
+        <p>Fixed-index tmux hook slot stamping <code>@cc-visited</code> on focus — idempotent across config reloads, coexists with any user-owned <code>pane-focus-in</code> hook.</p>
+        <span class="cite">cc-tmux.tmux:131–134</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ PIPELINE ============ -->
+  <section class="animate" style="--i:2">
+    <h2><span class="h-tag">Flow</span> Source → render</h2>
+    <p class="section-sub">Every source funnels through <code>cmd_register()</code>, which writes pane options, then two independent renderers read them back out: the window-rename path (on every register) and the usage segment (polled by tmux every <code>status-interval</code> seconds).</p>
+    <div class="pipeline">
+      <div class="pipeline__step">
+        <div class="step-num">01 · HOOK FIRES</div>
+        <div class="step-name">Claude Code</div>
+        <div class="step-detail">SessionStart, UserPromptSubmit, Stop…<br>JSON on stdin</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">02 · REGISTER</div>
+        <div class="step-name">cmd_register()</div>
+        <div class="step-detail">reads stdin JSON,<br>writes @cc-* options</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">03 · STORE</div>
+        <div class="step-name">tmux pane options</div>
+        <div class="step-detail">single source of truth,<br>dies with the pane</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">04a · RENAME</div>
+        <div class="step-name">_title_window_name()</div>
+        <div class="step-detail">registry code +<br>@cc-title, truncated</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">05 · DISPLAY</div>
+        <div class="step-name">tmux window tab</div>
+        <div class="step-detail">rename-window,<br>live in the bar</div>
+      </div>
+    </div>
+    <div class="pipeline" style="margin-top:10px">
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow" style="visibility:hidden">→</div>
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow" style="visibility:hidden">→</div>
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">04b · USAGE</div>
+        <div class="step-name">cc-tmux usage</div>
+        <div class="step-detail">GET :7400/credentials,<br>render_usage()</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">05 · DISPLAY</div>
+        <div class="step-name">status-right</div>
+        <div class="step-detail"><code>#(...)</code> every<br>status-interval (2s)</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DISPLAY SURFACES ============ -->
+  <section class="animate" style="--i:3">
+    <h2><span class="h-tag">Display</span> What it looks like</h2>
+    <p class="section-sub">Real theme colors (<code>vercel-theme.conf</code>) and real captured values, not a generic mockup. Two states shown: current (verified this session) and the target state once nexus-agent starts polling.</p>
+
+    <div class="term-mock">
+      <div class="term-titlebar">vercel-theme.conf — current, verified live</div>
+      <div class="term-body">
+        <div class="tmux-bar">
+          <div class="tb-seg tb-session">0</div>
+          <div class="tb-seg tb-win">1 zsh</div>
+          <div class="tb-seg tb-win">2 zsh</div>
+          <div class="tb-seg tb-win-active">4 if:Fix cc-</div>
+          <div class="tb-spacer"></div>
+          <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#454D54">--</span> <span style="color:#454D54">7D:</span><span style="color:#454D54">--</span></div>
+          <div class="tb-seg tb-clock">14:32</div>
+          <div class="tb-seg tb-host">homelab</div>
+        </div>
+      </div>
+    </div>
+    <p class="mock-caption"><strong>Window tab:</strong> <code>if:Fix cc-</code> — project code "if" (registry) + session title, colon-joined, hard-truncated to 10 chars combined. <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
+
+    <div class="term-mock" style="margin-top:20px">
+      <div class="term-titlebar">once nexus-agent polls real usage — target state, not yet live</div>
+      <div class="term-body">
+        <div class="tmux-bar">
+          <div class="tb-seg tb-session">0</div>
+          <div class="tb-seg tb-win">1 zsh</div>
+          <div class="tb-seg tb-win">2 zsh</div>
+          <div class="tb-seg tb-win-active">4 if:Fix cc-</div>
+          <div class="tb-spacer"></div>
+          <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#FAC760">50%</span> <span style="color:#454D54">7D:</span><span style="color:#E61F44">85%</span></div>
+          <div class="tb-seg tb-clock">14:32</div>
+          <div class="tb-seg tb-host">homelab</div>
+        </div>
+      </div>
+    </div>
+    <p class="mock-caption"><strong>Color thresholds</strong> (<code>usage.py:51–54</code>, unit-tested): <code>&gt;0.80</code> → <span style="color:#E61F44">RED</span> · <code>&gt;=0.50</code> → <span style="color:#FAC760">YELLOW</span> · else <span style="color:#5BD1B9">CYAN</span> · absent → <span style="color:#454D54">DIM</span>. Values above (50%/85%) are illustrative, not observed.</p>
+  </section>
+
+  <!-- ============ WINDOW-RENAME FORMATS TABLE ============ -->
+  <section class="animate" style="--i:4">
+    <h2><span class="h-tag">Reference</span> Both window-rename formats</h2>
+    <p class="section-sub">Selected via <code>@cc-window-rename-format</code> (default <code>state</code>; tmux.conf.tmpl now sets <code>title</code> permanently for this repo).</p>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Format</th><th>Pattern</th><th>Source fields</th><th>Live example</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>state</code> (default)</td>
+              <td>&lt;state-icon&gt; &lt;dir basename&gt;</td>
+              <td>highest-priority sibling state + <code>pane_current_path</code></td>
+              <td><code>⏳ installfest</code></td>
+            </tr>
+            <tr>
+              <td><code>title</code> (this repo's default)</td>
+              <td>&lt;project-code&gt;:&lt;session-title&gt;, truncated to 10 combined</td>
+              <td><code>registry.resolve_project_code()</code> + <code>@cc-title</code></td>
+              <td><code>if:Fix cc-</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ KNOWN GAPS ============ -->
+  <section class="animate" style="--i:5">
+    <h2><span class="h-tag">Status</span> Known gaps</h2>
+    <div style="display:grid; gap:12px;">
+      <div class="note">
+        <span class="badge b-gap" style="margin-bottom:8px">PENDING</span><br>
+        <strong>Usage percentages stay "--"</strong> — nexus-agent's credentials store has never had <code>usage5hUsed</code>/<code>usage5hLimit</code>/<code>usage7dUsed</code>/<code>usage7dLimit</code> populated for any account (<code>usagePolledAt: null</code> across all 2706 stored credentials, checked live). Client-side reading is fixed and correct; the gap is nexus-agent not polling. Investigation dispatched into <code>~/dev/personal/nexus</code> — the user's hypothesis is that Claude Code's own <code>statusLine</code> stdin already carries <code>rate_limits</code> from Anthropic directly, and <code>nexus-statusline</code> should be harvesting + forwarding it to nexus-agent instead of nexus-agent polling independently.
+      </div>
+      <div class="note note-blue">
+        <span class="badge b-fixed" style="margin-bottom:8px">FIXED THIS SESSION</span><br>
+        <strong>Plugin marketplace pointed at a pre-rename path</strong> (<code>~/dev/if</code>, before the if→installfest move) — listed but <code>failed to load: cache-miss</code>. Re-registered at the correct path; install script hardened to check <em>enabled</em> status, not just presence, so this class of drift self-heals on future <code>chezmoi apply</code>.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SOURCES CITED ============ -->
+  <section class="animate" style="--i:6">
+    <h2><span class="h-tag">Cited</span> Files &amp; memory records</h2>
+    <ul class="cite-list">
+      <li><code>apps/cc-tmux/src/cc_tmux/tmux.py</code> — pane-option store, git identity, process scan</li>
+      <li><code>apps/cc-tmux/src/cc_tmux/cli.py</code> — hook stdin capture, register, window-rename logic</li>
+      <li><code>apps/cc-tmux/src/cc_tmux/registry.py</code> — project short-code resolution</li>
+      <li><code>apps/cc-tmux/src/cc_tmux/usage.py</code> — nexus-agent credentials client</li>
+      <li><code>apps/cc-tmux/hooks/hooks.json</code> — Claude Code hook → register wiring</li>
+      <li><code>apps/cc-tmux/cc-tmux.tmux</code> — plugin entrypoint, focus hook install</li>
+      <li><code>home/projects.toml</code> — project registry (code, path)</li>
+      <li><code>home/dot_config/tmux/vercel-theme.conf</code> — status-bar colors used in the mockups above</li>
+      <li><code>home/dot_config/tmux/tmux.conf.tmpl</code> — persisted <code>@cc-window-rename-format title</code></li>
+      <li>memory: <code>reference_claude_code_hook_session_title.md</code> — session_title field, found via <code>strings</code> on the claude binary</li>
+      <li>memory: <code>reference_nexus_agent_credentials_api.md</code> — real port/schema, usagePolledAt gap</li>
+      <li>memory: <code>project_repo_relocation_if_to_installfest.md</code> — plugin marketplace path-drift addendum</li>
+      <li>live: <code>ss -tlnp</code> (nexus-agent port 7400), <code>curl :7400/credentials</code>, <code>cc-tmux self-test</code> (31/31)</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>
