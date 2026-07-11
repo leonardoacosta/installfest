@@ -12,9 +12,9 @@ emoji) with sensible defaults, each overridable via ``@cc-icon-<state>``.
 from __future__ import annotations
 
 import re
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Sequence, Tuple
 
-from .usage import CYAN, DIM, color_for, pct_for
+from .usage import CYAN, DIM
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -179,15 +179,20 @@ def inbox_rows(
 
 
 # ---------------------------------------------------------------------------
-# Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars)
+# Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars,
+# trimmed by cc-tmux-bar-cleanup)
 #
-# Both are *pure* composition functions matching the target render in
-# ``docs/diagrams/cc-tmux-sources.html`` (the three-bar mockup). They emit
-# tmux status-format strings using the same ``#[fg=…]``/``#[default]`` escaping
-# convention as :func:`cc_tmux.usage.render_usage`, reusing that module's
-# ``color_for``/``pct_for`` for the SES/5H/7D gauges. The CLI handlers
-# (``cmd_session_bar``/``cmd_beads_bar``) read tmux/cache state and hand plain
-# values in — nothing here touches tmux or a subprocess.
+# Both are *pure* composition functions. They emit tmux status-format strings
+# using the same ``#[fg=…]``/``#[default]`` escaping convention as
+# :func:`cc_tmux.usage.render_usage`, reusing that module's ``CYAN``/``DIM``
+# colour constants. The CLI handlers (``cmd_session_bar``/``cmd_beads_bar``)
+# read tmux/cache state and hand plain values in — nothing here touches tmux or
+# a subprocess.
+#
+# Claude usage stats (account label, SES/5H/7D gauges) no longer render on
+# either row — cc-tmux-bar-cleanup moved that surface to the in-pane Claude
+# statusline (nexus-statusline) only, to stop the duplicate rendering across
+# bars. ``render_session_bar`` is left-side identity only now.
 # ---------------------------------------------------------------------------
 
 # Branch-name colour (purple), distinct from usage.py's util palette. Session
@@ -212,23 +217,17 @@ def render_session_bar(
     model_letter: str,
     project: str,
     branch: str,
-    account_label: str,
-    ses_pct: Optional[float],
-    five_h_pct: Optional[float],
-    seven_d_pct: Optional[float],
 ) -> str:
-    """Row-2 status-format string: session/model/git on the left, usage on the right.
+    """Row-2 status-format string: session/model/git identity, left side only.
 
-    Left side: session-count glyph + model letter + project + git branch. Right
-    side: account label + ``SES:``/``5H:``/``7D:`` gauges, each coloured via
-    :func:`cc_tmux.usage.color_for` and formatted via :func:`cc_tmux.usage.pct_for`.
-    The two sides are joined with a ``#[align=right]`` directive so tmux fills the
-    gap between them (the left+right split in the mockup). ``ses_pct`` /
-    ``five_h_pct`` / ``seven_d_pct`` are utilization ratios in ``0..1`` (or ``None``
-    when unpolled -> ``--`` in DIM), exactly like ``usage.py``'s 5H/7D values.
+    session-count glyph + model letter + project + git branch. Claude usage
+    stats (account label, SES/5H/7D gauges) used to render on a right-hand
+    side here too, but cc-tmux-bar-cleanup removed them — that data lives only
+    in the in-pane Claude statusline (nexus-statusline) now, to stop the
+    duplicate rendering across bars.
 
     Pure function of its inputs (no tmux/subprocess). Empty ``model_letter`` /
-    ``project`` / ``branch`` fields drop out of the left side (fail-open).
+    ``project`` / ``branch`` fields drop out (fail-open).
     """
     left_parts = [f"#[fg={DIM}]{_session_glyph(session_count)}"]
     if model_letter:
@@ -238,33 +237,40 @@ def render_session_bar(
     if branch:
         left_parts.append(f"#[fg={DIM}]>")
         left_parts.append(f"#[fg={BRANCH}]{branch}")
-    left = " ".join(left_parts) + "#[default]"
+    return " ".join(left_parts) + "#[default]"
 
-    cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
-    ps, p5, p7 = pct_for(ses_pct), pct_for(five_h_pct), pct_for(seven_d_pct)
-    right = (
-        f"#[fg={DIM}]{account_label} "
-        f"#[fg={DIM}]SES:#[fg={cs}]{ps}#[default] "
-        f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
-        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
-    )
-    return f"{left}#[align=right]{right}"
+
+_BEADS_SEP = f"#[fg={DIM}] | "
 
 
 def render_beads_bar(pulse_line: str) -> str:
-    """Row-3 status-format string from a roadmap-pulse line, or ``''`` when empty.
+    """Row-3 status-format string from roadmap-pulse cache content, or ``''``.
 
-    ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content (e.g.
-    ``"next: /apply cc-tmux-scout-adop… 0o 2u"`` or a plain ``"12 open / 24
-    waiting"``). A leading ``next:`` label is highlighted in CYAN to match the
-    mockup; the remainder renders DIM. Returns the empty string for a falsy
-    ``pulse_line`` so row 3 shows nothing when there's nothing pending.
+    ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content, which may
+    carry MULTIPLE lines (e.g. a ``"next: /apply cc-tmux-scout-adop… 0o 2u"``
+    line followed by a plain ``"12 open / 24 waiting"`` counts line) — the
+    cache file has always had both, but a naive single-line render silently
+    dropped everything past the first newline (cc-tmux-bar-cleanup). Every
+    non-blank line is now joined onto one full-width row with a DIM ``|``
+    separator, so both lines always show. A leading ``next:`` label is
+    highlighted in CYAN wherever it appears; every other line renders DIM.
+    Single-line content renders exactly as before (no separator artifact).
+    Returns the empty string for falsy/blank-only ``pulse_line`` so row 3 shows
+    nothing when there's nothing pending.
 
     Pure function of its input (no tmux/subprocess).
     """
     if not pulse_line:
         return ""
-    if pulse_line.startswith("next:"):
-        rest = pulse_line[len("next:"):]
-        return f"#[fg={CYAN}]next:#[fg={DIM}]{rest}#[default]"
-    return f"#[fg={DIM}]{pulse_line}#[default]"
+    lines = [ln for ln in pulse_line.splitlines() if ln.strip()]
+    if not lines:
+        return ""
+
+    segments = []
+    for ln in lines:
+        if ln.startswith("next:"):
+            rest = ln[len("next:"):]
+            segments.append(f"#[fg={CYAN}]next:#[fg={DIM}]{rest}")
+        else:
+            segments.append(f"#[fg={DIM}]{ln}")
+    return _BEADS_SEP.join(segments) + "#[default]"

@@ -16,8 +16,13 @@ The tracked options on each Claude pane:
     @cc-branch       resolved git branch
     @cc-title        Claude Code session title (SessionStart hook payload; opt-in
                       `title` window-rename format only — see cli._title_window_name)
-    @cc-model        Claude model variant (SessionStart hook payload `model` field;
-                      rendered as a single letter F/O/H/S in the session-bar row)
+
+NOTE (cc-tmux-bar-cleanup): there used to be a ``@cc-model`` option here, written
+from the SessionStart hook payload's ``model`` field. That path was confirmed
+empty on every live pane and also missed mid-session ``/model`` switches, so it
+was removed — the session-bar row now reads the model letter fresh on every
+render from ``session-context.<pane>.json`` (see cli._read_session_context)
+instead of from pane-option state.
 
 **Invariant 3 (real-transition guard):** :func:`set_pane_state` returns whether
 ``@cc-state`` actually changed, so callers fire auto-hop / app-focus ONLY on a
@@ -58,7 +63,6 @@ OPT_WAIT_REASON = "@cc-wait-reason"
 OPT_PROJECT = "@cc-project"
 OPT_BRANCH = "@cc-branch"
 OPT_TITLE = "@cc-title"
-OPT_MODEL = "@cc-model"
 
 _ALL_OPTS = (
     OPT_STATE,
@@ -69,7 +73,6 @@ _ALL_OPTS = (
     OPT_PROJECT,
     OPT_BRANCH,
     OPT_TITLE,
-    OPT_MODEL,
 )
 
 # Global (server) options for the daemon-free reconcile rate limit (design.md
@@ -462,20 +465,6 @@ def set_pane_title(pane_id: str, title: str) -> None:
     if not tmux_available() or not title:
         return
     _set_opt(pane_id, OPT_TITLE, title)
-
-
-def set_pane_model(pane_id: str, model: str) -> None:
-    """Store the Claude model variant for the session-bar row (``@cc-model``).
-
-    ``model`` comes from the SessionStart hook payload's ``model`` field; the
-    session-bar renders it as a single letter (F/O/H/S). Cleared on SessionEnd
-    along with every other tracked option (``@cc-model`` is in ``_ALL_OPTS``, so
-    :func:`clear_pane_state` unsets it). Fail-open: no tmux, or an empty model,
-    writes nothing.
-    """
-    if not tmux_available() or not model:
-        return
-    _set_opt(pane_id, OPT_MODEL, model)
 
 
 def set_pane_visited(pane_id: str, timestamp: Optional[float] = None) -> None:

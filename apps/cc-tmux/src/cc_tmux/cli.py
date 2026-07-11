@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import log, notify, registry, render, tmux, usage
+from . import log, notify, registry, render, tmux
 from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
@@ -74,16 +74,18 @@ def cmd_register(args) -> int:
     # /rename or -n, else Claude's own default) — capture it for the opt-in
     # `title` window-rename format (tab naming). Every other hook event is
     # ignored here since only SessionStart's payload includes session_title.
+    #
+    # NOTE (cc-tmux-bar-cleanup): the model letter used to be captured here too
+    # (SessionStart payload `model` field -> @cc-model), but that path was
+    # confirmed empty on every live pane (the field is absent/unusable at
+    # SessionStart, and it misses mid-session `/model` switches by design).
+    # The session-bar now reads the model letter fresh on every render from
+    # `session-context.<pane>.json` instead — see `_read_session_context`.
     hook_payload = _read_hook_stdin()
     if hook_payload.get("hook_event_name") == "SessionStart":
         title = hook_payload.get("session_title")
         if title:
             tmux.set_pane_title(pane, title)
-        # Same payload carries the resolved model id -> a single letter for the
-        # session-bar row (@cc-model). Fail-open: unrecognized/empty -> no write.
-        letter = _model_letter(hook_payload.get("model"))
-        if letter:
-            tmux.set_pane_model(pane, letter)
 
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
     _maybe_rename_window(pane)
@@ -110,28 +112,6 @@ def _read_hook_stdin() -> dict:
         return json.loads(raw) if raw.strip() else {}
     except Exception:
         return {}
-
-
-def _model_letter(model: object) -> str:
-    """Single-letter model tag for the session-bar row (F/O/H/S), or ``''``.
-
-    Matches on a substring of the SessionStart payload's ``model`` id
-    (``claude-opus-4-8`` / ``claude-sonnet-5`` / ``claude-haiku-4-5-…`` /
-    ``claude-fable-5``) rather than a full version string, since those drift.
-    Unrecognized or non-string input -> ``''`` (fail-open: no @cc-model write).
-    """
-    if not isinstance(model, str) or not model:
-        return ""
-    m = model.lower()
-    if "fable" in m:
-        return "F"
-    if "opus" in m:
-        return "O"
-    if "haiku" in m:
-        return "H"
-    if "sonnet" in m:
-        return "S"
-    return ""
 
 
 def cmd_clear(args) -> int:
@@ -575,70 +555,56 @@ def _read_roadmap_pulse(pane_id: str) -> str:
         return ""
 
 
-def _read_session_context_pct(pane_id: str) -> Optional[float]:
-    """Session context utilization as a 0..1 ratio from ``session-context.<pane>.json``.
+def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
+    """``(model_letter, context_used_pct)`` from ``session-context.<pane>.json``.
 
-    nexus-statusline writes ``{context_used_pct, ts}`` per pane (keyed on the raw
-    ``#{pane_id}`` e.g. ``%3``), where ``context_used_pct`` is 0-100. Divide by
-    100 so the ratio matches ``render_session_bar``'s convention (same 0..1 scale
-    as the 5H/7D utils). Fail-open: missing file / bad shape / non-numeric -> None.
+    nexus-statusline writes ``{context_used_pct, model, ts}`` per pane (keyed on
+    the raw ``#{pane_id}`` e.g. ``%3``). ``model`` is a single-letter tag
+    (F/O/H/S) refreshed on every statusline render — unlike the old
+    SessionStart-hook path this replaces (see ``cmd_register``'s note), it also
+    tracks mid-session ``/model`` switches. ``context_used_pct`` is 0-100;
+    divided by 100 here to keep the 0..1 ratio convention used elsewhere in this
+    module. Fail-open: missing pane id / file / bad shape / non-numeric ->
+    ``("", None)`` for the piece that failed.
     """
     if not pane_id:
-        return None
+        return "", None
     try:
         data = json.loads((_cc_state_dir() / f"session-context.{pane_id}.json").read_text(encoding="utf-8"))
-        pct = data.get("context_used_pct")
-        if isinstance(pct, bool):
-            return None
-        return float(pct) / 100.0
     except Exception:
-        return None
+        return "", None
 
+    letter = data.get("model")
+    if not isinstance(letter, str):
+        letter = ""
 
-def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
-    """``(account_label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+    pct = data.get("context_used_pct")
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+        pct = None
+    else:
+        pct = float(pct) / 100.0
 
-    Reuses ``usage.py``'s query + active-credential-finding + field-extraction
-    logic (same package) rather than re-deriving it. Fail-open on every branch.
-    """
-    try:
-        payload = usage._query()
-        if not payload:
-            return "", None, None
-        credentials = payload.get("credentials")
-        if not isinstance(credentials, list):
-            return "", None, None
-        active = next(
-            (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
-            None,
-        )
-        if active is None:
-            return "", None, None
-        return (
-            usage._account_label(active),
-            usage._extract_util(active, "usage5hUsed", "usage5hLimit"),
-            usage._extract_util(active, "usage7dUsed", "usage7dLimit"),
-        )
-    except Exception:
-        return "", None, None
+    return letter, pct
 
 
 def cmd_session_bar(args) -> int:
-    """Emit the row-2 session/usage status-format string for a window (Req rows 2).
+    """Emit the row-2 session status-format string for a window (Req rows 2).
 
     Invoked FROM a tmux ``status-format[1]`` string
     (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
-    refresh. Resolves the window's representative pane, reads @cc-model /
-    @cc-project / @cc-branch, the per-pane session-context %, and the active
-    account's 5H/7D usage, and hands them to :func:`render.render_session_bar`.
-    Fail-open: any missing piece degrades to a partial render; empty window ->
-    print nothing, exit 0.
+    refresh. Resolves the window's representative pane, reads @cc-project /
+    @cc-branch and the per-pane model letter (from ``session-context.<pane>.json``
+    via :func:`_read_session_context`), and hands them to
+    :func:`render.render_session_bar`. Left side only (session/model/git
+    identity) — Claude usage stats (account/SES/5H/7D) live only in the in-pane
+    Claude statusline now, not here (cc-tmux-bar-cleanup). Fail-open: any
+    missing piece degrades to a partial render; empty window -> print nothing,
+    exit 0.
     """
     pane = tmux.get_window_top_pane(args.window)
     if not pane:
         return 0
 
-    model_letter = tmux.get_pane_option(pane, tmux.OPT_MODEL)
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
     branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
 
@@ -646,19 +612,9 @@ def cmd_session_bar(args) -> int:
     # so pass the count, not tmux.session_count_glyph()'s already-mapped string.
     session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
 
-    ses_pct = _read_session_context_pct(pane)
-    account_label, five_h_pct, seven_d_pct = _active_usage()
+    model_letter, _ctx_pct = _read_session_context(pane)
 
-    out = render.render_session_bar(
-        session_count,
-        model_letter,
-        project,
-        branch,
-        account_label,
-        ses_pct,
-        five_h_pct,
-        seven_d_pct,
-    )
+    out = render.render_session_bar(session_count, model_letter, project, branch)
     if out:
         sys.stdout.write(out)
     return 0

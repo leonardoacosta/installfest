@@ -586,20 +586,6 @@ def _test_tmux_session_count_glyph() -> None:
         tmux.get_hop_panes = saved  # type: ignore[assignment]
 
 
-def _test_cli_model_letter() -> None:
-    # SessionStart payload model id -> single-letter tag (F/O/H/S), fail-open ''.
-    _check(cli._model_letter("claude-opus-4-8") == "O", "opus -> O")
-    _check(cli._model_letter("claude-sonnet-5") == "S", "sonnet -> S")
-    _check(cli._model_letter("claude-haiku-4-5-20251001") == "H", "dated haiku -> H")
-    _check(cli._model_letter("claude-fable-5") == "F", "fable -> F")
-    _check(cli._model_letter("Claude-OPUS-4-8") == "O", "case-insensitive substring match")
-    # Unrecognized / non-string -> '' (no @cc-model write).
-    _check(cli._model_letter("some-unknown-model") == "", "unrecognized -> ''")
-    _check(cli._model_letter("") == "", "empty string -> ''")
-    _check(cli._model_letter(None) == "", "None -> ''")
-    _check(cli._model_letter(123) == "", "non-string -> ''")
-
-
 def _test_tmux_get_window_top_pane() -> None:
     # Pane-id analogue of get_window_top_state — mirror that test's fixture shape.
     saved = tmux._run_tmux
@@ -625,27 +611,28 @@ def _test_tmux_get_window_top_pane() -> None:
 
 
 def _test_render_session_bar() -> None:
-    # Full render: 2+ sessions, all fields present, distinct gauge values.
-    out = render.render_session_bar(
-        2, "O", "if", "main", "leo@x.dev", 0.10, 0.55, 0.90,
-    )
+    # Full render: 2+ sessions, model + project + branch, left side only
+    # (cc-tmux-bar-cleanup dropped the account/SES/5H/7D right side entirely).
+    out = render.render_session_bar(2, "O", "if", "main")
     _check("◉ 2" in out, "2+ sessions -> filled + count glyph")
     _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
     _check("if" in out, "project present on the left")
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
-    _check("#[align=right]" in out, "left/right split directive present")
-    _check("SES:" in out and "5H:" in out and "7D:" in out, "all three gauge labels")
-    _check("10%" in out and "55%" in out and "90%" in out, "gauge pcts rendered")
+    _check("#[align=right]" not in out, "no right-side usage split (bar-cleanup)")
+    _check(
+        "SES:" not in out and "5H:" not in out and "7D:" not in out,
+        "no usage gauges render on the session bar (bar-cleanup)",
+    )
+    _check(out.endswith("#[default]"), "resets colour at end")
 
-    # Single session -> bare filled glyph (not the 2+ '◉ N' form); None pcts -> '--'.
-    out2 = render.render_session_bar(1, "S", "oo", "dev", "acct", None, None, None)
+    # Single session -> bare filled glyph (not the 2+ '◉ N' form).
+    out2 = render.render_session_bar(1, "S", "oo", "dev")
     _check("◉" in out2 and "◉ 1" not in out2, "1 session -> bare filled glyph")
-    _check(out2.count("--") == 3, "all-None pcts -> three '--' gauges")
 
-    # 0 sessions + all optional left fields empty -> hollow glyph, fields drop out.
-    out3 = render.render_session_bar(0, "", "", "", "", None, None, None)
+    # 0 sessions + no model/project/branch -> hollow glyph only; fields fail-open.
+    out3 = render.render_session_bar(0, "", "", "")
     _check("◌" in out3 and "◉" not in out3, "0 sessions -> hollow glyph only")
-    _check(f"#[fg={render.CYAN}]" not in out3, "no model letter -> no CYAN segment")
+    _check(f"#[fg={render.CYAN}]" not in out3, "no model letter -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
 
@@ -665,6 +652,20 @@ def _test_render_beads_bar() -> None:
         out2 == f"#[fg={render.DIM}]12 open / 24 waiting#[default]",
         "plain pulse line -> all DIM",
     )
+
+    # Two-line cache content (next: line + counts line) -> BOTH lines joined
+    # onto one row with a DIM ' | ' separator, not silently truncated to the
+    # first line (the cc-tmux-bar-cleanup defect).
+    out3 = render.render_beads_bar("next: /apply foo 2o 3u\n12 open, 3 unarchived")
+    _check(out3.startswith(f"#[fg={render.CYAN}]next:"), "two-line: next label still CYAN")
+    _check(" /apply foo 2o 3u" in out3, "two-line: next: remainder present")
+    _check("12 open, 3 unarchived" in out3, "two-line: second line content present")
+    _check(f"#[fg={render.DIM}] | " in out3, "two-line: DIM pipe separator present")
+    _check(out3.endswith("#[default]"), "two-line: resets colour at end")
+    _check(out3.count("#[default]") == 1, "two-line: single trailing reset, not per-line")
+
+    # Blank-line-only content (e.g. a stray trailing newline) -> ''.
+    _check(render.render_beads_bar("\n\n") == "", "blank-only content -> ''")
 
 
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
@@ -735,6 +736,41 @@ def _test_cli_read_roadmap_pulse_fail_open() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_cli_read_session_context() -> None:
+    # No pane id -> ('', None) without ever touching the filesystem.
+    _check(cli._read_session_context("") == ("", None), "empty pane -> ('', None)")
+
+    saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-session-context-test-")
+    try:
+        state_dir = os.path.join(tmpdir, "scripts", "state")
+        os.makedirs(state_dir, exist_ok=True)
+        os.environ["CLAUDE_CONFIG_DIR"] = tmpdir
+
+        fixture = os.path.join(state_dir, "session-context.%9.json")
+        with open(fixture, "w") as f:
+            f.write('{"context_used_pct": 42, "model": "F", "ts": 123}')
+
+        letter, pct = cli._read_session_context("%9")
+        _check(letter == "F", f"model letter not read from fixture: {letter!r}")
+        _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
+
+        # Missing file -> fail-open ('', None), never raises.
+        os.unlink(fixture)
+        _check(cli._read_session_context("%9") == ("", None), "missing file -> ('', None)")
+
+        # Malformed JSON -> fail-open ('', None), never raises.
+        with open(fixture, "w") as f:
+            f.write("not json")
+        _check(cli._read_session_context("%9") == ("", None), "malformed JSON -> ('', None)")
+    finally:
+        if saved_cfg is None:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            os.environ["CLAUDE_CONFIG_DIR"] = saved_cfg
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -775,11 +811,11 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.fail_open", _test_usage_fail_open),
     ("render.session_glyph", _test_render_session_glyph),
     ("tmux.session_count_glyph", _test_tmux_session_count_glyph),
-    ("cli.model_letter", _test_cli_model_letter),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("render.session_bar", _test_render_session_bar),
     ("render.beads_bar", _test_render_beads_bar),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
+    ("cli.read_session_context", _test_cli_read_session_context),
 ]
 
 
