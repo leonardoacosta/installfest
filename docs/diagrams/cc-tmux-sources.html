@@ -515,6 +515,139 @@ td code, .note code {
     </div>
   </section>
 
+  <!-- ============ PLANNED ARCHITECTURE ============ -->
+  <section class="animate" style="--i:5.5">
+    <h2><span class="h-tag">Design</span> Planned: usage consolidation + full-parity harvest</h2>
+    <p class="section-sub">
+      <span class="badge b-gap">PLANNED — NOT YET IMPLEMENTED</span>
+      Designed (background plan pass, 28 tool-calls across both repos), not written. Two independent pipelines: one kills the 429 rate-limit competition, the other harvests everything Claude Code's own statusline shows today so cc-tmux can eventually supersede it. Explicitly ONE tmux bar — the <code>status-right</code> line the tabs already sit on — not a second <code>status-format[1]</code> row (that was the original plan; ruled out when asked "can we not have this be a separate bar?").
+    </p>
+
+    <div class="src-card" style="margin-bottom:16px">
+      <span class="num">PIPELINE 1</span>
+      <h3>5h/7d consolidation — one Anthropic caller, not two</h3>
+      <p>Today: <code>nexus-agent</code>'s poller AND <code>nexus-statusline</code> independently call <code>/api/oauth/usage</code> on the same ~5-min cadence, uncoordinated — confirmed via live probe returning <code>429</code> on an otherwise-fresh token.</p>
+    </div>
+    <div class="pipeline">
+      <div class="pipeline__step">
+        <div class="step-num">EXISTING</div>
+        <div class="step-name">credential-usage-poller.ts</div>
+        <div class="step-detail">unchanged — polls Anthropic<br>every 5 min, writes DB</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns the write</div>
+        <div class="step-name">statusline-usage-file.ts</div>
+        <div class="step-detail">nx: apps/agent/src/services/<br>reads active row, writes cache</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW FILE</div>
+        <div class="step-name">usage-cache.json</div>
+        <div class="step-detail">shared, on-disk,<br>no HTTP round-trip</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns the read</div>
+        <div class="step-name">getPolledUsage()</div>
+        <div class="step-detail">nx: nexus-statusline/index.ts<br>replaces deleted getApiUsage()</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">UNCHANGED</div>
+        <div class="step-name">cc-tmux usage.py</div>
+        <div class="step-detail">still HTTP GET /credentials —<br>1s cadence tolerates it fine</div>
+      </div>
+    </div>
+
+    <div class="src-card" style="margin:20px 0 16px">
+      <span class="num">PIPELINE 2</span>
+      <h3>Full-parity harvest — data that only ever exists per-render, per-pane</h3>
+      <p>Cost, lines added/removed, session clock, model, output style, context %, token speed, branch/worktree, spec — nexus-agent (a separate daemon, no CC stdin) cannot compute any of these. Only <code>nexus-statusline</code> ever sees them, once per render, for one specific pane.</p>
+    </div>
+    <div class="pipeline">
+      <div class="pipeline__step">
+        <div class="step-num">SOURCE</div>
+        <div class="step-name">CC stdin JSON</div>
+        <div class="step-detail">fed to nexus-statusline<br>on every render</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns assembly</div>
+        <div class="step-name">buildHarvest()</div>
+        <div class="step-detail">nx: nexus-statusline/index.ts<br>pure — struct from already-computed values</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns the write</div>
+        <div class="step-name">writeHarvest()</div>
+        <div class="step-detail">gated on $TMUX_PANE set,<br>fail-soft, atomic tmp+rename</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW FILE</div>
+        <div class="step-name">statusline-harvest.&lt;pane&gt;.json</div>
+        <div class="step-detail">one per tmux pane,<br>opportunistic GC</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns pane pick</div>
+        <div class="step-name">get_window_top_pane()</div>
+        <div class="step-detail">cc-tmux: tmux.py<br>mirrors get_window_top_state()</div>
+      </div>
+    </div>
+    <div class="pipeline" style="margin-top:8px">
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow" style="visibility:hidden">→</div>
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow" style="visibility:hidden">→</div>
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow" style="visibility:hidden">→</div>
+      <div class="pipeline__step" style="visibility:hidden"><div class="step-num">·</div></div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns render</div>
+        <div class="step-name">render_session_bar()</div>
+        <div class="step-detail">cc-tmux: render.py<br>pure — harvest dict → styled string</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">NEW · owns CLI entry</div>
+        <div class="step-name">cmd_session_bar()</div>
+        <div class="step-detail">cc-tmux: cli.py<br>new `session-bar` subcommand</div>
+      </div>
+      <div class="pipeline__arrow">→</div>
+      <div class="pipeline__step">
+        <div class="step-num">OUTCOME</div>
+        <div class="step-name">status-right (existing line)</div>
+        <div class="step-detail">folds in alongside<br>window-icon, NOT a new row</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" style="margin-top:20px">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>New function</th><th>Lives in</th><th>Owns</th><th>Repo</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>statusline-usage-file.ts</code> (write helper)</td><td><code>apps/agent/src/services/</code></td><td>reading the active credential's row, writing the shared cache file</td><td>nexus</td></tr>
+            <tr><td><code>getPolledUsage()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>reading the shared cache — replaces the deleted <code>getApiUsage()</code> Anthropic caller</td><td>nexus</td></tr>
+            <tr><td><code>buildHarvest()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>pure assembly of every per-render field into one struct</td><td>nexus</td></tr>
+            <tr><td><code>writeHarvest()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>atomic, fail-soft write of that struct, gated on <code>$TMUX_PANE</code></td><td>nexus</td></tr>
+            <tr><td><code>get_window_top_pane()</code></td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py</code></td><td>picking which pane's harvest file represents a given window</td><td>installfest</td></tr>
+            <tr><td><code>render_session_bar()</code></td><td><code>apps/cc-tmux/src/cc_tmux/render.py</code></td><td>pure formatting — harvest dict → tmux-styled segment string</td><td>installfest</td></tr>
+            <tr><td><code>cmd_session_bar()</code></td><td><code>apps/cc-tmux/src/cc_tmux/cli.py</code></td><td>CLI entrypoint: resolve pane → read file → render → print (new <code>session-bar</code> subcommand)</td><td>installfest</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="note note-blue" style="margin-top:16px">
+      <strong>Deploy safety</strong> — <code>nexus-statusline</code> is a compiled binary with no auto-deploy hook; pushing its source touches nothing live until a manual <code>bun run build</code> + reinstall (snapshot the old binary first for instant rollback). <code>nexus-agent</code> auto-deploys (rebuild + restart) on push-to-main, same hook the credential-refresh fix went through — for this larger change, decided on a careful manual deploy (<code>SKIP_DEPLOY=1</code>, verify the cache file writes correctly, then deliberate rebuild+restart) rather than the automatic path.
+    </div>
+  </section>
+
   <!-- ============ SOURCES CITED ============ -->
   <section class="animate" style="--i:6">
     <h2><span class="h-tag">Cited</span> Files &amp; memory records</h2>
