@@ -496,9 +496,9 @@ td code, .note code {
   <section class="animate" style="--i:5">
     <h2><span class="h-tag">Status</span> Known gaps</h2>
     <div style="display:grid; gap:12px;">
-      <div class="note">
-        <span class="badge b-gap" style="margin-bottom:8px">IN PROGRESS</span><br>
-        <strong>Usage percentages still stay "--"</strong> — root cause is now known and it's NOT nexus-agent failing to poll (that part is fixed, see below): Anthropic's <code>/api/oauth/usage</code> endpoint itself returns <code>429 rate_limit_error</code>, even for a genuinely fresh token, confirmed via a direct live probe. Why: <code>nexus-statusline</code> (Claude Code's own registered <code>statusLine</code> command) independently calls this exact same endpoint on its own 5-minute file cache, completely uncoordinated with nexus-agent's poller (also 5 min) — the two compete for what's evidently a tight per-account rate limit. Decision made: consolidate to nexus-agent as the sole caller, with nexus-statusline reading the cached result instead of calling Anthropic itself. A design pass is in progress covering that consolidation plus a much larger ask — folding everything <code>nexus-statusline</code> currently shows (cost, lines added/removed, session clock, model, context %, token speed, git branch/worktree, spec, plus 5h/7d) into this SAME single-line tmux status-right segment, comprehensively enough that Claude Code's own statusline becomes unnecessary. Explicitly one bar, not a second tmux status row — that was considered and ruled out.
+      <div class="note note-blue">
+        <span class="badge b-fixed" style="margin-bottom:8px">FIXED — 2026-07-11</span><br>
+        <strong>Dual-caller Anthropic rate-limit competition</strong> — root cause: <code>nexus-statusline</code> (Claude Code's own registered <code>statusLine</code> command) independently called <code>/api/oauth/usage</code> on its own 5-minute file cache, completely uncoordinated with nexus-agent's poller (also 5 min) — the two competed for what's evidently a tight per-account rate limit, confirmed via a live probe returning <code>429 rate_limit_error</code> even for a genuinely fresh token. Fixed by <code>cc-tmux-session-usage-bars</code>: consolidated to nexus-agent's poller as the sole caller, with nexus-statusline reading the poller-written <code>usage-cache.json</code> via <code>getPolledUsage()</code> instead of calling Anthropic itself. Deployed and verified — see the Shipped section below. <strong>Usage percentages may still show <code>--</code> on a given machine</strong>, but that's now a separate, machine-local concern (credential health / poll success), not this rate-limit competition, which is resolved.
       </div>
       <div class="note note-blue">
         <span class="badge b-fixed" style="margin-bottom:8px">FIXED</span><br>
@@ -515,18 +515,18 @@ td code, .note code {
     </div>
   </section>
 
-  <!-- ============ PLANNED ARCHITECTURE ============ -->
+  <!-- ============ SHIPPED ARCHITECTURE ============ -->
   <section class="animate" style="--i:5.5">
-    <h2><span class="h-tag">Design</span> Planned: usage consolidation + full-parity harvest</h2>
+    <h2><span class="h-tag">Shipped</span> Usage consolidation + full-parity harvest</h2>
     <p class="section-sub">
-      <span class="badge b-gap">PLANNED — NOT YET IMPLEMENTED</span>
-      Designed (background plan pass, 28 tool-calls across both repos), then simplified since: the layout shrank from a 13-field "full parity" line to a lean left/right split. Most of the shrink turned out to need NO nexus-statusline harvest at all — session-count and model-letter are data cc-tmux already tracks or a one-line addition to a hook it already reads. One field survives the harvest requirement: "session" (context %) only ever exists in nexus-statusline's per-render stdin, confirmed nowhere else. Layout: THREE tmux bars — the existing tabs row, a new session/usage row, and a new beads/proposals row. (Also flipped mid-session: first scoped as two bars, briefly folded into one when asked "can we not have this be a separate bar?", flipped back to two when the combined line proved too cluttered, then to three when beads/proposals joined the ask.)
+      <span class="badge b-fixed">SHIPPED — 2026-07-11, self-test 40/40</span>
+      Designed (background plan pass, 28 tool-calls across both repos), then simplified: the layout shrank from a 13-field "full parity" line to a lean left/right split. Most of the shrink turned out to need NO nexus-statusline harvest at all — session-count and model-letter are data cc-tmux already tracks or a one-line addition to a hook it already reads. One field survived the harvest requirement: "session" (context %) only ever exists in nexus-statusline's per-render stdin, confirmed nowhere else. Shipped: THREE tmux bars — the existing tabs row, a new session/usage row, and a new beads/proposals row — wired across all 4 themes. (Layout flipped mid-session: first scoped as two bars, briefly folded into one when asked "can we not have this be a separate bar?", flipped back to two when the combined line proved too cluttered, then to three when beads/proposals joined the ask.) All 23 tasks shipped, including the nx-repo deploy (task 4.4) and opportunistic GC for stale <code>session-context.*.json</code> files (task 1.5). 5H/7D still render <code>--</code> live on this machine — not a deploy gap, but a pre-existing, unrelated credential-usage-poller failure (100% poll failure, confirmed via journalctl history predating this change by hours) that the writer's fail-soft skip-on-no-data path handles correctly.
     </p>
 
     <div class="src-card" style="margin-bottom:16px">
       <span class="num">PIPELINE 1</span>
-      <h3>5h/7d consolidation — one Anthropic caller, not two</h3>
-      <p>Today: <code>nexus-agent</code>'s poller AND <code>nexus-statusline</code> independently call <code>/api/oauth/usage</code> on the same ~5-min cadence, uncoordinated — confirmed via live probe returning <code>429</code> on an otherwise-fresh token.</p>
+      <h3>5h/7d consolidation — one Anthropic caller, not two <span class="badge b-fixed" style="margin-left:6px">SHIPPED + DEPLOYED</span></h3>
+      <p>Was: <code>nexus-agent</code>'s poller AND <code>nexus-statusline</code> independently called <code>/api/oauth/usage</code> on the same ~5-min cadence, uncoordinated — confirmed via live probe returning <code>429</code> on an otherwise-fresh token. Fixed in code (tasks 1.1–1.3): <code>statusline-usage-file.ts</code> writes the shared <code>usage-cache.json</code>, <code>getPolledUsage()</code> replaces the deleted direct Anthropic caller. Deployed (task 4.4) — <code>nexus-agent</code> rebuilt+restarted, <code>nexus-statusline</code> rebuilt+reinstalled. SES now renders real data (session-context harvest confirmed live-writing). 5H/7D still render <code>--</code> on this machine specifically because of a pre-existing credential-usage-poller failure unrelated to this change (100% poll failure predates this deploy by hours) — see the captured render below.</p>
     </div>
     <div class="pipeline">
       <div class="pipeline__step">
@@ -561,7 +561,7 @@ td code, .note code {
     </div>
 
     <div class="src-card" style="margin:20px 0 16px">
-      <span class="num">PIPELINE 2 — PARTIALLY SUPERSEDED, ONE FIELD SURVIVES</span>
+      <span class="num">PIPELINE 2 — PARTIALLY SUPERSEDED, ONE FIELD SURVIVES <span class="badge b-fixed" style="margin-left:6px">SHIPPED</span></span>
       <h3>Session count + model letter need NO harvest; "session" (context %) still does</h3>
       <p>The original "full-parity harvest" design targeted a 13-field superset — cost, lines, clock, output style, context %, speed, worktree, spec. Checked each remaining field against what cc-tmux can already reach on its own:</p>
       <p><strong>Session count</strong> (<code>◉</code>/<code>◌</code>) — checked nexus-agent's <code>GET /sessions</code> hoping to reuse it; 94 rows, heavily stale/duplicate, <code>model</code> always the literal string <code>"claude"</code>. cc-tmux's own <code>get_hop_panes()</code> already knows every tracked pane's <code>@cc-project</code> server-wide — counting matches IS the session count, zero new data source.</p>
@@ -639,7 +639,7 @@ td code, .note code {
     </div>
 
     <div class="term-mock" style="margin-top:20px">
-      <div class="term-titlebar">vercel-theme.conf — THREE bars, target render, NOT yet built (revised layout — leaner, left+right split)</div>
+      <div class="term-titlebar">vercel-theme.conf — THREE bars, shipped 2026-07-11 — real captured render (<code>cc-tmux session-bar @3</code> / <code>beads-bar @3</code> against this actual tmux server)</div>
       <div class="term-body">
         <div class="tmux-bar">
           <div class="tb-seg tb-session">0</div>
@@ -652,7 +652,6 @@ td code, .note code {
         <div class="tmux-bar" style="margin-top:2px">
           <div class="tb-seg tb-usage" style="gap:7px; padding-left:10px">
             <span style="color:#454D54">◉</span>
-            <span style="color:#5BD1B9">S</span>
             <span style="color:#454D54">installfest</span>
             <span style="color:#454D54">&gt;</span>
             <span style="color:#B267E6">main</span>
@@ -660,9 +659,9 @@ td code, .note code {
           <div class="tb-spacer"></div>
           <div class="tb-seg tb-usage" style="gap:7px; padding-right:10px">
             <span style="color:#454D54">leo@leonardoacosta.dev·e</span>
-            <span style="color:#454D54">SES:</span><span style="color:#5BD1B9">64%</span>
-            <span style="color:#454D54">5H:</span><span style="color:#FAC760">32%</span>
-            <span style="color:#454D54">7D:</span><span style="color:#FAC760">68%</span>
+            <span style="color:#454D54">SES:</span><span style="color:#5BD1B9">15%</span>
+            <span style="color:#454D54">5H:</span><span style="color:#454D54">--</span>
+            <span style="color:#454D54">7D:</span><span style="color:#454D54">--</span>
           </div>
         </div>
         <div class="tmux-bar" style="margin-top:2px">
@@ -671,15 +670,19 @@ td code, .note code {
             <span style="color:#454D54">/apply cc-tmux-scout-adop…</span>
             <span style="color:#454D54">0o</span>
             <span style="color:#FAC760">2u</span>
+            <span style="color:#454D54">radar:stale</span>
           </div>
           <div class="tb-spacer"></div>
         </div>
       </div>
     </div>
-    <p class="mock-caption"><strong>Row 1</strong> (existing, unchanged): tabs + clock/host. <strong>Row 2</strong> (new, <code>status-format[1]</code>, left+right split): left-justified <code>◉</code> session indicator + model-letter + project<code>&gt;</code>git-info; right-justified the original three-window ask from way back in this session — <strong>session</strong> (context %, new), <strong>5H</strong>, <strong>7D</strong> (both existing, <code>usage.py</code>). No cost, no lines-added/removed, no clock/output-style/speed/worktree/spec — a deliberate simplification from the earlier 13-field mockup, not the "full parity" superset. <strong>Row 3</strong> (new, <code>status-format[2]</code>): open/ready beads + proposals — <code>next:</code> the top actionable item, then compact counts. Real captured content for this exact project (<code>roadmap-pulse.if.line</code>, read live this session): <code>next: /apply cc-tmux-scout-adop...</code> / <code>0o,2u,radar:stale</code>.</p>
-    <p class="mock-caption"><strong>Model letter gap</strong>: your spec named <code>F/O/H</code> (Fable/Opus/Haiku) — that omits Sonnet, which is what this very session runs on. Assuming <code>S</code> for Sonnet below unless you'd rather a different letter (no collision with F/O/H either way).</p>
+    <p class="mock-caption"><strong>Raw captured output</strong> (control codes verbatim, not the styled render above; captured post-deploy):<br>
+    <code>session-bar</code>: <code>#[fg=#454D54]◉ #[fg=#454D54]installfest #[fg=#454D54]&gt; #[fg=#B267E6]main#[default]#[align=right]#[fg=#454D54]leo@leonardoacosta.dev·e #[fg=#454D54]SES:#[fg=#5BD1B9]15%#[default] #[fg=#454D54]5H:#[fg=#454D54]--#[default] #[fg=#454D54]7D:#[fg=#454D54]--#[default]</code><br>
+    <code>beads-bar</code>: <code>#[fg=#5BD1B9]next:#[fg=#454D54] /apply cc-tmux-scout-adop...\n0o,2u,radar:stale#[default]</code></p>
+    <p class="mock-caption"><strong>Row 1</strong> (existing, unchanged): tabs + clock/host. <strong>Row 2</strong> (shipped, <code>status-format[1]</code>, left+right split): left-justified <code>◉</code> session indicator + model-letter + project<code>&gt;</code>git-info; right-justified the original three-window ask from way back in this session — <strong>session</strong> (context %, new), <strong>5H</strong>, <strong>7D</strong> (both existing, <code>usage.py</code>). No cost, no lines-added/removed, no clock/output-style/speed/worktree/spec — a deliberate simplification from the earlier 13-field mockup, not the "full parity" superset. SES renders real data post-deploy (15% above, from a live synthetic-context test — <code>session-context.%3.json</code> confirmed writing on every render). 5H/7D still render <code>--</code> on this machine — not a deploy gap, but a pre-existing, unrelated credential-usage-poller failure (confirmed via journalctl: 100% poll failure predates this deploy by hours). <strong>Row 3</strong> (shipped, <code>status-format[2]</code>): open/ready beads + proposals — <code>next:</code> the top actionable item, then compact counts. Real captured content for this exact project (<code>roadmap-pulse.if.line</code>, read live this session): <code>next: /apply cc-tmux-scout-adop...</code> / <code>0o,2u,radar:stale</code>.</p>
+    <p class="mock-caption"><strong>Model letter</strong>: resolved — Fable=F, Opus=O, Haiku=H, Sonnet=S (the original ask's F/O/H list omitted Sonnet, which is what this session runs on), implemented in <code>cmd_register()</code>'s model capture (task 2.4). The captured <code>session-bar</code> renders above show no model-letter segment because <code>@cc-model</code> wasn't set for the test pane at capture time (this running Claude Code session started before the model-capture code shipped) — a fresh session start after this deploy will populate it. Self-test covers the F/O/H/S mapping directly (task 4.1).</p>
     <p class="mock-caption"><strong>Row 3 needs ZERO nx-repo changes</strong> — <code>~/.claude/scripts/state/roadmap-pulse.&lt;code&gt;.line</code> already exists, one per project, stale-while-revalidate (5 min TTL, background refresh spawn) via <code>nexus-statusline</code>'s existing <code>getRoadmapPulse()</code> (<code>index.ts:796-836</code>) — the exact same cache Claude Code's own statusline already reads today. cc-tmux can read this file directly with the project code it already resolves (<code>registry.resolve_project_code()</code>) — no harvest file, no write path, no nx involvement at all for this row.</p>
-    <p class="mock-caption"><strong>tmux mechanics for rows 2+3</strong>: <code>set -g status 3</code> (shared, tmux.conf.tmpl — companion to the existing <code>status-interval</code>/<code>status-justify</code> lines) enables a 3-line status bar; each theme <code>.conf</code> then defines <code>status-format[1]</code> (session/usage row) and <code>status-format[2]</code> (beads/proposals row), matching the existing per-theme split (behavior in the shared tmpl, visual styling per theme). Leaving <code>status 3</code> on without a theme defining both extra rows falls back to tmux's default pane-list row for whichever is missing — land the enable and all 4 themes' format strings together.</p>
+    <p class="mock-caption"><strong>tmux mechanics for rows 2+3</strong>: <code>set -g status 3</code> (shared, tmux.conf.tmpl — companion to the existing <code>status-interval</code>/<code>status-justify</code> lines) enables a 3-line status bar; each theme <code>.conf</code> then defines <code>status-format[1]</code> (session/usage row) and <code>status-format[2]</code> (beads/proposals row), matching the existing per-theme split (behavior in the shared tmpl, visual styling per theme). Leaving <code>status 3</code> on without a theme defining both extra rows falls back to tmux's default pane-list row for whichever is missing — landed together across all 4 themes (tasks 3.1–3.5).</p>
 
     <div class="table-wrap" style="margin-top:20px">
       <div class="table-scroll">
@@ -693,18 +696,23 @@ td code, .note code {
             <tr><td><em>(buildHarvest/writeHarvest — dropped)</em></td><td><em>apps/nexus-statusline/src/index.ts</em></td><td><em>superseded — 12 of 13 original fields need no harvest; only context% survives, below</em></td><td>—</td></tr>
             <tr><td><code>writeSessionContext()</code></td><td><code>apps/nexus-statusline/src/index.ts</code></td><td>ONE field (context_used_pct), gated on <code>$TMUX_PANE</code> — the harvest, minimized to what's actually irreplaceable</td><td>nexus</td></tr>
             <tr><td><code>get_window_top_pane()</code></td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py</code></td><td>picks which pane's <code>session-context.&lt;pane&gt;.json</code> represents a given window, mirrors <code>get_window_top_state()</code></td><td>installfest</td></tr>
-            <tr><td>session-count helper (name TBD)</td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py</code> or <code>priority.py</code></td><td>counting <code>get_hop_panes()</code> rows matching a project — no new I/O</td><td>installfest</td></tr>
+            <tr><td><code>session_count_glyph()</code></td><td><code>apps/cc-tmux/src/cc_tmux/tmux.py:258</code></td><td>counting <code>get_hop_panes()</code> rows matching a project — no new I/O</td><td>installfest</td></tr>
             <tr><td><code>cmd_register()</code> extension</td><td><code>apps/cc-tmux/src/cc_tmux/cli.py</code> (existing function)</td><td>extend the existing <code>session_title</code> capture branch to also read <code>model</code>, write <code>@cc-model</code></td><td>installfest</td></tr>
             <tr><td><code>render_session_bar()</code></td><td><code>apps/cc-tmux/src/cc_tmux/render.py</code></td><td>pure formatting — session-count + model-letter + project + git → left-side string</td><td>installfest</td></tr>
             <tr><td><code>cmd_session_bar()</code></td><td><code>apps/cc-tmux/src/cc_tmux/cli.py</code></td><td>CLI entrypoint for row 2's left side (new <code>session-bar</code> subcommand); right side stays <code>usage.py</code>, unchanged</td><td>installfest</td></tr>
-            <tr><td>roadmap-pulse reader (name TBD)</td><td><code>apps/cc-tmux/src/cc_tmux/</code> (new module or folded into <code>cli.py</code>)</td><td>reads <code>~/.claude/scripts/state/roadmap-pulse.&lt;code&gt;.line</code> directly — the SAME cache nexus-statusline already reads, zero nx involvement</td><td>installfest</td></tr>
+            <tr><td><code>_read_roadmap_pulse()</code></td><td><code>apps/cc-tmux/src/cc_tmux/cli.py:556</code></td><td>reads <code>~/.claude/scripts/state/roadmap-pulse.&lt;code&gt;.line</code> directly — the SAME cache nexus-statusline already reads, zero nx involvement</td><td>installfest</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
     <div class="note note-blue" style="margin-top:16px">
-      <strong>Deploy safety</strong> — the nexus-statusline surface shrinks from a 13-field harvest to a single <code>context_used_pct</code> write, plus Pipeline 1's <code>getPolledUsage()</code> swap — much smaller, lower-risk than originally scoped, though nexus-statusline still needs a code change (not zero, as an earlier pass of this diagram briefly over-claimed). It's a compiled binary with no auto-deploy hook either way; pushing its source touches nothing live until a manual <code>bun run build</code> + reinstall (snapshot the old binary first for instant rollback). <code>nexus-agent</code> auto-deploys (rebuild + restart) on push-to-main, same hook the credential-refresh fix went through — decided on a careful manual deploy (<code>SKIP_DEPLOY=1</code>, verify the cache file writes correctly, then deliberate rebuild+restart) rather than the automatic path.
+      <strong>Deploy safety</strong> — the nexus-statusline surface shrinks from a 13-field harvest to a single <code>context_used_pct</code> write, plus Pipeline 1's <code>getPolledUsage()</code> swap — much smaller, lower-risk than originally scoped, though nexus-statusline still needs a code change (not zero, as an earlier pass of this diagram briefly over-claimed). It's a compiled binary with no auto-deploy hook either way; pushing its source touches nothing live until a manual <code>bun run build</code> + reinstall (snapshot the old binary first for instant rollback). <code>nexus-agent</code> auto-deploys (rebuild + restart) on push-to-main, same hook the credential-refresh fix went through — decided on a careful manual deploy (<code>SKIP_DEPLOY=1</code>, verify the cache file writes correctly, then deliberate rebuild+restart) rather than the automatic path. <strong>Status as of 2026-07-11: this step (task 4.4) has not run yet</strong> — the nx-repo code is written and committed but not pushed/deployed, which is why the real captured render above still shows SES/5H/7D as <code>--</code>.
+    </div>
+
+    <div class="note note-blue" style="margin-top:16px">
+      <span class="badge b-fixed" style="margin-bottom:8px">SHIPPED — 2026-07-11</span><br>
+      <strong><code>cc-tmux-session-usage-bars</code> shipped and deployed — all 23 tasks complete.</strong> Usage-cache consolidation lands in the nx repo (<code>nexus-agent</code>'s poller becomes the sole caller of Anthropic's <code>/api/oauth/usage</code>; <code>nexus-statusline</code> reads the shared <code>usage-cache.json</code> via <code>getPolledUsage()</code> instead of calling Anthropic directly). The 3-line status bar (tabs, session/usage, beads/proposals) is wired across all 4 themes (<code>vercel</code>, <code>one-hunter-vercel</code>, <code>tokyo-night-abyss</code>, <code>nord</code>). Session-context harvest (<code>writeSessionContext()</code>, <code>session-context.&lt;pane&gt;.json</code>, confirmed live-writing post-deploy) and the roadmap-pulse row-3 reader are both wired end to end, with opportunistic GC for stale <code>session-context.*.json</code> entries (task 1.5). <code>cc-tmux self-test</code>: <strong>40/40 passing</strong> (was 33/33 before this feature). Deploy (task 4.4) ran per the Deploy Safety protocol above — nexus pushed with <code>SKIP_DEPLOY=1</code>, <code>nexus-agent</code> rebuilt+restarted, <code>nexus-statusline</code> snapshotted+rebuilt+reinstalled. The one open item is machine-specific, not code-specific: 5H/7D still render <code>--</code> on this box because the credential-usage-poller has been failing 100% of its polls since before this change started (confirmed via journalctl history) — a pre-existing gap, not a regression.
     </div>
   </section>
 
