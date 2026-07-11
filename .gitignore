@@ -64,3 +64,8 @@ packages/workspace/profiles/*/claude/*
 !packages/workspace/profiles/*/claude/.claude/
 !packages/workspace/profiles/*/claude/.claude/skills/
 !packages/workspace/profiles/*/claude/.claude/skills/**
+
+# /apply per-session git worktrees + index (runtime state, never committed)
+.worktrees/
+.worktrees-index.json
+.worktrees-index.json.lock
