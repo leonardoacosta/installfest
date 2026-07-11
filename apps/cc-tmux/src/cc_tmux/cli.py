@@ -17,9 +17,10 @@ import select
 import subprocess
 import sys
 import time
-from typing import Callable, Dict, List, Optional
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
 
-from . import log, notify, registry, render, tmux
+from . import log, notify, registry, render, tmux, usage
 from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
@@ -78,6 +79,11 @@ def cmd_register(args) -> int:
         title = hook_payload.get("session_title")
         if title:
             tmux.set_pane_title(pane, title)
+        # Same payload carries the resolved model id -> a single letter for the
+        # session-bar row (@cc-model). Fail-open: unrecognized/empty -> no write.
+        letter = _model_letter(hook_payload.get("model"))
+        if letter:
+            tmux.set_pane_model(pane, letter)
 
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
     _maybe_rename_window(pane)
@@ -104,6 +110,28 @@ def _read_hook_stdin() -> dict:
         return json.loads(raw) if raw.strip() else {}
     except Exception:
         return {}
+
+
+def _model_letter(model: object) -> str:
+    """Single-letter model tag for the session-bar row (F/O/H/S), or ``''``.
+
+    Matches on a substring of the SessionStart payload's ``model`` id
+    (``claude-opus-4-8`` / ``claude-sonnet-5`` / ``claude-haiku-4-5-…`` /
+    ``claude-fable-5``) rather than a full version string, since those drift.
+    Unrecognized or non-string input -> ``''`` (fail-open: no @cc-model write).
+    """
+    if not isinstance(model, str) or not model:
+        return ""
+    m = model.lower()
+    if "fable" in m:
+        return "F"
+    if "opus" in m:
+        return "O"
+    if "haiku" in m:
+        return "H"
+    if "sonnet" in m:
+        return "S"
+    return ""
 
 
 def cmd_clear(args) -> int:
@@ -507,6 +535,153 @@ def cmd_window_icon(args) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Session + beads status rows (cc-tmux-session-usage-bars, rows 2 + 3)
+#
+# Both entrypoints resolve the window's representative pane the same way the
+# animated tab icon does (get_window_top_*), read plain values, and hand them
+# to render.py's pure composition functions. Fail-open throughout: every read
+# degrades to a partial/empty render, never a raised exception.
+# ---------------------------------------------------------------------------
+
+def _cc_state_dir() -> Path:
+    """The Claude state dir holding session-context / roadmap-pulse cache files.
+
+    Honours ``CLAUDE_CONFIG_DIR`` (the standard CC config-dir override), else
+    ``~/.claude``. Both cache families live under ``<config>/scripts/state``.
+    """
+    base = os.environ.get("CLAUDE_CONFIG_DIR", "").strip() or os.path.expanduser("~/.claude")
+    return Path(base) / "scripts" / "state"
+
+
+def _read_roadmap_pulse(pane_id: str) -> str:
+    """Raw ``roadmap-pulse.<code>.line`` content for ``pane_id``'s project, or ``''``.
+
+    Resolves the pane's cwd (``#{pane_current_path}``) to a registry short code
+    (longest-prefix match, NOT the ``@cc-project`` display name) and reads the
+    matching roadmap-pulse cache line. Fail-open: no pane, no cwd, no code,
+    missing/unreadable/empty file -> ``''``.
+    """
+    if not pane_id:
+        return ""
+    try:
+        cwd = tmux._run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"])
+        if not cwd:
+            return ""
+        code = registry.resolve_project_code(cwd)
+        if not code:
+            return ""
+        return (_cc_state_dir() / f"roadmap-pulse.{code}.line").read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _read_session_context_pct(pane_id: str) -> Optional[float]:
+    """Session context utilization as a 0..1 ratio from ``session-context.<pane>.json``.
+
+    nexus-statusline writes ``{context_used_pct, ts}`` per pane (keyed on the raw
+    ``#{pane_id}`` e.g. ``%3``), where ``context_used_pct`` is 0-100. Divide by
+    100 so the ratio matches ``render_session_bar``'s convention (same 0..1 scale
+    as the 5H/7D utils). Fail-open: missing file / bad shape / non-numeric -> None.
+    """
+    if not pane_id:
+        return None
+    try:
+        data = json.loads((_cc_state_dir() / f"session-context.{pane_id}.json").read_text(encoding="utf-8"))
+        pct = data.get("context_used_pct")
+        if isinstance(pct, bool):
+            return None
+        return float(pct) / 100.0
+    except Exception:
+        return None
+
+
+def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
+    """``(account_label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+
+    Reuses ``usage.py``'s query + active-credential-finding + field-extraction
+    logic (same package) rather than re-deriving it. Fail-open on every branch.
+    """
+    try:
+        payload = usage._query()
+        if not payload:
+            return "", None, None
+        credentials = payload.get("credentials")
+        if not isinstance(credentials, list):
+            return "", None, None
+        active = next(
+            (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
+            None,
+        )
+        if active is None:
+            return "", None, None
+        return (
+            usage._account_label(active),
+            usage._extract_util(active, "usage5hUsed", "usage5hLimit"),
+            usage._extract_util(active, "usage7dUsed", "usage7dLimit"),
+        )
+    except Exception:
+        return "", None, None
+
+
+def cmd_session_bar(args) -> int:
+    """Emit the row-2 session/usage status-format string for a window (Req rows 2).
+
+    Invoked FROM a tmux ``status-format[1]`` string
+    (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
+    refresh. Resolves the window's representative pane, reads @cc-model /
+    @cc-project / @cc-branch, the per-pane session-context %, and the active
+    account's 5H/7D usage, and hands them to :func:`render.render_session_bar`.
+    Fail-open: any missing piece degrades to a partial render; empty window ->
+    print nothing, exit 0.
+    """
+    pane = tmux.get_window_top_pane(args.window)
+    if not pane:
+        return 0
+
+    model_letter = tmux.get_pane_option(pane, tmux.OPT_MODEL)
+    project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
+    branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
+
+    # Raw session count (an int) — render_session_bar maps it to a glyph itself,
+    # so pass the count, not tmux.session_count_glyph()'s already-mapped string.
+    session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
+
+    ses_pct = _read_session_context_pct(pane)
+    account_label, five_h_pct, seven_d_pct = _active_usage()
+
+    out = render.render_session_bar(
+        session_count,
+        model_letter,
+        project,
+        branch,
+        account_label,
+        ses_pct,
+        five_h_pct,
+        seven_d_pct,
+    )
+    if out:
+        sys.stdout.write(out)
+    return 0
+
+
+def cmd_beads_bar(args) -> int:
+    """Emit the row-3 beads/roadmap status-format string for a window (Req rows 3).
+
+    Invoked FROM a tmux ``status-format[2]`` string
+    (``#(cc-tmux beads-bar #{window_id})``). Resolves the window's representative
+    pane, reads its project's roadmap-pulse line, and hands it to
+    :func:`render.render_beads_bar`. Fail-open: nothing pending -> print nothing.
+    """
+    pane = tmux.get_window_top_pane(args.window)
+    if not pane:
+        return 0
+    out = render.render_beads_bar(_read_roadmap_pulse(pane))
+    if out:
+        sys.stdout.write(out)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # discover helpers
 # ---------------------------------------------------------------------------
 
@@ -609,6 +784,8 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "status-inbox": cmd_status_inbox,
     "usage": cmd_usage,
     "window-icon": cmd_window_icon,
+    "session-bar": cmd_session_bar,
+    "beads-bar": cmd_beads_bar,
     "conductor": cmd_conductor,
 }
 

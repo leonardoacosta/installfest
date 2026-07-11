@@ -12,7 +12,9 @@ emoji) with sensible defaults, each overridable via ``@cc-icon-<state>``.
 from __future__ import annotations
 
 import re
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
+
+from .usage import CYAN, DIM, color_for, pct_for
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -174,3 +176,95 @@ def inbox_rows(
         label = "  ".join(padded + [row[6]]).rstrip()
         out.append((label, row[7]))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars)
+#
+# Both are *pure* composition functions matching the target render in
+# ``docs/diagrams/cc-tmux-sources.html`` (the three-bar mockup). They emit
+# tmux status-format strings using the same ``#[fg=…]``/``#[default]`` escaping
+# convention as :func:`cc_tmux.usage.render_usage`, reusing that module's
+# ``color_for``/``pct_for`` for the SES/5H/7D gauges. The CLI handlers
+# (``cmd_session_bar``/``cmd_beads_bar``) read tmux/cache state and hand plain
+# values in — nothing here touches tmux or a subprocess.
+# ---------------------------------------------------------------------------
+
+# Branch-name colour (purple), distinct from usage.py's util palette. Session
+# glyph, model letter, project, and gauge labels reuse DIM/CYAN from usage.py.
+BRANCH = "#B267E6"
+
+# Session-count indicator: hollow when no tracked pane, filled at one, filled +
+# count at two or more (design.md Testing: 0/1/2+ -> ``◌``/``◉``/``◉ N``).
+SESSION_GLYPH_FILLED = "◉"
+SESSION_GLYPH_HOLLOW = "◌"
+
+
+def _session_glyph(session_count: int) -> str:
+    """Session-count glyph: ``◌`` (0), ``◉`` (1), ``◉ N`` (2+)."""
+    if session_count <= 1:
+        return SESSION_GLYPH_HOLLOW if session_count <= 0 else SESSION_GLYPH_FILLED
+    return f"{SESSION_GLYPH_FILLED} {session_count}"
+
+
+def render_session_bar(
+    session_count: int,
+    model_letter: str,
+    project: str,
+    branch: str,
+    account_label: str,
+    ses_pct: Optional[float],
+    five_h_pct: Optional[float],
+    seven_d_pct: Optional[float],
+) -> str:
+    """Row-2 status-format string: session/model/git on the left, usage on the right.
+
+    Left side: session-count glyph + model letter + project + git branch. Right
+    side: account label + ``SES:``/``5H:``/``7D:`` gauges, each coloured via
+    :func:`cc_tmux.usage.color_for` and formatted via :func:`cc_tmux.usage.pct_for`.
+    The two sides are joined with a ``#[align=right]`` directive so tmux fills the
+    gap between them (the left+right split in the mockup). ``ses_pct`` /
+    ``five_h_pct`` / ``seven_d_pct`` are utilization ratios in ``0..1`` (or ``None``
+    when unpolled -> ``--`` in DIM), exactly like ``usage.py``'s 5H/7D values.
+
+    Pure function of its inputs (no tmux/subprocess). Empty ``model_letter`` /
+    ``project`` / ``branch`` fields drop out of the left side (fail-open).
+    """
+    left_parts = [f"#[fg={DIM}]{_session_glyph(session_count)}"]
+    if model_letter:
+        left_parts.append(f"#[fg={CYAN}]{model_letter}")
+    if project:
+        left_parts.append(f"#[fg={DIM}]{project}")
+    if branch:
+        left_parts.append(f"#[fg={DIM}]>")
+        left_parts.append(f"#[fg={BRANCH}]{branch}")
+    left = " ".join(left_parts) + "#[default]"
+
+    cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
+    ps, p5, p7 = pct_for(ses_pct), pct_for(five_h_pct), pct_for(seven_d_pct)
+    right = (
+        f"#[fg={DIM}]{account_label} "
+        f"#[fg={DIM}]SES:#[fg={cs}]{ps}#[default] "
+        f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
+        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
+    )
+    return f"{left}#[align=right]{right}"
+
+
+def render_beads_bar(pulse_line: str) -> str:
+    """Row-3 status-format string from a roadmap-pulse line, or ``''`` when empty.
+
+    ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content (e.g.
+    ``"next: /apply cc-tmux-scout-adop… 0o 2u"`` or a plain ``"12 open / 24
+    waiting"``). A leading ``next:`` label is highlighted in CYAN to match the
+    mockup; the remainder renders DIM. Returns the empty string for a falsy
+    ``pulse_line`` so row 3 shows nothing when there's nothing pending.
+
+    Pure function of its input (no tmux/subprocess).
+    """
+    if not pulse_line:
+        return ""
+    if pulse_line.startswith("next:"):
+        rest = pulse_line[len("next:"):]
+        return f"#[fg={CYAN}]next:#[fg={DIM}]{rest}#[default]"
+    return f"#[fg={DIM}]{pulse_line}#[default]"

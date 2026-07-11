@@ -136,6 +136,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target window (tmux window_id e.g. @3, or an index) to scope the state lookup to.",
     )
 
+    # -- session-bar: row-2 session/usage status-format (cc-tmux-session-usage-bars)
+    # Invoked FROM a tmux status-format[1] string
+    # (`#(cc-tmux session-bar #{window_id})`), re-evaluated on every status-bar
+    # refresh — same daemon-free read cadence as window-icon.
+    p_session_bar = sub.add_parser(
+        "session-bar",
+        help="Emit the row-2 session/usage status-format string for a window (invoked from status-format[1]).",
+    )
+    p_session_bar.add_argument(
+        "window",
+        help="Target window (tmux window_id e.g. @3, or an index) to scope the lookup to.",
+    )
+
+    # -- beads-bar: row-3 beads/roadmap status-format (cc-tmux-session-usage-bars)
+    # Invoked FROM a tmux status-format[2] string
+    # (`#(cc-tmux beads-bar #{window_id})`), re-evaluated on every status-bar refresh.
+    p_beads_bar = sub.add_parser(
+        "beads-bar",
+        help="Emit the row-3 beads/roadmap status-format string for a window (invoked from status-format[2]).",
+    )
+    p_beads_bar.add_argument(
+        "window",
+        help="Target window (tmux window_id e.g. @3, or an index) to scope the lookup to.",
+    )
+
     # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----
     p_conductor = sub.add_parser(
         "conductor",

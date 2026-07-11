@@ -16,6 +16,8 @@ The tracked options on each Claude pane:
     @cc-branch       resolved git branch
     @cc-title        Claude Code session title (SessionStart hook payload; opt-in
                       `title` window-rename format only — see cli._title_window_name)
+    @cc-model        Claude model variant (SessionStart hook payload `model` field;
+                      rendered as a single letter F/O/H/S in the session-bar row)
 
 **Invariant 3 (real-transition guard):** :func:`set_pane_state` returns whether
 ``@cc-state`` actually changed, so callers fire auto-hop / app-focus ONLY on a
@@ -56,6 +58,7 @@ OPT_WAIT_REASON = "@cc-wait-reason"
 OPT_PROJECT = "@cc-project"
 OPT_BRANCH = "@cc-branch"
 OPT_TITLE = "@cc-title"
+OPT_MODEL = "@cc-model"
 
 _ALL_OPTS = (
     OPT_STATE,
@@ -66,6 +69,7 @@ _ALL_OPTS = (
     OPT_PROJECT,
     OPT_BRANCH,
     OPT_TITLE,
+    OPT_MODEL,
 )
 
 # Global (server) options for the daemon-free reconcile rate limit (design.md
@@ -220,6 +224,53 @@ def get_window_top_state(window_target: str) -> str:
     if not states:
         return ""
     return min(states, key=lambda s: STATE_PRIORITY.get(s, len(STATE_PRIORITY)))
+
+
+def get_window_top_pane(window_target: str) -> str:
+    """Id of the highest-priority ``@cc-state`` pane in ``window_target``, or ``""``.
+
+    The pane-id analogue of :func:`get_window_top_state` — same scoped
+    ``list-panes -t <window>`` read and same priority sort, but returns the
+    winning pane's id instead of its state string. Used by the session-bar to
+    pick the window's representative pane (the one whose ``@cc-model`` /
+    ``@cc-project`` / ``@cc-branch`` the row renders). ``""`` means no tracked
+    (Claude) pane in that window. Fail-open: no tmux -> ''.
+    """
+    fmt = _FS.join(["#{pane_id}", "#{@cc-state}"])
+    out = _run_tmux(["list-panes", "-t", window_target, "-F", fmt])
+    if not out:
+        return ""
+    candidates: List[tuple[str, str]] = []
+    for line in out.split("\n"):
+        if not line:
+            continue
+        parts = line.split(_FS)
+        if len(parts) != 2:
+            continue
+        pane_id, state = parts
+        if state in VALID_STATES:
+            candidates.append((pane_id, state))
+    if not candidates:
+        return ""
+    return min(candidates, key=lambda c: STATE_PRIORITY.get(c[1], len(STATE_PRIORITY)))[0]
+
+
+def session_count_glyph(project: str) -> str:
+    """Session-count glyph for ``project`` — ``◌`` / ``◉`` / ``◉ N`` for 0 / 1 / 2+.
+
+    Counts :func:`get_hop_panes` rows whose ``@cc-project`` equals ``project``
+    and maps the count to the same glyph semantics ``nexus-statusline`` uses in
+    ``renderStatusline`` (``apps/nexus-statusline/src/index.ts``): a single
+    tracked session shows a filled ``◉``, none shows a hollow ``◌``, and 2+
+    append the count (``◉ N``). Returns the bare glyph string — tmux styling is
+    applied by the render/config layer, not here. Fail-open: no tmux -> ``◌``.
+    """
+    count = sum(1 for pane in get_hop_panes() if pane.project == project)
+    if count > 1:
+        return f"◉ {count}"
+    if count == 1:
+        return "◉"
+    return "◌"
 
 
 def get_pane_option(pane_id: str, option: str) -> str:
@@ -411,6 +462,20 @@ def set_pane_title(pane_id: str, title: str) -> None:
     if not tmux_available() or not title:
         return
     _set_opt(pane_id, OPT_TITLE, title)
+
+
+def set_pane_model(pane_id: str, model: str) -> None:
+    """Store the Claude model variant for the session-bar row (``@cc-model``).
+
+    ``model`` comes from the SessionStart hook payload's ``model`` field; the
+    session-bar renders it as a single letter (F/O/H/S). Cleared on SessionEnd
+    along with every other tracked option (``@cc-model`` is in ``_ALL_OPTS``, so
+    :func:`clear_pane_state` unsets it). Fail-open: no tmux, or an empty model,
+    writes nothing.
+    """
+    if not tmux_available() or not model:
+        return
+    _set_opt(pane_id, OPT_MODEL, model)
 
 
 def set_pane_visited(pane_id: str, timestamp: Optional[float] = None) -> None:
