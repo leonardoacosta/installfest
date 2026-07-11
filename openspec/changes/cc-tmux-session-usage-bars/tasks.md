@@ -29,11 +29,11 @@
 
 ## UI Batch
 
-- [ ] [3.1] [P-1] `home/dot_config/tmux/tmux.conf.tmpl`: add `set -g status 3` (companion to the existing `status-interval`/`status-justify`/`status-position` lines) [owner:general-purpose] [type:config] [beads:if-5bz]
-- [ ] [3.2] [P-1] `home/dot_config/tmux/vercel-theme.conf`: add `status-format[1]` (`#(~/.tmux/plugins/cc-tmux/bin/cc-tmux session-bar #{window_id})`) and `status-format[2]` (`#(~/.tmux/plugins/cc-tmux/bin/cc-tmux beads-bar #{window_id})`), styled with this theme's real hex palette [owner:general-purpose] [type:config] [beads:if-e5p]
-- [ ] [3.3] [P-2] Same for `home/dot_config/tmux/one-hunter-vercel-theme.conf` [owner:general-purpose] [type:config] [beads:if-yf0]
-- [ ] [3.4] [P-2] Same for `home/dot_config/tmux/tokyo-night-abyss-theme.conf` [owner:general-purpose] [type:config] [beads:if-dkg]
-- [ ] [3.5] [P-2] Same for `home/dot_config/tmux/nord-theme.conf` [owner:general-purpose] [type:config] [beads:if-0hq]
+- [x] [3.1] [P-1] `home/dot_config/tmux/tmux.conf.tmpl`: add `set -g status 3` (companion to the existing `status-interval`/`status-justify`/`status-position` lines) [owner:general-purpose] [type:config] [beads:if-5bz]
+- [x] [3.2] [P-1] `home/dot_config/tmux/vercel-theme.conf`: add `status-format[1]` (`#(~/.tmux/plugins/cc-tmux/bin/cc-tmux session-bar #{window_id})`) and `status-format[2]` (`#(~/.tmux/plugins/cc-tmux/bin/cc-tmux beads-bar #{window_id})`), styled with this theme's real hex palette [owner:general-purpose] [type:config] [beads:if-e5p]
+- [x] [3.3] [P-2] Same for `home/dot_config/tmux/one-hunter-vercel-theme.conf` [owner:general-purpose] [type:config] [beads:if-yf0]
+- [x] [3.4] [P-2] Same for `home/dot_config/tmux/tokyo-night-abyss-theme.conf` [owner:general-purpose] [type:config] [beads:if-dkg]
+- [x] [3.5] [P-2] Same for `home/dot_config/tmux/nord-theme.conf` [owner:general-purpose] [type:config] [beads:if-0hq]
 
 ## E2E Batch
 

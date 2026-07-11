@@ -233,6 +233,12 @@ set -g status-interval 1
 # Status bar justification
 set -g status-justify left
 
+# Three-line status bar: row 1 is the tab/clock line (unchanged); rows 2 and 3
+# are defined per theme via status-format[1] (cc-tmux session-bar) and
+# status-format[2] (cc-tmux beads-bar). A theme that leaves status 3 on without
+# defining both extra rows falls back to tmux's default pane-list row.
+set -g status 3
+
 # Theme: {{ .theme }}
 # To add themes: create ~/.config/tmux/<theme>-theme.conf and update .chezmoi.toml.tmpl
 source-file ~/.config/tmux/{{ .theme }}-theme.conf
