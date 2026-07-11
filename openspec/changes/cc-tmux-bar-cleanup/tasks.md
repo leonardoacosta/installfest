@@ -18,22 +18,22 @@
 
 ## API Batch
 
-- [ ] 2.1 `apps/cc-tmux/src/cc_tmux/cli.py`: replace `_read_session_context_pct` with a [beads:if-elf]
+- [x] 2.1 `apps/cc-tmux/src/cc_tmux/cli.py`: replace `_read_session_context_pct` with a [beads:if-elf]
   `_read_session_context` helper returning the model letter (and pct if trivially kept) from
   `session-context.<pane>.json`; `cmd_session_bar` sources the model letter from it. Remove the
   SessionStart model path: `_model_letter`, the `set_pane_model` call in `cmd_register`, and the
   `_active_usage` right-side plumbing.
   - touches: `apps/cc-tmux/src/cc_tmux/cli.py`
-- [ ] 2.2 `apps/cc-tmux/src/cc_tmux/tmux.py`: remove `OPT_MODEL` / `set_pane_model` (no longer [beads:if-wwu]
+- [x] 2.2 `apps/cc-tmux/src/cc_tmux/tmux.py`: remove `OPT_MODEL` / `set_pane_model` (no longer [beads:if-wwu]
   written or read).
   - touches: `apps/cc-tmux/src/cc_tmux/tmux.py`
-- [ ] 2.3 `apps/cc-tmux/src/cc_tmux/render.py`: `render_session_bar` drops the [beads:if-9v1]
+- [x] 2.3 `apps/cc-tmux/src/cc_tmux/render.py`: `render_session_bar` drops the [beads:if-9v1]
   `account_label`/`ses_pct`/`five_h_pct`/`seven_d_pct` params and the `#[align=right]` usage
   block (left side only). `render_beads_bar` joins multi-line pulse content onto one row with a
   ` | ` separator (dim), keeping the `next:` cyan highlight; single-line content renders as
   today.
   - touches: `apps/cc-tmux/src/cc_tmux/render.py`
-- [ ] 2.4 `apps/cc-tmux/src/cc_tmux/testing.py`: update self-test cases for the new [beads:if-nh2]
+- [x] 2.4 `apps/cc-tmux/src/cc_tmux/testing.py`: update self-test cases for the new [beads:if-nh2]
   `render_session_bar` signature (left-only, no-model fail-open) and `render_beads_bar`
   (two-line join, single-line passthrough, empty). Add a fixture-file case for
   `_read_session_context`. Run the self-test; paste passing output.
