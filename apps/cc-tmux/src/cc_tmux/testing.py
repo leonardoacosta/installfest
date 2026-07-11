@@ -543,6 +543,199 @@ def _test_usage_fail_open() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Session / beads status-row tests (cc-tmux-session-usage-bars, task 4.1)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _FakeProjectPane:
+    """Minimal stand-in for a hop pane — session_count logic reads only .project."""
+
+    project: str
+
+
+def _test_render_session_glyph() -> None:
+    # The raw count -> glyph mapping cc-tmux's session bar composes from
+    # (design.md Testing: 0/1/2+ -> '◌'/'◉'/'◉ N').
+    _check(render._session_glyph(0) == render.SESSION_GLYPH_HOLLOW, "0 -> hollow")
+    _check(render._session_glyph(1) == render.SESSION_GLYPH_FILLED, "1 -> filled")
+    _check(render._session_glyph(2) == f"{render.SESSION_GLYPH_FILLED} 2", "2 -> filled + count")
+    _check(render._session_glyph(7) == f"{render.SESSION_GLYPH_FILLED} 7", "7 -> filled + count")
+    _check(render._session_glyph(-1) == render.SESSION_GLYPH_HOLLOW, "negative floors to hollow")
+
+
+def _test_tmux_session_count_glyph() -> None:
+    # tmux.session_count_glyph does both the count (over get_hop_panes) AND the
+    # glyph mapping — mock get_hop_panes to drive 0/1/2+ deterministically.
+    saved = tmux.get_hop_panes
+    try:
+        tmux.get_hop_panes = lambda: []  # type: ignore[assignment]
+        _check(tmux.session_count_glyph("if") == "◌", "no panes -> hollow")
+
+        tmux.get_hop_panes = lambda: [_FakeProjectPane("if")]  # type: ignore[assignment]
+        _check(tmux.session_count_glyph("if") == "◉", "one matching pane -> filled")
+        _check(tmux.session_count_glyph("oo") == "◌", "non-matching project -> hollow")
+
+        tmux.get_hop_panes = lambda: [  # type: ignore[assignment]
+            _FakeProjectPane("if"),
+            _FakeProjectPane("if"),
+            _FakeProjectPane("oo"),
+        ]
+        _check(tmux.session_count_glyph("if") == "◉ 2", "two matching panes -> filled + count")
+        _check(tmux.session_count_glyph("oo") == "◉", "unrelated project counted independently")
+    finally:
+        tmux.get_hop_panes = saved  # type: ignore[assignment]
+
+
+def _test_cli_model_letter() -> None:
+    # SessionStart payload model id -> single-letter tag (F/O/H/S), fail-open ''.
+    _check(cli._model_letter("claude-opus-4-8") == "O", "opus -> O")
+    _check(cli._model_letter("claude-sonnet-5") == "S", "sonnet -> S")
+    _check(cli._model_letter("claude-haiku-4-5-20251001") == "H", "dated haiku -> H")
+    _check(cli._model_letter("claude-fable-5") == "F", "fable -> F")
+    _check(cli._model_letter("Claude-OPUS-4-8") == "O", "case-insensitive substring match")
+    # Unrecognized / non-string -> '' (no @cc-model write).
+    _check(cli._model_letter("some-unknown-model") == "", "unrecognized -> ''")
+    _check(cli._model_letter("") == "", "empty string -> ''")
+    _check(cli._model_letter(None) == "", "None -> ''")
+    _check(cli._model_letter(123) == "", "non-string -> ''")
+
+
+def _test_tmux_get_window_top_pane() -> None:
+    # Pane-id analogue of get_window_top_state — mirror that test's fixture shape.
+    saved = tmux._run_tmux
+    try:
+        def fake_two_panes(args, *, check_available: bool = True):
+            if args[:2] == ["list-panes", "-t"]:
+                return "%1\x1fidle\n%2\x1fwaiting"
+            return None
+        tmux._run_tmux = fake_two_panes  # type: ignore[assignment]
+        _check(tmux.get_window_top_pane("@1") == "%2", "waiting pane's id wins over idle")
+
+        def fake_no_output(args, *, check_available: bool = True):
+            return None
+        tmux._run_tmux = fake_no_output  # type: ignore[assignment]
+        _check(tmux.get_window_top_pane("@2") == "", "no tmux output -> ''")
+
+        def fake_untracked(args, *, check_available: bool = True):
+            return "%1\x1f"  # pane present, no @cc-state -> untracked
+        tmux._run_tmux = fake_untracked  # type: ignore[assignment]
+        _check(tmux.get_window_top_pane("@3") == "", "untracked pane -> ''")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
+def _test_render_session_bar() -> None:
+    # Full render: 2+ sessions, all fields present, distinct gauge values.
+    out = render.render_session_bar(
+        2, "O", "if", "main", "leo@x.dev", 0.10, 0.55, 0.90,
+    )
+    _check("◉ 2" in out, "2+ sessions -> filled + count glyph")
+    _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
+    _check("if" in out, "project present on the left")
+    _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
+    _check("#[align=right]" in out, "left/right split directive present")
+    _check("SES:" in out and "5H:" in out and "7D:" in out, "all three gauge labels")
+    _check("10%" in out and "55%" in out and "90%" in out, "gauge pcts rendered")
+
+    # Single session -> bare filled glyph (not the 2+ '◉ N' form); None pcts -> '--'.
+    out2 = render.render_session_bar(1, "S", "oo", "dev", "acct", None, None, None)
+    _check("◉" in out2 and "◉ 1" not in out2, "1 session -> bare filled glyph")
+    _check(out2.count("--") == 3, "all-None pcts -> three '--' gauges")
+
+    # 0 sessions + all optional left fields empty -> hollow glyph, fields drop out.
+    out3 = render.render_session_bar(0, "", "", "", "", None, None, None)
+    _check("◌" in out3 and "◉" not in out3, "0 sessions -> hollow glyph only")
+    _check(f"#[fg={render.CYAN}]" not in out3, "no model letter -> no CYAN segment")
+    _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
+
+
+def _test_render_beads_bar() -> None:
+    # Empty pulse line -> '' (row 3 shows nothing).
+    _check(render.render_beads_bar("") == "", "empty pulse -> ''")
+
+    # 'next:'-prefixed line -> CYAN label + DIM remainder + colour reset.
+    out = render.render_beads_bar("next: /apply foo 2o 3u")
+    _check(out.startswith(f"#[fg={render.CYAN}]next:"), "next: label highlighted CYAN")
+    _check(f"#[fg={render.DIM}] /apply foo 2o 3u" in out, "remainder rendered DIM")
+    _check(out.endswith("#[default]"), "resets colour at end")
+
+    # Plain (non-next:) line -> entirely DIM.
+    out2 = render.render_beads_bar("12 open / 24 waiting")
+    _check(
+        out2 == f"#[fg={render.DIM}]12 open / 24 waiting#[default]",
+        "plain pulse line -> all DIM",
+    )
+
+
+def _test_cli_read_roadmap_pulse_fail_open() -> None:
+    # No pane id -> '' without ever touching tmux.
+    _check(cli._read_roadmap_pulse("") == "", "empty pane -> ''")
+
+    saved_run = tmux._run_tmux
+    try:
+        # tmux returns no cwd -> '' (nothing to resolve).
+        tmux._run_tmux = lambda args, *, check_available=True: ""  # type: ignore[assignment]
+        _check(cli._read_roadmap_pulse("%1") == "", "no cwd -> ''")
+
+        # cwd present but registry resolves no code -> ''.
+        tmux._run_tmux = (  # type: ignore[assignment]
+            lambda args, *, check_available=True: "/definitely/not/tracked"
+        )
+        _check(cli._read_roadmap_pulse("%1") == "", "untracked cwd -> ''")
+    finally:
+        tmux._run_tmux = saved_run  # type: ignore[assignment]
+
+    if registry.tomllib is None:
+        # 3.10 interpreter: the resolved-code branches below need tomllib.
+        return
+
+    saved_dotfiles = os.environ.get("DOTFILES")
+    saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    saved_run2 = tmux._run_tmux
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-pulse-test-")
+    try:
+        rel = "cc-tmux-pulse-project-zzz"
+        os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+        with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+            f.write(f'[[projects]]\ncode = "zz"\nname = "T"\npath = "{rel}"\n')
+        os.environ["DOTFILES"] = tmpdir
+
+        cfg = os.path.join(tmpdir, "cfg")
+        state_dir = os.path.join(cfg, "scripts", "state")
+        os.makedirs(state_dir, exist_ok=True)
+        os.environ["CLAUDE_CONFIG_DIR"] = cfg
+
+        cwd = os.path.join(os.path.expanduser("~"), rel, "sub")
+        tmux._run_tmux = lambda args, *, check_available=True: cwd  # type: ignore[assignment]
+        pulse_file = os.path.join(state_dir, "roadmap-pulse.zz.line")
+
+        # Positive read proves the plumbing actually reaches the resolved file
+        # (so the fail-open cases below aren't passing vacuously).
+        with open(pulse_file, "w") as f:
+            f.write("next: /apply zz-thing 1o 2u\n")
+        _check(
+            cli._read_roadmap_pulse("%1") == "next: /apply zz-thing 1o 2u",
+            "reads + strips the resolved pulse line",
+        )
+
+        # Missing file -> '' (fail-open, never raises).
+        os.unlink(pulse_file)
+        _check(cli._read_roadmap_pulse("%1") == "", "missing pulse file -> ''")
+
+        # A directory where the file should be -> unreadable -> '' (never raises).
+        os.makedirs(pulse_file)
+        _check(cli._read_roadmap_pulse("%1") == "", "unreadable pulse path -> ''")
+    finally:
+        tmux._run_tmux = saved_run2  # type: ignore[assignment]
+        for key, val in (("DOTFILES", saved_dotfiles), ("CLAUDE_CONFIG_DIR", saved_cfg)):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -580,6 +773,13 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.account_label", _test_usage_account_label),
     ("usage.render_segment", _test_usage_render_segment),
     ("usage.fail_open", _test_usage_fail_open),
+    ("render.session_glyph", _test_render_session_glyph),
+    ("tmux.session_count_glyph", _test_tmux_session_count_glyph),
+    ("cli.model_letter", _test_cli_model_letter),
+    ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
+    ("render.session_bar", _test_render_session_bar),
+    ("render.beads_bar", _test_render_beads_bar),
+    ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
 ]
 
 
