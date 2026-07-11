@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
-# run_onchange_after_github-auth.sh — guided GitHub + GitKraken auth wiring.
+# run_onchange_after_github-auth.sh — GitHub + GitKraken auth wiring, sourced
+# from a 1Password-stored PAT (not an interactive `gh auth login`).
 #
 # Re-runs whenever this file's rendered content changes (run_onchange prefix), in
 # the AFTER stage so Homebrew/pacman packages (gh, gk) and the global git identity
 # are already in place.
 #
-# Chains the full auth pipeline Leo asked for:
+# Chains the full auth pipeline:
 #   1. Ensure the GitHub CLI (`gh`) is installed.
-#   2. Guide an interactive sign-in (web/device flow) with GitKraken-ready scopes.
-#   3. Derive the PAT via `gh auth token` and stash it in the OS keychain
-#      (macOS Keychain / Linux libsecret) — dot_zshenv.tmpl exports it from there.
+#   2. Read the PAT from 1Password ($OP_GH_ITEM) — source of truth is 1Password,
+#      NOT an interactive gh device/web-flow login (that's what this replaces;
+#      the old flow required a browser round-trip on every token rotation).
+#   3. Stash the PAT in the OS keychain (macOS Keychain / Linux libsecret) —
+#      dot_zshenv.tmpl exports it from there as GH_TOKEN/GITHUB_TOKEN. Once
+#      GH_TOKEN is exported, `gh` uses it directly for every operation — no
+#      separate `gh auth login` needed.
 #   4. Wire global git credentials with BOTH helpers: `gh` first, native keychain
 #      helper as fallback (the multi-valued chain pattern from configure-git-azure).
 #   5. Sign in to the GitKraken CLI (`gk auth login`) and attach the GitHub token
 #      as a provider (`gk provider add github -t <PAT>`).
 #
 # TTY GUARD (critical): mesh deploys run `chezmoi apply` non-interactively and
-# force-reset this repo (see memory: "Mac is a deploy target"). The browser /
-# device-flow logins here MUST NOT block those deploys, so the script no-ops
-# unless stdin is a real terminal and CI is unset.
+# force-reset this repo (see memory: "Mac is a deploy target"). `op read` needs
+# an interactive unlock (Touch ID / app approval) the first time per session, so
+# the script no-ops unless stdin is a real terminal and CI is unset.
+#
+# PREREQUISITES (one-time):
+#   1. op (1Password CLI, Brewfile cask) + app integration:
+#      1Password 8 > Settings > Developer > "Integrate with 1Password CLI".
+#   2. A GitHub PAT stored in 1Password at $OP_GH_ITEM (default below; override
+#      by exporting it before `chezmoi apply`).
 
 set -uo pipefail
 
@@ -31,21 +42,10 @@ warn()    { printf 'WARN  %s\n' "$*"; }
 
 # --- TTY guard --------------------------------------------------------------
 if [[ ! -t 0 || -n "${CI:-}" ]]; then
-	echo "github-auth: non-interactive shell — skipping guided login."
+	echo "github-auth: non-interactive shell — skipping (op needs an interactive unlock)."
 	echo "github-auth: run 'chezmoi apply' (or this script) in a terminal to complete."
 	exit 0
 fi
-
-# ~/.zshenv exports GH_TOKEN/GITHUB_TOKEN from the keychain. When either is set,
-# `gh` authenticates with the env token and REFUSES `gh auth login`/`refresh`
-# ("first clear the value from the environment"). Clear them for this process so
-# every gh operation below targets the stored keyring credential instead; the
-# fresh token is re-stored to the keychain at the end and re-exported next shell.
-unset GH_TOKEN GITHUB_TOKEN
-
-# Scopes: repo+read:org+gist for GitKraken, read:packages so the same token
-# doubles as NPM_TOKEN for GitHub Packages (npm.pkg.github.com, e.g. @nessprim).
-SCOPES="repo,read:org,gist,read:packages"
 
 {{ if eq .chezmoi.os "darwin" -}}
 # --- macOS platform bindings ------------------------------------------------
@@ -67,7 +67,7 @@ keychain_store() {
 	if command -v secret-tool >/dev/null 2>&1; then
 		printf '%s' "$1" | secret-tool store --label="github-pat" service github-pat account "$USER"
 	else
-		warn "secret-tool not found — token left in gh keyring only (no env export)."
+		warn "secret-tool not found — token left unstored (no env export)."
 		return 1
 	fi
 }
@@ -85,30 +85,30 @@ if ! ensure_gh; then
 	exit 0
 fi
 
-# --- 2. gh sign-in ----------------------------------------------------------
-if gh auth status >/dev/null 2>&1; then
-	success "gh already authenticated as $(gh api user -q .login 2>/dev/null || echo '?')"
-	# Ensure the token carries read:packages (needed for NPM_TOKEN / GitHub
-	# Packages). gh auth refresh is additive + interactive (browser/device).
-	if ! gh auth status 2>&1 | grep -q "read:packages"; then
-		info "Adding read:packages scope to the GitHub token ..."
-		gh auth refresh -h github.com -s "$SCOPES" \
-			|| warn "scope refresh skipped — NPM_TOKEN may lack read:packages."
-	fi
-else
-	info "Opening GitHub sign-in (web flow, scopes: $SCOPES) ..."
-	if ! gh auth login -h github.com -p https -w -s "$SCOPES"; then
-		warn "gh auth login did not complete — re-run this script when ready."
+# --- 2. read the PAT from 1Password -----------------------------------------
+# Override by exporting OP_GH_ITEM before `chezmoi apply`. Form: op://<vault>/<item>/<field>.
+: "${OP_GH_ITEM:=op://Personal/GH_PAT/credential}"
+
+command -v op >/dev/null 2>&1 || {
+	warn "op (1Password CLI) not installed — run 'brew bundle' first. Skipping GitHub PAT wiring."
+	exit 0
+}
+if ! op whoami >/dev/null 2>&1; then
+	info "Signing in to the 1Password CLI (approve in the app / Touch ID)..."
+	op signin >/dev/null 2>&1 || {
+		warn "op signin failed — enable Settings > Developer > Integrate with 1Password CLI, then re-run."
 		exit 0
-	fi
+	}
 fi
 
-# --- 3. derive + store the PAT ----------------------------------------------
-TOKEN="$(gh auth token 2>/dev/null || true)"
+TOKEN="$(op read "$OP_GH_ITEM" 2>/dev/null || true)"
 if [[ -z "$TOKEN" ]]; then
-	warn "gh auth token returned empty — cannot continue."
+	warn "Could not read $OP_GH_ITEM from 1Password."
+	warn "Store a GitHub PAT there (scopes: repo,read:org,gist,read:packages), or set OP_GH_ITEM to your ref."
 	exit 0
 fi
+
+# --- 3. store the PAT ---------------------------------------------------
 if keychain_store "$TOKEN"; then
 	success "PAT stored in OS keychain (service: github-pat)."
 fi
