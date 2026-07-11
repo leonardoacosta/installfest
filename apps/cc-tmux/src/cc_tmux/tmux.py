@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from . import log
-from .priority import PENDING_STATES, VALID_STATES
+from .priority import PENDING_STATES, STATE_PRIORITY, VALID_STATES
 
 # Field separator for the batched list-panes read. Unit Separator (0x1f) will not
 # appear in tmux identifiers, session/window names, or normal task text.
@@ -191,6 +191,35 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
             )
         )
     return panes
+
+
+def get_window_top_state(window_target: str) -> str:
+    """Highest-priority ``@cc-state`` among ``window_target``'s panes, or ``""``.
+
+    A scoped ``list-panes -t <window>`` read (NOT the full server-wide
+    :func:`get_hop_panes` scan) — this is invoked by ``cc-tmux window-icon``
+    once per window on every status-bar refresh (``status-interval``), so it
+    needs to stay cheap regardless of how many other windows/sessions exist.
+    ``""`` means no tracked (Claude) pane in that window — callers should
+    treat that as "show no icon", not an error. Fail-open: no tmux -> ''.
+    """
+    fmt = _FS.join(["#{pane_id}", "#{@cc-state}"])
+    out = _run_tmux(["list-panes", "-t", window_target, "-F", fmt])
+    if not out:
+        return ""
+    states: List[str] = []
+    for line in out.split("\n"):
+        if not line:
+            continue
+        parts = line.split(_FS)
+        if len(parts) != 2:
+            continue
+        _pane_id, state = parts
+        if state in VALID_STATES:
+            states.append(state)
+    if not states:
+        return ""
+    return min(states, key=lambda s: STATE_PRIORITY.get(s, len(STATE_PRIORITY)))
 
 
 def get_pane_option(pane_id: str, option: str) -> str:

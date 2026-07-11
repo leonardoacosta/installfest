@@ -139,21 +139,19 @@ user's own `pane-focus-in` hook is never clobbered. Tracking MUST be disableable
 
 ### Requirement: Opt-in window rename supports a project-code + session-title format
 When `@cc-window-rename` is on and `@cc-window-rename-format` is `title`, the plugin SHALL rename
-the pane's window to `<state-icon> <project-code>·<session-title>`, with the code·title portion
-hard-truncated to 10 characters combined (the leading state icon sits outside that budget, same as
-the `state` format). The project code SHALL resolve from the dotfiles project registry
-(`home/projects.toml`) by the pane's current directory; the session title SHALL be captured from
-the `SessionStart` hook payload's `session_title` field (the custom title if set via `/rename` or
-`-n`, else Claude's own default) and persisted in `@cc-title`. Either half MAY be absent; the
-plugin MUST fall back to whichever half resolved rather than leaving the window unnamed.
+the pane's window to `<project-code>·<session-title>`, hard-truncated to 10 characters combined.
+The project code SHALL resolve from the dotfiles project registry (`home/projects.toml`) by the
+pane's current directory; the session title SHALL be captured from the `SessionStart` hook
+payload's `session_title` field (the custom title if set via `/rename` or `-n`, else Claude's own
+default) and persisted in `@cc-title`. Either half MAY be absent; the plugin MUST fall back to
+whichever half resolved rather than leaving the window unnamed. The renamed text does NOT include
+a state icon — see "Animated tab icon" below for how the icon is rendered instead.
 
 #### Scenario: registered project gets a code-prefixed title
 - Given: `@cc-window-rename-format` is `title`, the pane's cwd is inside a project registered in
-  `home/projects.toml` with code `if`, `@cc-title` holds `"Fix ssh mesh auth flow"`, and the
-  window's highest-priority state is `idle`
+  `home/projects.toml` with code `if`, and `@cc-title` holds `"Fix ssh mesh auth flow"`
 - When: the window is renamed
-- Then: the window name is `○ if·Fix ssh` (icon + space, then 10 characters of code·title truncated
-  together)
+- Then: the window name is `if·Fix ssh` (10 characters, code + title truncated together)
 
 #### Scenario: unregistered project falls back to title alone
 - Given: the pane's cwd is not covered by any registry entry, and `@cc-title` holds a title
@@ -226,17 +224,51 @@ smart-suppress notify/focus when the terminal is already focused.
 ### Requirement: Status-bar integration and window auto-rename
 `cc-tmux status` SHALL emit pane counts for the status bar; `cc-tmux status-inbox` SHALL emit a
 clickable pending-pane badge list. When `@cc-window-rename` is on, the plugin MUST rename the
-window to `<state-icon> <dir basename>`.
+window to the dir basename (default `state` format) — the state icon is rendered separately, see
+"Animated tab icon" below.
 
 #### Scenario: status shows counts
 - Given: two waiting and one idle pane
 - When: the status bar renders `#{E:@cc-status}`
 - Then: it shows the waiting and idle counts with their icons
 
-#### Scenario: window rename tracks highest-priority state
-- Given: `@cc-window-rename` is on and a window has an idle and a waiting Claude pane
+#### Scenario: window rename label is the directory basename
+- Given: `@cc-window-rename` is on, `@cc-window-rename-format` is `state`, and a window has a
+  tracked Claude pane
 - When: the window is renamed
-- Then: the icon reflects `waiting` (highest priority) and the label is the directory basename
+- Then: the window name is the directory basename alone (no icon prefix in the renamed text)
+
+### Requirement: Animated tab icon reflects state via a wall-clock-driven refresh
+The tab icon SHALL be rendered from the tmux `window-status-format`/`window-status-current-format`
+strings (`#(cc-tmux window-icon #{window_id})`), NOT baked into the `rename-window` text — hook
+events fire irregularly and cannot drive a believable animation, whereas tmux re-evaluates these
+format strings on every status-bar refresh (`status-interval`) regardless of hook activity. No
+background process or timer SHALL be introduced by this plugin to achieve the animation. Each
+tracked state SHALL use a distinct motion language: `waiting` (needs a decision: permission,
+question, plan, or elicitation) SHALL cycle a rising/falling shade pulse (`░▒▓█▓▒░`); `active`
+(Claude mid-turn) SHALL cycle a rotating block edge (`▁▏▔▕`); `idle` (turn ended, nothing pending)
+SHALL render a single static glyph, never animated. A window with no tracked Claude pane MUST
+render no icon at all (not even the idle glyph).
+
+#### Scenario: waiting state pulses through the shade sequence
+- Given: a window's highest-priority tracked state is `waiting`
+- When: `cc-tmux window-icon` is invoked at two different wall-clock seconds one second apart
+- Then: it prints two different frames from `░▒▓█▓▒░`, advancing by one position
+
+#### Scenario: active state rotates through the block sequence
+- Given: a window's highest-priority tracked state is `active`
+- When: `cc-tmux window-icon` is invoked at two different wall-clock seconds one second apart
+- Then: it prints two different frames from `▁▏▔▕`, advancing by one position
+
+#### Scenario: idle state never animates
+- Given: a window's highest-priority tracked state is `idle`
+- When: `cc-tmux window-icon` is invoked at any two different wall-clock times
+- Then: it prints the same static glyph both times
+
+#### Scenario: untracked window renders no icon
+- Given: a window with no tracked Claude pane (a plain shell)
+- When: `cc-tmux window-icon` is invoked for that window
+- Then: it prints nothing (empty output — the format string's `#W` renders with no icon prefix)
 
 ### Requirement: Multi-account Claude usage segment replaces tmux-nexus-creds
 `cc-tmux usage` SHALL render the multi-account Claude usage segment (account + 5H/7D utilization

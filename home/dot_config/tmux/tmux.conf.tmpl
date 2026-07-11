@@ -225,8 +225,10 @@ set -g @cc-window-rename-format title
 # Status bar position
 set -g status-position bottom
 
-# Status bar update interval (2s for credential status refresh)
-set -g status-interval 2
+# Status bar update interval — 1s (tmux's floor) drives the cc-tmux animated
+# tab icon (window-icon subcommand, re-evaluated via window-status-format);
+# also refreshes the credential status segment.
+set -g status-interval 1
 
 # Status bar justification
 set -g status-justify left

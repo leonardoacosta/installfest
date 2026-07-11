@@ -24,7 +24,6 @@ from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
 from .priority import (
-    STATE_PRIORITY,
     VALID_STATES,
     group_by_state,
     pending_panes,
@@ -413,15 +412,19 @@ def _truthy(value: str) -> bool:
 def _maybe_rename_window(pane_id: str) -> None:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
-    Two formats, selected by ``@cc-window-rename-format`` (default ``state``),
-    both prefixed with the same state icon (highest-priority Claude state in
-    the window) — the icon sits OUTSIDE either format's own truncation budget:
+    Two formats, selected by ``@cc-window-rename-format`` (default ``state``):
 
-    - ``state`` (default): ``<state-icon> <dir basename>``. The directory
-      basename stays a stable label.
-    - ``title``: ``<state-icon> <project-code>·<session-title>``, with the
-      code·title portion hard-truncated to ``_TAB_NAME_MAX`` chars combined —
-      see :func:`_title_window_name`.
+    - ``state`` (default): the dir basename alone.
+    - ``title``: ``<project-code>·<session-title>``, hard-truncated to
+      ``_TAB_NAME_MAX`` chars combined — see :func:`_title_window_name`.
+
+    NOTE: neither format includes a state icon here anymore. The tab icon is
+    now animated (see ``render.animated_icon`` / ``cmd_window_icon``), which
+    needs a wall-clock-driven re-render that a hook-triggered ``rename-window``
+    call cannot provide (hooks fire irregularly, not on a timer). The icon is
+    rendered separately, from the tmux ``window-status-format`` string itself
+    (``#(cc-tmux window-icon #{window_id})``), re-evaluated on every
+    status-bar refresh — see tmux.conf.tmpl / the theme ``.conf`` files.
 
     ``automatic-rename`` is forced off either way so tmux does not clobber the
     name tmux-conf itself already disables (see tmux.conf.tmpl).
@@ -436,19 +439,15 @@ def _maybe_rename_window(pane_id: str) -> None:
     if not siblings:
         return
 
-    top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
-    icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
-
     fmt = (tmux.get_global_option(_WINDOW_RENAME_FORMAT_OPT) or "state").strip().lower()
     if fmt == "title":
-        body = _title_window_name(me)
+        name = _title_window_name(me)
     else:
         cwd = tmux._run_tmux(
             ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
         )
-        body = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
+        name = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
 
-    name = f"{icon} {body}".strip()
     if not name:
         return
     tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
@@ -484,6 +483,27 @@ def _title_window_name(pane) -> str:
     code = registry.resolve_project_code(cwd) if cwd else ""
     title = tmux.get_pane_option(pane.id, tmux.OPT_TITLE)
     return compose_title_name(code, title, fallback=pane.project or "")
+
+
+def cmd_window_icon(args) -> int:
+    """Emit the current tab-icon glyph for a window (animated tab icon).
+
+    Invoked FROM a tmux ``window-status-format``/``window-status-current-format``
+    string (``#(cc-tmux window-icon #{window_id})``) — tmux re-runs this on
+    every status-bar refresh, which is what drives the animation (this
+    process holds no timer of its own). Prints ``"<glyph> "`` (with a trailing
+    separator space) when the window has a tracked pane, or nothing at all for
+    an untracked (non-Claude) window — the caller's format string relies on
+    that to avoid a stray double-space, see tmux.conf.tmpl / theme .conf files.
+    Fail-open: any error -> print nothing, exit 0 (never blocks the status bar).
+    """
+    state = tmux.get_window_top_state(args.window)
+    if not state:
+        return 0
+    icon = render.animated_icon(state, time.time())
+    if icon:
+        sys.stdout.write(f"{icon} ")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +608,7 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "status": cmd_status,
     "status-inbox": cmd_status_inbox,
     "usage": cmd_usage,
+    "window-icon": cmd_window_icon,
     "conductor": cmd_conductor,
 }
 

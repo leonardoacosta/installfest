@@ -422,7 +422,7 @@ td code, .note code {
         </div>
       </div>
     </div>
-    <p class="mock-caption"><strong>Window tab:</strong> <code>○ if·Fix cc-</code> — state icon (idle), then project code "if" (registry) + session title, middle-dot-joined, hard-truncated to 10 chars combined (icon sits outside that budget). <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
+    <p class="mock-caption"><strong>Window tab:</strong> <code>○ if·Fix cc-</code> — a single snapshot frame. Since this update the icon is no longer baked into the renamed text (<code>if·Fix cc-</code> alone) — it's rendered separately by <code>window-status-format</code> (<code>cc-tmux window-icon</code>), re-invoked on every status-bar refresh so it can actually animate: <code>waiting</code> pulses <code>░▒▓█▓▒░</code>, <code>active</code> rotates <code>▁▏▔▕</code>, <code>idle</code> stays static. <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
 
     <div class="term-mock" style="margin-top:20px">
       <div class="term-titlebar">once nexus-agent polls real usage — target state, not yet live</div>

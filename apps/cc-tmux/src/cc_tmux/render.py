@@ -27,6 +27,57 @@ DEFAULT_STATUS_FORMAT = "{waiting:icon} {idle:icon} {active:icon}"
 
 _TOKEN_RE = re.compile(r"\{(\w+):icon\}")
 
+# ---------------------------------------------------------------------------
+# Animated window-tab icon (Req: animated tab icon)
+#
+# The literal window NAME (set via `rename-window`) only changes on discrete
+# Claude Code hook events — irregular, sometimes minutes apart, sometimes
+# bursty — so it cannot drive a believable animation on its own. Real motion
+# needs a wall-clock-driven re-render, which tmux already provides for free
+# via `window-status-format`/`window-status-current-format`: those are
+# re-evaluated on every status-bar refresh (`status-interval`), independent of
+# hook activity. `cli.cmd_window_icon` is invoked FROM that format string
+# (`#(cc-tmux window-icon #{window_id})`), so :func:`animated_icon` picks a
+# frame purely from the caller-supplied wall-clock time — no timer, no
+# background process, same "daemon-free" invariant as the rest of this
+# plugin (tmux.py's own docstring).
+#
+# Frame family per state (distinct motion language, not just distinct icons):
+#   waiting (needs a decision: permission/question/plan/elicitation) -> a
+#     rising/falling shade pulse, reads as "needs attention".
+#   active (Claude mid-turn) -> a rotating block edge, reads as "in motion".
+#   idle (turn ended, nothing pending) -> a single static glyph, deliberately
+#     NOT animated — nothing is happening, so nothing should move.
+# ---------------------------------------------------------------------------
+
+SHADE_FRAMES: Tuple[str, ...] = ("░", "▒", "▓", "█", "▓", "▒", "░")
+BLOCK_FRAMES: Tuple[str, ...] = ("▁", "▏", "▔", "▕")
+IDLE_GLYPH = "█"
+
+# Seconds per frame. Matches the (default 1s-floor) status-interval driving
+# re-renders — a shorter period than the actual refresh cadence would just
+# mean some frames are silently skipped, which is harmless.
+FRAME_PERIOD_SEC = 1.0
+
+
+def animated_icon(state: str, now: float) -> str:
+    """The tab-icon glyph for ``state`` at wall-clock ``now``.
+
+    Pure function of its inputs (testable without a live clock or tmux) —
+    :func:`cc_tmux.cli.cmd_window_icon` supplies the real ``time.time()``.
+    ``waiting``/``active`` cycle their frame tuple by ``now // FRAME_PERIOD_SEC``;
+    ``idle`` always returns the same static glyph. Any other state (or an
+    empty string, meaning no tracked pane) falls back to :data:`DEFAULT_ICONS`,
+    then to ``""`` — callers should treat an empty result as "print nothing".
+    """
+    if state == "waiting":
+        return SHADE_FRAMES[int(now / FRAME_PERIOD_SEC) % len(SHADE_FRAMES)]
+    if state == "active":
+        return BLOCK_FRAMES[int(now / FRAME_PERIOD_SEC) % len(BLOCK_FRAMES)]
+    if state == "idle":
+        return IDLE_GLYPH
+    return DEFAULT_ICONS.get(state, "")
+
 
 def resolve_icons(get_option: Callable[[str], str]) -> Dict[str, str]:
     """Icon map with per-state ``@cc-icon-<state>`` overrides applied.

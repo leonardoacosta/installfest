@@ -377,6 +377,41 @@ def _test_render_resolve_icons() -> None:
     _check(icons2["idle"] == render.DEFAULT_ICONS["idle"], "idle keeps default")
 
 
+def _test_render_animated_icon() -> None:
+    _check(render.animated_icon("idle", 0.0) == render.IDLE_GLYPH, "idle -> static glyph")
+    _check(render.animated_icon("idle", 999.0) == render.IDLE_GLYPH, "idle never changes with time")
+    _check(render.animated_icon("waiting", 0.0) == render.SHADE_FRAMES[0], "waiting frame 0")
+    _check(render.animated_icon("waiting", 1.0) == render.SHADE_FRAMES[1], "waiting frame 1s later")
+    n_shade = len(render.SHADE_FRAMES)
+    _check(render.animated_icon("waiting", float(n_shade)) == render.SHADE_FRAMES[0], "waiting wraps around")
+    _check(render.animated_icon("active", 0.0) == render.BLOCK_FRAMES[0], "active frame 0")
+    _check(render.animated_icon("active", 2.0) == render.BLOCK_FRAMES[2], "active frame 2s later")
+    _check(render.animated_icon("bogus-state", 0.0) == "", "unknown state -> ''")
+
+
+def _test_tmux_get_window_top_state() -> None:
+    saved = tmux._run_tmux
+    try:
+        def fake_two_panes(args, *, check_available: bool = True):
+            if args[:2] == ["list-panes", "-t"]:
+                return "%1\x1fidle\n%2\x1fwaiting"
+            return None
+        tmux._run_tmux = fake_two_panes  # type: ignore[assignment]
+        _check(tmux.get_window_top_state("@1") == "waiting", "waiting outranks idle")
+
+        def fake_no_output(args, *, check_available: bool = True):
+            return None
+        tmux._run_tmux = fake_no_output  # type: ignore[assignment]
+        _check(tmux.get_window_top_state("@2") == "", "no tmux output -> ''")
+
+        def fake_untracked(args, *, check_available: bool = True):
+            return "%1\x1f"  # pane present, no @cc-state -> untracked
+        tmux._run_tmux = fake_untracked  # type: ignore[assignment]
+        _check(tmux.get_window_top_state("@3") == "", "untracked pane -> ''")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
 def _test_render_inbox_rows() -> None:
     panes = [
         _FakePaneFull("%1", "waiting", 100.0, "s1", "0", "proj", "main", "permission", "do X"),
@@ -531,6 +566,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.format_duration", _test_render_format_duration),
     ("render.render_status", _test_render_status),
     ("render.resolve_icons", _test_render_resolve_icons),
+    ("render.animated_icon", _test_render_animated_icon),
+    ("tmux.get_window_top_state", _test_tmux_get_window_top_state),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
     ("usage.pct_formatting", _test_usage_pct_formatting),

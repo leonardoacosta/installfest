@@ -122,6 +122,20 @@ def build_parser() -> argparse.ArgumentParser:
     # Takes no arguments (mirrors the retired tmux-nexus-creds sh script).
     sub.add_parser("usage", help="Emit the Claude usage status segment.")
 
+    # -- window-icon: animated tab icon (Req: animated tab icon) ---------------
+    # Invoked FROM a tmux window-status-format string
+    # (`#(cc-tmux window-icon #{window_id})`), re-evaluated on every
+    # status-bar refresh — this is what drives the animation, not a timer
+    # owned by this process.
+    p_window_icon = sub.add_parser(
+        "window-icon",
+        help="Emit the current tab-icon glyph for a window (invoked from window-status-format).",
+    )
+    p_window_icon.add_argument(
+        "window",
+        help="Target window (tmux window_id e.g. @3, or an index) to scope the state lookup to.",
+    )
+
     # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----
     p_conductor = sub.add_parser(
         "conductor",
