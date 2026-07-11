@@ -5,12 +5,12 @@
 
 ## DB Batch
 
-- [ ] 1.1 cc repo — `~/.claude/scripts/bin/roadmap-pulse` `--line` mode: emit full-word counts [beads:if-uye]
+- [x] 1.1 cc repo — `~/.claude/scripts/bin/roadmap-pulse` `--line` mode: emit full-word counts [beads:if-uye]
   (`N open, M unarchived`) instead of `No,Mu`, and delete the `radar:stale` token append.
   Verify with a direct run: paste `roadmap-pulse --line` stdout for the `if` project showing
   the new format and no radar token. Commit + push in the cc repo (ad-hoc lane).
   - touches: `~/.claude/scripts/bin/roadmap-pulse`
-- [ ] 1.2 nx repo — `apps/nexus-statusline/src/index.ts`: extend the per-pane [beads:if-baf]
+- [x] 1.2 nx repo — `apps/nexus-statusline/src/index.ts`: extend the per-pane [beads:if-baf]
   `session-context.<pane>.json` writer (~line 655-684) to include the model family letter
   (reuse the letter `modelEffortToken` derives; write letter only, not effort). Update/extend
   the writer's vitest coverage; paste passing test output. Commit in nx (push handled in 4.1).
