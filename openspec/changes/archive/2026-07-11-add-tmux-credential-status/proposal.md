@@ -1,5 +1,15 @@
 # Proposal: Add tmux credential status bar element
 
+> **SUPERSEDED, archived 2026-07-12.** The shell-script architecture this proposal describes
+> (`home/dot_local/bin/executable_tmux-nexus-creds`, `curl`+`jq` against `localhost:7402`) no
+> longer exists — it was replaced by `apps/cc-tmux` (`cc-tmux usage`, Python, port 7400, part of
+> the `[CAPABILITY] cc-tmux` epic `if-bqw`), which ships the same account+5H/7D display this
+> proposal asked for, correctly. Tasks 1.1-3.3 describe the retired script and are moot, not
+> "done" in the current architecture. Task 4.1 (account-switcher popup) remains a real, un-shipped
+> idea — re-file it fresh against `cc-tmux` if still wanted; it doesn't belong on this proposal's
+> dead architecture. See `cc-tmux-session-usage-bars` (successor proposal) and
+> `docs/diagrams/cc-tmux-sources.html` for the current design.
+
 ## Change ID
 `add-tmux-credential-status`
 
