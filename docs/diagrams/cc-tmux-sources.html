@@ -405,7 +405,7 @@ td code, .note code {
   <!-- ============ DISPLAY SURFACES ============ -->
   <section class="animate" style="--i:3">
     <h2><span class="h-tag">Display</span> What it looks like</h2>
-    <p class="section-sub">Real theme colors (<code>vercel-theme.conf</code>) and real captured values, not a generic mockup. Two states shown: current (verified this session) and the target state once nexus-agent starts polling.</p>
+    <p class="section-sub">Real theme colors (<code>vercel-theme.conf</code>) and real captured values, not a generic mockup. Two states shown: current (verified live) and the target state once the Anthropic rate-limit competition is resolved (see Known Gaps).</p>
 
     <div class="term-mock">
       <div class="term-titlebar">vercel-theme.conf — current, verified live</div>
@@ -416,16 +416,16 @@ td code, .note code {
           <div class="tb-seg tb-win">2 zsh</div>
           <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
           <div class="tb-spacer"></div>
-          <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#454D54">--</span> <span style="color:#454D54">7D:</span><span style="color:#454D54">--</span></div>
+          <div class="tb-seg tb-usage"><span style="color:#454D54">leo@leonardoacosta.dev·e</span> <span style="color:#454D54">5H:</span><span style="color:#454D54">--</span> <span style="color:#454D54">7D:</span><span style="color:#454D54">--</span></div>
           <div class="tb-seg tb-clock">14:32</div>
           <div class="tb-seg tb-host">homelab</div>
         </div>
       </div>
     </div>
-    <p class="mock-caption"><strong>Window tab:</strong> <code>○ if·Fix cc-</code> — a single snapshot frame. Since this update the icon is no longer baked into the renamed text (<code>if·Fix cc-</code> alone) — it's rendered separately by <code>window-status-format</code> (<code>cc-tmux window-icon</code>), re-invoked on every status-bar refresh so it can actually animate: <code>waiting</code> pulses <code>░▒▓█▓▒░</code>, <code>active</code> rotates <code>▁▏▔▕</code>, <code>idle</code> stays static. <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
+    <p class="mock-caption"><strong>Window tab:</strong> <code>○ if·Fix cc-</code> as it actually appears on screen — but the icon and the name are two independent mechanisms now: <code>if·Fix cc-</code> is the literal `rename-window` text (unchanged from before), while <code>○</code> is rendered separately by <code>window-status-format</code> (<code>cc-tmux window-icon</code>), re-invoked on every status-bar refresh so it can actually animate: <code>waiting</code> pulses <code>░▒▓█▓▒░</code>, <code>active</code> rotates <code>▁▏▔▕</code>, <code>idle</code> stays static. <strong>Status-right:</strong> account label is now the full email + last char of the org id (<code>usage.py:_account_label</code>) — a bare name like "Leo" wasn't indicative enough once the same email can hold multiple orgs. 5H/7D still render <code>--</code> — see Known Gaps for why.</p>
 
     <div class="term-mock" style="margin-top:20px">
-      <div class="term-titlebar">once nexus-agent polls real usage — target state, not yet live</div>
+      <div class="term-titlebar">once the rate-limit competition is fixed — target state, not yet live</div>
       <div class="term-body">
         <div class="tmux-bar">
           <div class="tb-seg tb-session">0</div>
@@ -433,7 +433,7 @@ td code, .note code {
           <div class="tb-seg tb-win">2 zsh</div>
           <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
           <div class="tb-spacer"></div>
-          <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#FAC760">50%</span> <span style="color:#454D54">7D:</span><span style="color:#E61F44">85%</span></div>
+          <div class="tb-seg tb-usage"><span style="color:#454D54">leo@leonardoacosta.dev·e</span> <span style="color:#454D54">5H:</span><span style="color:#FAC760">50%</span> <span style="color:#454D54">7D:</span><span style="color:#E61F44">85%</span></div>
           <div class="tb-seg tb-clock">14:32</div>
           <div class="tb-seg tb-host">homelab</div>
         </div>
@@ -442,28 +442,49 @@ td code, .note code {
     <p class="mock-caption"><strong>Color thresholds</strong> (<code>usage.py:51–54</code>, unit-tested): <code>&gt;0.80</code> → <span style="color:#E61F44">RED</span> · <code>&gt;=0.50</code> → <span style="color:#FAC760">YELLOW</span> · else <span style="color:#5BD1B9">CYAN</span> · absent → <span style="color:#454D54">DIM</span>. Values above (50%/85%) are illustrative, not observed.</p>
   </section>
 
-  <!-- ============ WINDOW-RENAME FORMATS TABLE ============ -->
-  <section class="animate" style="--i:4">
-    <h2><span class="h-tag">Reference</span> Both window-rename formats</h2>
-    <p class="section-sub">Selected via <code>@cc-window-rename-format</code> (default <code>state</code>; tmux.conf.tmpl now sets <code>title</code> permanently for this repo).</p>
+  <!-- ============ ANIMATED TAB ICON ============ -->
+  <section class="animate" style="--i:3.5">
+    <h2><span class="h-tag">Motion</span> Animated tab icon</h2>
+    <p class="section-sub">Real animation needs a wall-clock refresh, not a hook — hooks fire irregularly (a slow tool call can freeze the icon for 30s). <code>window-status-format</code> already re-evaluates on every <code>status-interval</code> tick (dropped to tmux's 1s floor) independent of hook activity, so the icon moved there instead of staying baked into the renamed text. Zero new background processes — same daemon-free design as the rest of this plugin.</p>
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
           <thead>
-            <tr><th>Format</th><th>Pattern</th><th>Source fields</th><th>Live example</th></tr>
+            <tr><th>State</th><th>Meaning</th><th>Motion</th><th>Frames</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>waiting</code></td><td>needs a decision — permission, question, plan, elicitation</td><td>rising/falling shade pulse</td><td><code>░▒▓█▓▒░</code></td></tr>
+            <tr><td><code>active</code></td><td>Claude mid-turn, working</td><td>rotating block edge</td><td><code>▁▏▔▕</code></td></tr>
+            <tr><td><code>idle</code></td><td>turn ended, nothing pending</td><td>static, deliberately not animated</td><td><code>█</code></td></tr>
+            <tr><td>untracked</td><td>plain shell, no Claude pane</td><td>no icon at all</td><td>(empty)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WINDOW-RENAME FORMATS TABLE ============ -->
+  <section class="animate" style="--i:4">
+    <h2><span class="h-tag">Reference</span> Both window-rename formats</h2>
+    <p class="section-sub">Selected via <code>@cc-window-rename-format</code> (default <code>state</code>; tmux.conf.tmpl now sets <code>title</code> permanently for this repo). Neither pattern includes the icon anymore — that's a separate, animated mechanism (see above) rendered adjacent to whichever of these two is active.</p>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Format</th><th>Pattern (renamed text only)</th><th>Source fields</th><th>Live example</th></tr>
           </thead>
           <tbody>
             <tr>
               <td><code>state</code> (default)</td>
-              <td>&lt;state-icon&gt; &lt;dir basename&gt;</td>
-              <td>highest-priority sibling state + <code>pane_current_path</code></td>
-              <td><code>⏳ installfest</code></td>
+              <td>&lt;dir basename&gt; alone</td>
+              <td><code>pane_current_path</code></td>
+              <td><code>installfest</code></td>
             </tr>
             <tr>
               <td><code>title</code> (this repo's default)</td>
-              <td>&lt;state-icon&gt; &lt;project-code&gt;·&lt;session-title&gt;, code·title truncated to 10 combined</td>
+              <td>&lt;project-code&gt;·&lt;session-title&gt;, truncated to 10 combined</td>
               <td><code>registry.resolve_project_code()</code> + <code>@cc-title</code></td>
-              <td><code>○ if·Fix cc-</code></td>
+              <td><code>if·Fix cc-</code></td>
             </tr>
           </tbody>
         </table>
@@ -476,11 +497,19 @@ td code, .note code {
     <h2><span class="h-tag">Status</span> Known gaps</h2>
     <div style="display:grid; gap:12px;">
       <div class="note">
-        <span class="badge b-gap" style="margin-bottom:8px">PENDING</span><br>
-        <strong>Usage percentages stay "--"</strong> — nexus-agent's credentials store has never had <code>usage5hUsed</code>/<code>usage5hLimit</code>/<code>usage7dUsed</code>/<code>usage7dLimit</code> populated for any account (<code>usagePolledAt: null</code> across all 2706 stored credentials, checked live). Client-side reading is fixed and correct; the gap is nexus-agent not polling. Investigation dispatched into <code>~/dev/personal/nexus</code> — the user's hypothesis is that Claude Code's own <code>statusLine</code> stdin already carries <code>rate_limits</code> from Anthropic directly, and <code>nexus-statusline</code> should be harvesting + forwarding it to nexus-agent instead of nexus-agent polling independently.
+        <span class="badge b-gap" style="margin-bottom:8px">IN PROGRESS</span><br>
+        <strong>Usage percentages still stay "--"</strong> — root cause is now known and it's NOT nexus-agent failing to poll (that part is fixed, see below): Anthropic's <code>/api/oauth/usage</code> endpoint itself returns <code>429 rate_limit_error</code>, even for a genuinely fresh token, confirmed via a direct live probe. Why: <code>nexus-statusline</code> (Claude Code's own registered <code>statusLine</code> command) independently calls this exact same endpoint on its own 5-minute file cache, completely uncoordinated with nexus-agent's poller (also 5 min) — the two compete for what's evidently a tight per-account rate limit. Decision made: consolidate to nexus-agent as the sole caller, with nexus-statusline reading the cached result instead of calling Anthropic itself. A design pass is in progress covering that consolidation plus a much larger ask — folding everything <code>nexus-statusline</code> currently shows (cost, lines added/removed, session clock, model, context %, token speed, git branch/worktree, spec, plus 5h/7d) into this SAME single-line tmux status-right segment, comprehensively enough that Claude Code's own statusline becomes unnecessary. Explicitly one bar, not a second tmux status row — that was considered and ruled out.
       </div>
       <div class="note note-blue">
-        <span class="badge b-fixed" style="margin-bottom:8px">FIXED THIS SESSION</span><br>
+        <span class="badge b-fixed" style="margin-bottom:8px">FIXED</span><br>
+        <strong>Active credential's access token was permanently stale</strong> — <code>active-credential-watcher.ts</code>'s dedupe gate only re-synced a credential into nexus-agent's pool on a fingerprint miss, but the fingerprint (SHA-256 of the refresh token) stays identical across an access-token-only refresh, so a credential's stale access token was written once on import and never updated again. Fixed in the <code>nexus</code> repo (dedupe gate made unconditional, plus a new proactive refresh job for every non-active pooled credential) and verified live: the active credential's <code>expiresAt</code> moved from months-stale to genuinely current immediately after deploy.
+      </div>
+      <div class="note note-blue">
+        <span class="badge b-fixed" style="margin-bottom:8px">FIXED</span><br>
+        <strong>Account label wasn't indicative</strong> — a bare name like "Leo" doesn't disambiguate when the same email can be authenticated against multiple orgs. Now full email + last char of the org id, e.g. <code>leo@leonardoacosta.dev·e</code> (<code>usage.py:_account_label</code>).
+      </div>
+      <div class="note note-blue">
+        <span class="badge b-fixed" style="margin-bottom:8px">FIXED</span><br>
         <strong>Plugin marketplace pointed at a pre-rename path</strong> (<code>~/dev/if</code>, before the if→installfest move) — listed but <code>failed to load: cache-miss</code>. Re-registered at the correct path; install script hardened to check <em>enabled</em> status, not just presence, so this class of drift self-heals on future <code>chezmoi apply</code>.
       </div>
     </div>
@@ -490,19 +519,23 @@ td code, .note code {
   <section class="animate" style="--i:6">
     <h2><span class="h-tag">Cited</span> Files &amp; memory records</h2>
     <ul class="cite-list">
-      <li><code>apps/cc-tmux/src/cc_tmux/tmux.py</code> — pane-option store, git identity, process scan</li>
-      <li><code>apps/cc-tmux/src/cc_tmux/cli.py</code> — hook stdin capture, register, window-rename logic</li>
+      <li><code>apps/cc-tmux/src/cc_tmux/tmux.py</code> — pane-option store, git identity, process scan, <code>get_window_top_state()</code></li>
+      <li><code>apps/cc-tmux/src/cc_tmux/cli.py</code> — hook stdin capture, register, window-rename logic, <code>cmd_window_icon()</code></li>
+      <li><code>apps/cc-tmux/src/cc_tmux/render.py</code> — <code>animated_icon()</code>, state→glyph frame sequences</li>
       <li><code>apps/cc-tmux/src/cc_tmux/registry.py</code> — project short-code resolution</li>
-      <li><code>apps/cc-tmux/src/cc_tmux/usage.py</code> — nexus-agent credentials client</li>
+      <li><code>apps/cc-tmux/src/cc_tmux/usage.py</code> — nexus-agent credentials client, <code>_account_label()</code></li>
       <li><code>apps/cc-tmux/hooks/hooks.json</code> — Claude Code hook → register wiring</li>
       <li><code>apps/cc-tmux/cc-tmux.tmux</code> — plugin entrypoint, focus hook install</li>
       <li><code>home/projects.toml</code> — project registry (code, path)</li>
-      <li><code>home/dot_config/tmux/vercel-theme.conf</code> — status-bar colors used in the mockups above</li>
-      <li><code>home/dot_config/tmux/tmux.conf.tmpl</code> — persisted <code>@cc-window-rename-format title</code></li>
+      <li><code>home/dot_config/tmux/{vercel,one-hunter-vercel,tokyo-night-abyss,nord}-theme.conf</code> — window-status-format/status-right wiring</li>
+      <li><code>home/dot_config/tmux/tmux.conf.tmpl</code> — persisted <code>@cc-window-rename-format title</code>, <code>status-interval 1</code></li>
+      <li><code>~/dev/personal/nexus apps/agent/src/credentials/active-credential-watcher.ts</code> + <code>oauth-refresh.ts</code> + <code>services/credential-refresh-job.ts</code> — token-staleness fix</li>
+      <li><code>~/dev/personal/nexus apps/nexus-statusline/src/index.ts</code> — full field list Claude Code's statusline shows; independent Anthropic usage-endpoint caller</li>
       <li>memory: <code>reference_claude_code_hook_session_title.md</code> — session_title field, found via <code>strings</code> on the claude binary</li>
       <li>memory: <code>reference_nexus_agent_credentials_api.md</code> — real port/schema, usagePolledAt gap</li>
+      <li>memory: <code>reference_tmux_pane_hook_query.md</code> — non-interactive tmux verification gaps (show-hooks, display-message -F)</li>
       <li>memory: <code>project_repo_relocation_if_to_installfest.md</code> — plugin marketplace path-drift addendum</li>
-      <li>live: <code>ss -tlnp</code> (nexus-agent port 7400), <code>curl :7400/credentials</code>, <code>cc-tmux self-test</code> (31/31)</li>
+      <li>live: <code>ss -tlnp</code> (nexus-agent port 7400), <code>curl :7400/credentials</code>, direct probe of <code>/api/oauth/usage</code> (429), <code>cc-tmux self-test</code> (33/33)</li>
     </ul>
   </section>
 
