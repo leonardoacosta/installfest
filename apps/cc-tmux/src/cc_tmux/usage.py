@@ -115,8 +115,21 @@ def _extract_util(credential: dict, used_key: str, limit_key: str) -> Optional[f
 
 
 def _account_label(credential: dict) -> str:
-    """Human-readable account label, preferring name over email over the raw id."""
-    for key in ("accountName", "accountEmail", "name"):
+    """Account label: full email + last char of the org id, e.g. ``leo@x.dev·7``.
+
+    A bare account name (``"Leo"``) isn't indicative enough — the SAME email
+    can be authenticated against multiple orgs, so the full email disambiguates
+    the account and the org-id suffix disambiguates which org it's currently
+    authenticated against. Falls back to ``accountName``/``name`` (no suffix)
+    when there's no email to anchor the org suffix to.
+    """
+    email = credential.get("accountEmail")
+    if isinstance(email, str) and email:
+        org_uuid = credential.get("orgUuid")
+        if isinstance(org_uuid, str) and org_uuid:
+            return f"{email}·{org_uuid[-1]}"
+        return email
+    for key in ("accountName", "name"):
         value = credential.get(key)
         if isinstance(value, str) and value:
             return value

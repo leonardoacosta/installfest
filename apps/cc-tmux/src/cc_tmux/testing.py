@@ -486,8 +486,13 @@ def _test_usage_extract_util() -> None:
 
 
 def _test_usage_account_label() -> None:
-    _check(usage._account_label({"accountName": "Leo", "accountEmail": "leo@x.dev"}) == "Leo", "prefers accountName")
-    _check(usage._account_label({"accountEmail": "leo@x.dev"}) == "leo@x.dev", "falls back to accountEmail")
+    _check(
+        usage._account_label({"accountName": "Leo", "accountEmail": "leo@x.dev", "orgUuid": "abc123f"})
+        == "leo@x.dev·f",
+        "prefers full email + org-id last char over accountName",
+    )
+    _check(usage._account_label({"accountEmail": "leo@x.dev"}) == "leo@x.dev", "email alone when no org id")
+    _check(usage._account_label({"accountName": "Leo"}) == "Leo", "falls back to accountName when no email")
     _check(usage._account_label({"name": "acct-abc123"}) == "acct-abc123", "falls back to raw name")
     _check(usage._account_label({}) == "", "nothing present -> ''")
 
