@@ -624,6 +624,36 @@ td code, .note code {
       </div>
     </div>
 
+    <div class="term-mock" style="margin-top:20px">
+      <div class="term-titlebar">vercel-theme.conf status-right — target render, NOT yet built (field order + symbols from nexus-statusline/src/index.ts's real renderStatusline())</div>
+      <div class="term-body">
+        <div class="tmux-bar">
+          <div class="tb-seg tb-session">0</div>
+          <div class="tb-seg tb-win">1 zsh</div>
+          <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
+          <div class="tb-spacer"></div>
+          <div class="tb-seg tb-usage" style="gap:7px">
+            <span style="color:#454D54">◉</span>
+            <span style="color:#454D54">leo@leonardoacosta.dev·e</span>
+            <span style="color:#5BD1B9">installfest</span>
+            <span style="color:#454D54">$2.34</span>
+            <span style="color:#454D54">+142/-38</span>
+            <span style="color:#454D54">⧗12m</span>
+            <span style="color:#454D54">S5</span>
+            <span style="color:#B267E6">main</span>
+            <span style="color:#454D54">⑂wt-fix</span>
+            <span style="color:#454D54">ctx:64%</span>
+            <span style="color:#454D54">≈42t/s</span>
+            <span style="color:#454D54">5H:</span><span style="color:#FAC760">32%</span>
+            <span style="color:#454D54">7D:</span><span style="color:#FAC760">68%</span>
+          </div>
+          <div class="tb-seg tb-clock">14:32</div>
+          <div class="tb-seg tb-host">homelab</div>
+        </div>
+      </div>
+    </div>
+    <p class="mock-caption">Same field order and symbols nexus-statusline's <code>renderStatusline()</code> already uses today (<code>◉</code>/<code>◌</code> session count, <code>$</code> cost, <code>+/-</code> lines, <code>⧗</code> clock, model token, git branch, <code>⑂</code> worktree, context%, <code>≈…t/s</code> speed) — just rendered by cc-tmux from the harvest file instead of printed inline by Claude Code itself. Account label swaps the short <code>@domain</code> nexus-statusline shows for cc-tmux's fuller <code>email·orgchar</code> (more room in a tmux bar than CC's own compact inline prompt). Every value above is illustrative, not observed — nothing in this pipeline has been built yet.</p>
+
     <div class="table-wrap" style="margin-top:20px">
       <div class="table-scroll">
         <table>
