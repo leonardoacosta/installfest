@@ -414,7 +414,7 @@ td code, .note code {
           <div class="tb-seg tb-session">0</div>
           <div class="tb-seg tb-win">1 zsh</div>
           <div class="tb-seg tb-win">2 zsh</div>
-          <div class="tb-seg tb-win-active">4 if:Fix cc-</div>
+          <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
           <div class="tb-spacer"></div>
           <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#454D54">--</span> <span style="color:#454D54">7D:</span><span style="color:#454D54">--</span></div>
           <div class="tb-seg tb-clock">14:32</div>
@@ -422,7 +422,7 @@ td code, .note code {
         </div>
       </div>
     </div>
-    <p class="mock-caption"><strong>Window tab:</strong> <code>if:Fix cc-</code> — project code "if" (registry) + session title, colon-joined, hard-truncated to 10 chars combined. <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
+    <p class="mock-caption"><strong>Window tab:</strong> <code>○ if·Fix cc-</code> — state icon (idle), then project code "if" (registry) + session title, middle-dot-joined, hard-truncated to 10 chars combined (icon sits outside that budget). <strong>Status-right:</strong> account name resolves correctly ("Leo", isActive credential); 5H/7D render <code>--</code> because <code>usagePolledAt</code> is null.</p>
 
     <div class="term-mock" style="margin-top:20px">
       <div class="term-titlebar">once nexus-agent polls real usage — target state, not yet live</div>
@@ -431,7 +431,7 @@ td code, .note code {
           <div class="tb-seg tb-session">0</div>
           <div class="tb-seg tb-win">1 zsh</div>
           <div class="tb-seg tb-win">2 zsh</div>
-          <div class="tb-seg tb-win-active">4 if:Fix cc-</div>
+          <div class="tb-seg tb-win-active">4 ○ if·Fix cc-</div>
           <div class="tb-spacer"></div>
           <div class="tb-seg tb-usage"><span style="color:#454D54">Leo</span> <span style="color:#454D54">5H:</span><span style="color:#FAC760">50%</span> <span style="color:#454D54">7D:</span><span style="color:#E61F44">85%</span></div>
           <div class="tb-seg tb-clock">14:32</div>
@@ -461,9 +461,9 @@ td code, .note code {
             </tr>
             <tr>
               <td><code>title</code> (this repo's default)</td>
-              <td>&lt;project-code&gt;:&lt;session-title&gt;, truncated to 10 combined</td>
+              <td>&lt;state-icon&gt; &lt;project-code&gt;·&lt;session-title&gt;, code·title truncated to 10 combined</td>
               <td><code>registry.resolve_project_code()</code> + <code>@cc-title</code></td>
-              <td><code>if:Fix cc-</code></td>
+              <td><code>○ if·Fix cc-</code></td>
             </tr>
           </tbody>
         </table>

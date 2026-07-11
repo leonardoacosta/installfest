@@ -303,7 +303,7 @@ def _test_registry_resolve_project_code() -> None:
 
 
 def _test_compose_title_name() -> None:
-    _check(cli.compose_title_name("if", "Fix ssh mesh auth") == "if:Fix ssh", "10-char combined truncation")
+    _check(cli.compose_title_name("if", "Fix ssh mesh auth") == "if·Fix ssh", "10-char combined truncation")
     _check(cli.compose_title_name("if", "") == "if", "empty title falls back to code alone")
     _check(cli.compose_title_name("", "hello") == "hello", "empty code falls back to title alone")
     _check(cli.compose_title_name("", "", fallback="myproj") == "myproj", "both empty -> fallback")

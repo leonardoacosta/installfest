@@ -139,18 +139,21 @@ user's own `pane-focus-in` hook is never clobbered. Tracking MUST be disableable
 
 ### Requirement: Opt-in window rename supports a project-code + session-title format
 When `@cc-window-rename` is on and `@cc-window-rename-format` is `title`, the plugin SHALL rename
-the pane's window to `<project-code>:<session-title>`, hard-truncated to 10 characters combined.
-The project code SHALL resolve from the dotfiles project registry (`home/projects.toml`) by the
-pane's current directory; the session title SHALL be captured from the `SessionStart` hook
-payload's `session_title` field (the custom title if set via `/rename` or `-n`, else Claude's own
-default) and persisted in `@cc-title`. Either half MAY be absent; the plugin MUST fall back to
-whichever half resolved rather than leaving the window unnamed.
+the pane's window to `<state-icon> <project-code>·<session-title>`, with the code·title portion
+hard-truncated to 10 characters combined (the leading state icon sits outside that budget, same as
+the `state` format). The project code SHALL resolve from the dotfiles project registry
+(`home/projects.toml`) by the pane's current directory; the session title SHALL be captured from
+the `SessionStart` hook payload's `session_title` field (the custom title if set via `/rename` or
+`-n`, else Claude's own default) and persisted in `@cc-title`. Either half MAY be absent; the
+plugin MUST fall back to whichever half resolved rather than leaving the window unnamed.
 
 #### Scenario: registered project gets a code-prefixed title
 - Given: `@cc-window-rename-format` is `title`, the pane's cwd is inside a project registered in
-  `home/projects.toml` with code `if`, and `@cc-title` holds `"Fix ssh mesh auth flow"`
+  `home/projects.toml` with code `if`, `@cc-title` holds `"Fix ssh mesh auth flow"`, and the
+  window's highest-priority state is `idle`
 - When: the window is renamed
-- Then: the window name is `if:Fix ssh` (10 characters, code + title truncated together)
+- Then: the window name is `○ if·Fix ssh` (icon + space, then 10 characters of code·title truncated
+  together)
 
 #### Scenario: unregistered project falls back to title alone
 - Given: the pane's cwd is not covered by any registry entry, and `@cc-title` holds a title

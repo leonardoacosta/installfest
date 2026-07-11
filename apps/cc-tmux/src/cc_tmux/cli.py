@@ -413,13 +413,15 @@ def _truthy(value: str) -> bool:
 def _maybe_rename_window(pane_id: str) -> None:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
-    Two formats, selected by ``@cc-window-rename-format`` (default ``state``):
+    Two formats, selected by ``@cc-window-rename-format`` (default ``state``),
+    both prefixed with the same state icon (highest-priority Claude state in
+    the window) — the icon sits OUTSIDE either format's own truncation budget:
 
-    - ``state`` (default): ``<state-icon> <dir basename>``. Icon tracks the
-      highest-priority Claude state in the window; the directory basename
-      stays a stable label.
-    - ``title``: ``<project-code>:<session-title>`` hard-truncated to
-      ``_TAB_NAME_MAX`` chars combined — see :func:`_title_window_name`.
+    - ``state`` (default): ``<state-icon> <dir basename>``. The directory
+      basename stays a stable label.
+    - ``title``: ``<state-icon> <project-code>·<session-title>``, with the
+      code·title portion hard-truncated to ``_TAB_NAME_MAX`` chars combined —
+      see :func:`_title_window_name`.
 
     ``automatic-rename`` is forced off either way so tmux does not clobber the
     name tmux-conf itself already disables (see tmux.conf.tmpl).
@@ -434,42 +436,49 @@ def _maybe_rename_window(pane_id: str) -> None:
     if not siblings:
         return
 
+    top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
+    icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
+
     fmt = (tmux.get_global_option(_WINDOW_RENAME_FORMAT_OPT) or "state").strip().lower()
     if fmt == "title":
-        name = _title_window_name(me)
+        body = _title_window_name(me)
     else:
-        top = min(siblings, key=lambda p: STATE_PRIORITY.get(p.state, len(STATE_PRIORITY)))
-        icon = render.resolve_icons(tmux.get_global_option).get(top.state, top.state)
         cwd = tmux._run_tmux(
             ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
         )
-        base = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
-        name = f"{icon} {base}".strip()
+        body = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
 
+    name = f"{icon} {body}".strip()
     if not name:
         return
     tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
     tmux._run_tmux(["rename-window", "-t", pane_id, name])
 
 
+_TITLE_DIVIDER = "·"  # middle dot — visually distinct from the icon's own space
+
+
 def compose_title_name(code: str, title: str, fallback: str = "") -> str:
-    """``<code>:<title>`` hard-truncated to ``_TAB_NAME_MAX`` chars combined.
+    """``<code>·<title>`` hard-truncated to ``_TAB_NAME_MAX`` chars combined.
 
     Pure and unit-testable (no tmux). Falls back to whichever half resolved —
     ``code`` alone, ``title`` alone, or ``fallback`` (e.g. ``@cc-project``) —
-    rather than going blank when only one piece is known.
+    rather than going blank when only one piece is known. Does NOT include the
+    leading state icon — that's prefixed by the caller (:func:`_maybe_rename_window`)
+    outside this budget.
     """
     parts = [p for p in (code, title) if p]
-    combined = ":".join(parts) if len(parts) > 1 else "".join(parts) or fallback
+    combined = _TITLE_DIVIDER.join(parts) if len(parts) > 1 else "".join(parts) or fallback
     return combined[:_TAB_NAME_MAX]
 
 
 def _title_window_name(pane) -> str:
-    """``<project-code>:<session-title>`` for the ``title`` window-rename format.
+    """``<project-code>·<session-title>`` for the ``title`` window-rename format.
 
     ``code`` resolves from the dotfiles project registry (``registry.py``) by
     the pane's current directory; ``title`` is whatever ``@cc-title`` holds
-    (set from the SessionStart hook payload in :func:`cmd_register`).
+    (set from the SessionStart hook payload in :func:`cmd_register`). The
+    leading state icon is NOT included here — see :func:`_maybe_rename_window`.
     """
     cwd = tmux._run_tmux(["display-message", "-p", "-t", pane.id, "#{pane_current_path}"])
     code = registry.resolve_project_code(cwd) if cwd else ""
