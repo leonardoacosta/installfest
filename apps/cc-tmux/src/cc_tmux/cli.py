@@ -43,7 +43,7 @@ _INBOX_CLEARED_OPT = "@cc-inbox-cleared-at"   # dismiss stamp (a view filter)
 _STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
 _WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
 _WINDOW_RENAME_FORMAT_OPT = "@cc-window-rename-format"  # "state" (default) | "title"
-_TAB_NAME_MAX = 10                             # project-code + session-title combined budget
+_TAB_NAME_MAX = 20                             # project-code + session-title combined budget
 _STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
 
 # No remaining stub subcommands: every registered command has a handler below.
@@ -88,8 +88,11 @@ def cmd_register(args) -> int:
             tmux.set_pane_title(pane, title)
 
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
+    # _maybe_rename_window now reports actual tmux success/failure (not just
+    # "issued"), so the same return value threads into both the existing
+    # rename_fired field and the new rename_succeeded field below.
     rename_fired = _maybe_rename_window(pane)
-    _trace_register(hook_payload, pane, rename_fired)
+    _trace_register(hook_payload, pane, rename_fired, rename_succeeded=rename_fired)
     return 0
 
 
@@ -130,7 +133,9 @@ def trace_needs_trim(size_bytes: int, threshold: int = _REGISTER_TRACE_TRIM_BYTE
     return size_bytes > threshold
 
 
-def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bool) -> None:
+def _trace_register(
+    hook_payload: dict, pane_id: Optional[str], rename_fired: bool, *, rename_succeeded: bool
+) -> None:
     """Append one diagnostic JSON line per ``register`` call (rename-trigger debugging).
 
     Written to ``<state-dir>/cc-tmux-register-trace.log`` (:func:`_cc_state_dir`,
@@ -140,6 +145,14 @@ def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bo
     ``rename_attempted`` is hardcoded true here since ``cmd_register`` calls
     ``_maybe_rename_window`` unconditionally — kept as an explicit field (not
     inlined into ``rename_fired``) in case that call ever becomes conditional.
+    ``rename_succeeded`` is distinct from ``rename_fired``/``rename_attempted``:
+    it reports whether the ``rename-window`` tmux command actually succeeded
+    (``_maybe_rename_window``'s ``_run_tmux``-backed return value, per the
+    rename-fix in this same change) rather than merely "was a rename call
+    issued this hook fire" — so a transient tmux failure (stale pane id, a
+    race with the window closing, a non-zero ``rename-window`` exit) now shows
+    up in the trace as ``rename_succeeded: false`` instead of looking
+    identical to a real success.
     Append-by-default (plan 005): the common path is a single O_APPEND write;
     trimming to the last ``_REGISTER_TRACE_MAX_LINES`` lines (atomic via
     ``.tmp`` + ``os.replace`` — same pattern as ``conductor.write_instructions``)
@@ -155,6 +168,7 @@ def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bo
             "pane_id": pane_id or None,
             "rename_attempted": True,
             "rename_fired": rename_fired,
+            "rename_succeeded": rename_succeeded,
         }
         path = _cc_state_dir() / _REGISTER_TRACE_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -673,10 +687,12 @@ def _maybe_rename_window(pane_id: str) -> bool:
     ``automatic-rename`` is forced off either way so tmux does not clobber the
     name tmux-conf itself already disables (see tmux.conf.tmpl).
 
-    Returns ``True`` iff ``rename-window`` was actually issued this call,
-    ``False`` for every early-return path (opt-out, untracked pane, no
-    siblings, empty resolved name) — used by :func:`_trace_register` to
-    distinguish "ran but declined" from "renamed" in the diagnostic trace.
+    Returns ``True`` iff ``rename-window`` was actually issued *and tmux
+    confirmed it* (``_run_tmux``'s ``None``-on-failure contract), ``False``
+    for every early-return path (opt-out, untracked pane, no siblings, empty
+    resolved name) as well as an issued-but-failed ``rename-window`` call —
+    used by :func:`_trace_register` to distinguish "ran but declined" and
+    "ran, tmux rejected it" from "renamed" in the diagnostic trace.
     """
     if not _truthy(tmux.get_global_option(_WINDOW_RENAME_OPT)):
         return False
@@ -700,8 +716,8 @@ def _maybe_rename_window(pane_id: str) -> bool:
     if not name:
         return False
     tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
-    tmux._run_tmux(["rename-window", "-t", pane_id, name])
-    return True
+    result = tmux._run_tmux(["rename-window", "-t", pane_id, name])
+    return result is not None
 
 
 _TITLE_DIVIDER = "·"  # middle dot — visually distinct from the icon's own space

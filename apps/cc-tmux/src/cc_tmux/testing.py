@@ -10,12 +10,13 @@ Run via ``cc-tmux self-test`` (exit 0 = pass, non-zero = failure count).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from . import cli, conductor, paths, priority, registry, render, tmux, usage
 
@@ -369,11 +370,83 @@ def _test_registry_resolve_project_code() -> None:
 
 
 def _test_compose_title_name() -> None:
-    _check(cli.compose_title_name("if", "Fix ssh mesh auth") == "if·Fix ssh", "10-char combined truncation")
+    # 20-char budget (cc-tmux-rename-fix-and-truncate; was 10): an 11-20 char
+    # combined code+title now renders in full instead of truncating.
+    combined_15 = cli.compose_title_name("if", "Fix ssh mesh")
+    _check(combined_15 == "if·Fix ssh mesh", f"15-char combined must render in full, got {combined_15!r}")
+    _check(len(combined_15) == 15, "15-char combined must not truncate at the 20-char budget")
+    # Anything over 20 chars combined still truncates — now at 20, not 10.
+    combined_over = cli.compose_title_name("if", "Fix ssh mesh auth flow long")
+    _check(combined_over == "if·Fix ssh mesh auth", f"20-char truncation, got {combined_over!r}")
+    _check(len(combined_over) == 20, "over-budget combined must truncate to exactly 20 chars")
     _check(cli.compose_title_name("if", "") == "if", "empty title falls back to code alone")
     _check(cli.compose_title_name("", "hello") == "hello", "empty code falls back to title alone")
     _check(cli.compose_title_name("", "", fallback="myproj") == "myproj", "both empty -> fallback")
-    _check(len(cli.compose_title_name("if", "a very very long title indeed")) == 10, "always capped at 10")
+    _check(len(cli.compose_title_name("if", "a very very long title indeed")) == 20, "always capped at 20")
+
+
+def _test_maybe_rename_window_success_failure() -> None:
+    """rename-fix-and-truncate: _maybe_rename_window reports actual tmux
+    success/failure (``_run_tmux``'s ``None``-on-failure contract), not just
+    "a rename-window call was issued"."""
+    pane_line = tmux._FS.join(
+        ["%1", "sess", "0", "idle", "100.0", "0.0", "", "", "proj", ""]
+    )
+    rename_result: List[Optional[str]] = [""]
+
+    def fake_run(args: List[str], *, check_available: bool = True):
+        if args and args[0] == "show-options" and args[-1] == cli._WINDOW_RENAME_OPT:
+            return "on"  # @cc-window-rename enabled
+        if args and args[0] == "list-panes":
+            return pane_line  # tracked pane + itself as sibling
+        if args and args[0] == "display-message":
+            return "/tmp/myproject"  # pane cwd, for the default "state" format
+        if args and args[0] == "rename-window":
+            return rename_result[0]
+        return ""  # @cc-window-rename-format (-> default "state"), set-window-option, etc.
+
+    saved = tmux._run_tmux
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    try:
+        rename_result[0] = ""  # success: _run_tmux returns stripped stdout (possibly empty), never None
+        _check(cli._maybe_rename_window("%1") is True, "successful rename-window must return True")
+
+        rename_result[0] = None  # failure: _run_tmux's documented None-on-failure contract
+        _check(cli._maybe_rename_window("%1") is False, "failed rename-window must return False")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
+def _test_trace_register_rename_succeeded_field() -> None:
+    """rename-fix-and-truncate: _trace_register's rename_succeeded field is
+    distinct from the always-True rename_attempted and from rename_fired, and
+    reflects whatever _maybe_rename_window's return value was threaded in."""
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-trace-test-")
+    saved_config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    os.environ["CLAUDE_CONFIG_DIR"] = tmpdir
+    try:
+        trace_path = cli._cc_state_dir() / cli._REGISTER_TRACE_FILE
+        cli._trace_register({"hook_event_name": "SessionStart"}, "%1", True, rename_succeeded=True)
+        cli._trace_register({"hook_event_name": "PreToolUse"}, "%1", False, rename_succeeded=False)
+
+        lines = trace_path.read_text(encoding="utf-8").splitlines()
+        _check(len(lines) == 2, f"expected 2 trace lines, got {len(lines)}")
+        entry_success = json.loads(lines[0])
+        entry_failure = json.loads(lines[1])
+
+        _check(entry_success["rename_attempted"] is True, "rename_attempted must always be True")
+        _check(entry_success["rename_fired"] is True, "rename_fired must reflect the success call")
+        _check(entry_success["rename_succeeded"] is True, "rename_succeeded must be True on success")
+
+        _check(entry_failure["rename_attempted"] is True, "rename_attempted must always be True")
+        _check(entry_failure["rename_fired"] is False, "rename_fired must reflect the failure call")
+        _check(entry_failure["rename_succeeded"] is False, "rename_succeeded must be False on failure")
+    finally:
+        if saved_config_dir is None:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            os.environ["CLAUDE_CONFIG_DIR"] = saved_config_dir
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1385,6 +1458,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.set_pane_state_reassert_ts", _test_set_pane_state_reassert_skips_timestamp),
     ("registry.resolve_project_code", _test_registry_resolve_project_code),
     ("cli.compose_title_name", _test_compose_title_name),
+    ("cli.maybe_rename_window_success_failure", _test_maybe_rename_window_success_failure),
+    ("cli.trace_register_rename_succeeded_field", _test_trace_register_rename_succeeded_field),
     ("paths.tmux_conf_candidates", _test_tmux_conf_candidates),
     ("paths.find_tmux_conf_override", _test_find_tmux_conf_override),
     ("paths.find_plugin_dir", _test_find_plugin_dir),

@@ -139,30 +139,49 @@ user's own `pane-focus-in` hook is never clobbered. Tracking MUST be disableable
 
 ### Requirement: Opt-in window rename supports a project-code + session-title format
 When `@cc-window-rename` is on and `@cc-window-rename-format` is `title`, the plugin SHALL rename
-the pane's window to `<project-code>·<session-title>`, hard-truncated to 10 characters combined.
+the pane's window to `<project-code>·<session-title>`, hard-truncated to 20 characters combined.
 The project code SHALL resolve from the dotfiles project registry (`home/projects.toml`) by the
 pane's current directory; the session title SHALL be captured from the `SessionStart` hook
 payload's `session_title` field (the custom title if set via `/rename` or `-n`, else Claude's own
 default) and persisted in `@cc-title`. Either half MAY be absent; the plugin MUST fall back to
 whichever half resolved rather than leaving the window unnamed. The renamed text does NOT include
-a state icon — see "Animated tab icon" below for how the icon is rendered instead.
+a state icon — see "Animated tab icon" below for how the icon is rendered instead. The plugin
+SHALL capture the actual success/failure of the underlying `tmux rename-window` call (not merely
+that it was issued) and record the outcome in the register-trace log (see "cc-tmux register logs
+a hook-invocation trace for window-rename diagnostics" below) so a failed rename is distinguishable
+from a successful one.
 
 #### Scenario: registered project gets a code-prefixed title
 - Given: `@cc-window-rename-format` is `title`, the pane's cwd is inside a project registered in
-  `home/projects.toml` with code `if`, and `@cc-title` holds `"Fix ssh mesh auth flow"`
+  `home/projects.toml` with code `if`, and `@cc-title` holds `"Fix ssh mesh"`
 - When: the window is renamed
-- Then: the window name is `if·Fix ssh` (10 characters, code + title truncated together)
+- Then: the window name is `if·Fix ssh mesh` (15 characters, rendered in full — within the
+  20-character combined budget, no truncation)
+
+#### Scenario: over-budget combination still truncates
+- Given: `@cc-window-rename-format` is `title`, the project code is `if`, and `@cc-title` holds
+  `"Fix ssh mesh auth flow"` (25 characters combined including the divider)
+- When: the window is renamed
+- Then: the window name is `if·Fix ssh mesh auth` (hard-truncated to 20 characters combined)
 
 #### Scenario: unregistered project falls back to title alone
 - Given: the pane's cwd is not covered by any registry entry, and `@cc-title` holds a title
 - When: the window is renamed
-- Then: the window name is the title alone, truncated to 10 characters
+- Then: the window name is the title alone, truncated to 20 characters
 
 #### Scenario: no session title yet falls back to the resolved project name
 - Given: `@cc-title` is unset (no `SessionStart` hook has fired yet) and the registry has no code
   for the pane's cwd
 - When: the window is renamed
 - Then: the window name falls back to `@cc-project` (git toplevel basename or dir name)
+
+#### Scenario: a failed rename-window call is surfaced, not silently swallowed
+- Given: `@cc-window-rename` is on and the underlying `tmux rename-window` call fails (stale pane
+  id, a race with the window closing, or any other non-zero exit)
+- When: `cc-tmux register` processes that hook fire
+- Then: `_maybe_rename_window` returns `False` (not `True`, even though a rename was attempted),
+  the register-trace log's `rename_succeeded` field is `false` for that entry, and the window's
+  tab name is left unchanged from before the attempt
 
 ### Requirement: cc-tmux doctor reports environment diagnostics
 `cc-tmux doctor` SHALL print a PASS/FAIL checklist covering: tmux present and ≥ 3.2, fzf present,
