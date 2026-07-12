@@ -5,13 +5,13 @@
 
 ## DB Batch
 
-- [ ] 1.1 `apps/cc-tmux/src/cc_tmux/render.py`: `render_beads_bar` drops the `next:` segment [beads:if-j237]
+- [x] 1.1 `apps/cc-tmux/src/cc_tmux/render.py`: `render_beads_bar` drops the `next:` segment [beads:if-j237]
   entirely — render only the roadmap-pulse counts line (or `''` if the cache has no counts
   line). Remove the counts-before-next join logic added earlier today; there is no longer
   anything to join. Verify with a direct call showing a two-line cache input (`next: ...` +
   counts) now renders ONLY the counts line.
   - touches: `apps/cc-tmux/src/cc_tmux/render.py`
-- [ ] 1.2 `apps/cc-tmux/src/cc_tmux/cli.py`: add trace logging to `cmd_register` — every [beads:if-6ip2]
+- [x] 1.2 `apps/cc-tmux/src/cc_tmux/cli.py`: add trace logging to `cmd_register` — every [beads:if-6ip2]
   invocation appends one line (timestamp, `hook_event_name`, resolved `pane_id`,
   `rename_attempted: bool`, `rename_fired: bool`) to a debug log file under
   `~/.claude/scripts/state/cc-tmux-register-trace.log` (rotate/cap similar to other cc-tmux
