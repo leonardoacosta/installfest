@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: `view` command renders a file by type
-A `view <file>` command resolves a relative or absolute path and renders it with the optimal tool for its file type. Markdown renders with `glow`, source/text/JSON renders with `bat`, and HTML hands off to `mac-open`.
+The `view <file>` command SHALL resolve a relative or absolute path and render it with the optimal tool for its file type. Markdown SHALL render with `glow`, source/text/JSON SHALL render with `bat`, and HTML SHALL hand off to `mac-open`.
 
 #### Scenario: render a Markdown file
 - Given: `view` is on PATH and the session is inside tmux
@@ -30,7 +30,7 @@ A `view <file>` command resolves a relative or absolute path and renders it with
 - And: the command exits non-zero
 
 ### Requirement: `view` infers the terminal session
-The command detects whether it is running inside tmux via `$TMUX` and adapts its rendering target without any explicit session argument.
+The command SHALL detect whether it is running inside tmux via `$TMUX` and SHALL adapt its rendering target without any explicit session argument.
 
 #### Scenario: inside tmux opens a split
 - Given: `$TMUX` is set
@@ -48,7 +48,7 @@ The command detects whether it is running inside tmux via `$TMUX` and adapts its
 - Then: the file renders non-paged to stdout
 
 ### Requirement: `view` reuses its viewer pane
-Repeated `view` invocations render into a single reused pane rather than accumulating stacked panes.
+Repeated `view` invocations SHALL render into a single reused pane rather than accumulating stacked panes.
 
 #### Scenario: second view reuses the pane
 - Given: a previous `view` call opened and tagged a viewer pane in the current window
@@ -57,7 +57,7 @@ Repeated `view` invocations render into a single reused pane rather than accumul
 - And: no additional split is created
 
 ### Requirement: `view` deploys via chezmoi
-The command is deployed as a chezmoi symlink that resolves to the repo source script.
+The command SHALL be deployed as a chezmoi symlink that resolves to the repo source script.
 
 #### Scenario: chezmoi apply installs view
 - Given: `home/dot_local/bin/symlink_view.tmpl` points at `scripts/view.sh`
@@ -66,7 +66,7 @@ The command is deployed as a chezmoi symlink that resolves to the repo source sc
 - And: it is executable
 
 ### Requirement: `view` degrades gracefully
-The command fails open when an optional dependency is absent.
+The command SHALL fail open when an optional dependency is absent.
 
 #### Scenario: glow missing falls back to bat
 - Given: `glow` is not installed

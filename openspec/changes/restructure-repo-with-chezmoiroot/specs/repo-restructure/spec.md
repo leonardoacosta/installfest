@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: .chezmoiroot pointer file
-A file `.chezmoiroot` at repo root containing the single line `home` that redirects chezmoi's source resolution.
+A file `.chezmoiroot` MUST exist at repo root containing the single line `home`, redirecting chezmoi's source resolution.
 
 #### Scenario: chezmoi apply after restructure
 - Given: `.chezmoiroot` exists with content `home`
@@ -17,7 +17,7 @@ A file `.chezmoiroot` at repo root containing the single line `home` that redire
 - Then: editor opens `~/dev/if/home/dot_zshrc`
 
 ### Requirement: platform directory bucket
-Non-deployed, platform-specific directories consolidated under `platform/`.
+Non-deployed, platform-specific directories MUST be consolidated under `platform/`.
 
 #### Scenario: platform directory structure
 - Given: restructure is applied
@@ -27,7 +27,7 @@ Non-deployed, platform-specific directories consolidated under `platform/`.
 ## MODIFIED Requirements
 
 ### Requirement: chezmoi scripts use workingTree
-`run_once_*` and `run_onchange_*` templates use `{{ .chezmoi.workingTree }}` instead of `{{ .chezmoi.sourceDir }}` for repo root references.
+`run_once_*` and `run_onchange_*` templates SHALL use `{{ .chezmoi.workingTree }}` instead of `{{ .chezmoi.sourceDir }}` for repo root references.
 
 #### Scenario: install script finds utils after restructure
 - Given: `run_once_install-packages.sh.tmpl` is in `home/`
@@ -43,7 +43,7 @@ Non-deployed, platform-specific directories consolidated under `platform/`.
 - And: `git -C "$DOTFILES" config core.hooksPath` succeeds
 
 ### Requirement: chezmoiignore updated for new structure
-`.chezmoiignore` moves into `home/` and references `platform/` is no longer needed (it's outside chezmoi source root).
+`.chezmoiignore` MUST move into `home/`; it no longer needs entries for `platform/`, since that directory is outside the chezmoi source root.
 
 #### Scenario: chezmoiignore only lists home-relative paths
 - Given: `.chezmoiignore` is in `home/`
