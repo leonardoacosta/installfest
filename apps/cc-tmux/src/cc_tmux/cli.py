@@ -88,7 +88,8 @@ def cmd_register(args) -> int:
             tmux.set_pane_title(pane, title)
 
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
-    _maybe_rename_window(pane)
+    rename_fired = _maybe_rename_window(pane)
+    _trace_register(hook_payload, pane, rename_fired)
     return 0
 
 
@@ -112,6 +113,48 @@ def _read_hook_stdin() -> dict:
         return json.loads(raw) if raw.strip() else {}
     except Exception:
         return {}
+
+
+_REGISTER_TRACE_FILE = "cc-tmux-register-trace.log"
+_REGISTER_TRACE_MAX_LINES = 2000
+
+
+def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bool) -> None:
+    """Append one diagnostic JSON line per ``register`` call (rename-trigger debugging).
+
+    Written to ``<state-dir>/cc-tmux-register-trace.log`` (:func:`_cc_state_dir`,
+    same base dir as the session-context / roadmap-pulse caches) so a
+    multi-hour session's real hook traffic can be correlated against whether
+    :func:`_maybe_rename_window` actually renamed the window on each call.
+    ``rename_attempted`` is hardcoded true here since ``cmd_register`` calls
+    ``_maybe_rename_window`` unconditionally — kept as an explicit field (not
+    inlined into ``rename_fired``) in case that call ever becomes conditional.
+    Capped to the last ``_REGISTER_TRACE_MAX_LINES`` lines (read-trim-rewrite,
+    atomic via ``.tmp`` + ``os.replace`` — same pattern as
+    ``conductor.write_instructions``) so the file never grows unboundedly. This
+    is a diagnostic trace file, NOT part of the invariant-1 pane-option state
+    store — fail-open: any error here must never break ``cmd_register``.
+    """
+    try:
+        entry = {
+            "ts": time.time(),
+            "hook_event_name": hook_payload.get("hook_event_name"),
+            "pane_id": pane_id or None,
+            "rename_attempted": True,
+            "rename_fired": rename_fired,
+        }
+        path = _cc_state_dir() / _REGISTER_TRACE_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines: List[str] = []
+        if path.is_file():
+            lines = path.read_text(encoding="utf-8").splitlines()
+        lines = lines[-(_REGISTER_TRACE_MAX_LINES - 1):]
+        lines.append(json.dumps(entry, sort_keys=True))
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:
+        pass
 
 
 def cmd_clear(args) -> int:
@@ -417,7 +460,7 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in ("1", "on", "true", "yes")
 
 
-def _maybe_rename_window(pane_id: str) -> None:
+def _maybe_rename_window(pane_id: str) -> bool:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
     Two formats, selected by ``@cc-window-rename-format`` (default ``state``):
@@ -436,16 +479,21 @@ def _maybe_rename_window(pane_id: str) -> None:
 
     ``automatic-rename`` is forced off either way so tmux does not clobber the
     name tmux-conf itself already disables (see tmux.conf.tmpl).
+
+    Returns ``True`` iff ``rename-window`` was actually issued this call,
+    ``False`` for every early-return path (opt-out, untracked pane, no
+    siblings, empty resolved name) — used by :func:`_trace_register` to
+    distinguish "ran but declined" from "renamed" in the diagnostic trace.
     """
     if not _truthy(tmux.get_global_option(_WINDOW_RENAME_OPT)):
-        return
+        return False
     panes = tmux.get_hop_panes()
     me = next((p for p in panes if p.id == pane_id), None)
     if me is None:
-        return
+        return False
     siblings = [p for p in panes if p.session == me.session and p.window == me.window]
     if not siblings:
-        return
+        return False
 
     fmt = (tmux.get_global_option(_WINDOW_RENAME_FORMAT_OPT) or "state").strip().lower()
     if fmt == "title":
@@ -457,9 +505,10 @@ def _maybe_rename_window(pane_id: str) -> None:
         name = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
 
     if not name:
-        return
+        return False
     tmux._run_tmux(["set-window-option", "-t", pane_id, "automatic-rename", "off"])
     tmux._run_tmux(["rename-window", "-t", pane_id, name])
+    return True
 
 
 _TITLE_DIVIDER = "·"  # middle dot — visually distinct from the icon's own space
