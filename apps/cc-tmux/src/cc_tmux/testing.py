@@ -901,6 +901,56 @@ def _test_cli_read_session_context() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_cli_evaluate_plugin_listing() -> None:
+    raw = ('[{"id": "cc-tmux@cc-tmux", "version": "0.1.1", '
+           '"enabled": true, "installPath": "/snap/0.1.1"}]')
+    rows, install = cli._evaluate_plugin_listing(raw, "0.1.1")
+    _check(install == "/snap/0.1.1", f"installPath not extracted: {install!r}")
+    _check(rows[0] == ("PASS", "claude plugin enabled", "enabled (v0.1.1)"),
+           f"enabled entry should PASS: {rows[0]!r}")
+    _check(rows[1][0] == "PASS" and rows[1][1] == "plugin snapshot version",
+           f"matching versions should PASS: {rows[1]!r}")
+
+
+def _test_cli_evaluate_plugin_listing_degraded() -> None:
+    raw_disabled = ('[{"id": "cc-tmux@cc-tmux", "version": "0.1.1", '
+                    '"enabled": false, "installPath": "/snap/0.1.1"}]')
+    rows, _ = cli._evaluate_plugin_listing(raw_disabled, "0.1.1")
+    _check(rows[0][0] == "FAIL", f"disabled plugin must FAIL: {rows[0]!r}")
+
+    raw_stale = ('[{"id": "cc-tmux@cc-tmux", "version": "0.1.0", '
+                 '"enabled": true, "installPath": "/snap/0.1.0"}]')
+    rows, _ = cli._evaluate_plugin_listing(raw_stale, "0.1.1")
+    _check(rows[1][0] == "WARN", f"version mismatch must WARN: {rows[1]!r}")
+
+    rows, install = cli._evaluate_plugin_listing("[]", "0.1.1")
+    _check(rows[0][0] == "WARN" and install == "",
+           f"missing entry must WARN with empty install: {rows!r}")
+
+    rows, install = cli._evaluate_plugin_listing("not json", "0.1.1")
+    _check(rows[0][0] == "WARN" and install == "",
+           f"garbage input must WARN, never raise: {rows!r}")
+
+
+def _test_cli_evaluate_hook_liveness() -> None:
+    _check(cli._evaluate_hook_liveness(0, None, 1000.0)[0] == "INFO",
+           "no live panes -> INFO")
+    _check(cli._evaluate_hook_liveness(2, None, 1000.0)[0] == "FAIL",
+           "live panes + no register evidence -> FAIL")
+    _check(cli._evaluate_hook_liveness(2, 0.0, 1000.0)[0] == "FAIL",
+           "zero/invalid ts counts as no evidence -> FAIL")
+
+
+def _test_cli_evaluate_hook_liveness_ages() -> None:
+    now = 100000.0
+    _check(cli._evaluate_hook_liveness(1, now - 60.0, now)[0] == "PASS",
+           "1-min-old register -> PASS")
+    _check(cli._evaluate_hook_liveness(1, now - 1800.0, now)[0] == "PASS",
+           "exactly at threshold -> PASS (boundary inclusive)")
+    _check(cli._evaluate_hook_liveness(1, now - 3600.0, now)[0] == "WARN",
+           "1-hour-old register with live panes -> WARN")
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -949,6 +999,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_session_context", _test_cli_read_session_context),
+    ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
+    ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
+    ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),
+    ("cli.evaluate_hook_liveness_ages", _test_cli_evaluate_hook_liveness_ages),
 ]
 
 

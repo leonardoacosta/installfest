@@ -244,6 +244,113 @@ def cmd_self_test(args) -> int:
     return run_self_test(verbose=args.verbose)
 
 
+def _repo_plugin_version() -> str:
+    """Version from this checkout's .claude-plugin/plugin.json, or ''. Fail-open."""
+    try:
+        root = Path(__file__).resolve().parents[2]  # .../apps/cc-tmux
+        data = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        ver = data.get("version")
+        return ver if isinstance(ver, str) else ""
+    except Exception:
+        return ""
+
+
+def _evaluate_plugin_listing(raw: str, repo_version: str) -> Tuple[List[Tuple[str, str, str]], str]:
+    """Pure: map ``claude plugin list --json`` output to doctor rows.
+
+    Returns ``(rows, install_path)`` where rows are ``(status, label, detail)``
+    tuples covering plugin enablement and snapshot-vs-repo version, and
+    ``install_path`` is the snapshot dir for the caller's src-digest check
+    ('' when unavailable). Never raises — unparseable input degrades to a
+    single WARN row (fail-open, invariant 5).
+    """
+    try:
+        plugins = json.loads(raw)
+        entry = next(
+            (p for p in plugins
+             if isinstance(p, dict) and str(p.get("id", "")).startswith("cc-tmux@")),
+            None,
+        )
+    except Exception:
+        return [("WARN", "claude plugin enabled",
+                 "could not parse `claude plugin list --json` output")], ""
+
+    if entry is None:
+        return [("WARN", "claude plugin enabled",
+                 "cc-tmux not in `claude plugin list --json`")], ""
+
+    rows: List[Tuple[str, str, str]] = []
+    snap_ver = entry.get("version")
+    if entry.get("enabled") is True:
+        rows.append(("PASS", "claude plugin enabled", f"enabled (v{snap_ver})"))
+    else:
+        rows.append(("FAIL", "claude plugin enabled",
+                     "plugin DISABLED — all hooks dead, pane state frozen; "
+                     "run: claude plugin enable cc-tmux@cc-tmux"))
+
+    if not repo_version:
+        rows.append(("WARN", "plugin snapshot version",
+                     "repo .claude-plugin/plugin.json unreadable"))
+    elif snap_ver == repo_version:
+        rows.append(("PASS", "plugin snapshot version",
+                     f"snapshot {snap_ver} == repo {repo_version}"))
+    else:
+        rows.append(("WARN", "plugin snapshot version",
+                     f"snapshot {snap_ver} != repo {repo_version} — hook side runs "
+                     "stale code; run: claude plugin update cc-tmux@cc-tmux"))
+
+    install_path = entry.get("installPath")
+    return rows, install_path if isinstance(install_path, str) else ""
+
+
+_HOOK_LIVENESS_STALE_SECS = 1800.0  # 30 min; register fires on every prompt/tool/Stop
+
+
+def _evaluate_hook_liveness(
+    live_claude_count: int,
+    newest_register_ts: Optional[float],
+    now: float,
+    stale_after: float = _HOOK_LIVENESS_STALE_SECS,
+) -> Tuple[str, str]:
+    """Pure liveness verdict: are hooks writing state while Claude panes run?
+
+    Global signal only — per-pane @cc-timestamp age is NOT a valid staleness
+    signal (an idle pane legitimately freezes for hours). FAIL is reserved for
+    'Claude is running and NO register evidence exists at all'; an old-but-
+    present newest register is a WARN (dead hooks OR a long-idle session).
+    """
+    if live_claude_count <= 0:
+        return "INFO", "no panes running Claude (liveness not applicable)"
+    if newest_register_ts is None or newest_register_ts <= 0:
+        return ("FAIL",
+                f"{live_claude_count} pane(s) running Claude but no register "
+                "activity recorded — hooks look dead")
+    age = now - newest_register_ts
+    if age <= stale_after:
+        return ("PASS",
+                f"{live_claude_count} pane(s) running Claude; newest register "
+                f"{age / 60.0:.1f} min ago")
+    return ("WARN",
+            f"{live_claude_count} pane(s) running Claude but newest register is "
+            f"{age / 60.0:.0f} min old — dead hooks or long-idle session")
+
+
+def _src_digest(src_dir: Path) -> str:
+    """SHA-256 over sorted (relpath, bytes) of *.py under src_dir; '' on any error."""
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        for p in sorted(src_dir.rglob("*.py")):
+            if "__pycache__" in p.parts:
+                continue
+            h.update(str(p.relative_to(src_dir)).encode("utf-8"))
+            h.update(b"\x00")
+            h.update(p.read_bytes())
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
 def cmd_doctor(args) -> int:
     """Environment diagnostics checklist — PASS/FAIL/WARN rows, ALWAYS exit 0.
 
@@ -302,23 +409,38 @@ def cmd_doctor(args) -> int:
     except OSError as exc:
         add("FAIL", "plugin symlink", f"{link}: {exc}")
 
-    # Claude plugin registered (WARN if `claude` absent)
+    # Claude plugin enabled + snapshot version/src (dual-install split; WARN if
+    # `claude` absent). The hook WRITER runs the cache snapshot; readers run
+    # repo HEAD via the ~/.tmux/plugins symlink — these rows catch the split.
     claude_bin = shutil.which("claude")
     if not claude_bin:
-        add("WARN", "claude plugin registered", "claude not on PATH (skipped)")
+        add("WARN", "claude plugin enabled", "claude not on PATH (skipped)")
     else:
         try:
             proc = subprocess.run(
-                ["claude", "plugin", "list"],
+                ["claude", "plugin", "list", "--json"],
                 capture_output=True, text=True, timeout=10,
             )
-            listing = f"{proc.stdout}\n{proc.stderr}"
-            if "cc-tmux" in listing:
-                add("PASS", "claude plugin registered", "cc-tmux present")
-            else:
-                add("WARN", "claude plugin registered", "cc-tmux not in `claude plugin list`")
+            plugin_rows, install_path = _evaluate_plugin_listing(
+                proc.stdout, _repo_plugin_version()
+            )
+            for status, label, detail in plugin_rows:
+                add(status, label, detail)
+            if install_path:
+                repo_src = Path(__file__).resolve().parents[1]   # .../src
+                snap_src = Path(install_path) / "src"
+                repo_digest = _src_digest(repo_src)
+                snap_digest = _src_digest(snap_src)
+                if not repo_digest or not snap_digest:
+                    add("WARN", "plugin snapshot src", "could not digest src trees")
+                elif repo_digest == snap_digest:
+                    add("PASS", "plugin snapshot src", "snapshot src identical to repo")
+                else:
+                    add("WARN", "plugin snapshot src",
+                        "snapshot src DIVERGED from repo — hook side runs different "
+                        "code; run: claude plugin update cc-tmux@cc-tmux")
         except (OSError, subprocess.SubprocessError) as exc:
-            add("WARN", "claude plugin registered", f"`claude plugin list` failed: {exc}")
+            add("WARN", "claude plugin enabled", f"`claude plugin list --json` failed: {exc}")
 
     # pane-focus-in[9909] hook present when @cc-track-focus is on
     if not tmux.tmux_available():
@@ -338,6 +460,27 @@ def cmd_doctor(args) -> int:
     # tracked-pane count
     count = len(tmux.get_hop_panes())
     add("INFO", "tracked panes", str(count))
+
+    # hook liveness — is the Claude hook side writing state while panes run?
+    try:
+        live = len(_pane_ids_running_claude(tmux.iter_panes_with_process()))
+        candidates: List[float] = [p.timestamp for p in tmux.get_hop_panes() if p.timestamp > 0]
+        trace = _cc_state_dir() / _REGISTER_TRACE_FILE
+        if trace.is_file():
+            try:
+                last_line = trace.read_text(encoding="utf-8").splitlines()[-1]
+                ts = json.loads(last_line).get("ts")
+                if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                    candidates.append(float(ts))
+                else:
+                    candidates.append(trace.stat().st_mtime)
+            except Exception:
+                candidates.append(trace.stat().st_mtime)
+        newest = max(candidates) if candidates else None
+        status, detail = _evaluate_hook_liveness(live, newest, time.time())
+        add(status, "hook liveness", detail)
+    except Exception as exc:
+        add("WARN", "hook liveness", f"check failed: {exc}")
 
     # -- render ---------------------------------------------------------------
     print("cc-tmux doctor")
@@ -401,9 +544,11 @@ def cmd_picker_data(args) -> int:
 def cmd_status(args) -> int:
     """Emit the status-bar pane counts via ``@cc-status-format`` (Req-7).
 
-    The status bar is tmux's frequent-render surface, so it doubles as the
-    de-facto reconcile heartbeat — but the scan is rate-limited (design.md
-    Decision 1), so a render pays at most one process scan per interval.
+    NOT wired by default: cc-tmux.tmux no longer publishes ``@cc-status``
+    (the option had zero consumers). Users may wire ``#(cc-tmux status)``
+    into their own status line manually. The per-tick reconcile heartbeat
+    lives in :func:`cmd_tabs_row` (status-format[0]); the reconcile call
+    below is kept (rate-limited) for anyone who does wire this surface.
     """
     groups = group_by_state(tmux.reconcile(_pane_ids_running_claude))
     counts = {state: len(members) for state, members in groups.items()}
@@ -730,7 +875,13 @@ def cmd_tabs_row(args) -> int:
     window via :func:`tmux.current_window_id`, and hands both to
     :func:`render.render_tabs_row`. Fail-open: no windows -> print nothing,
     exit 0 (never blocks the status bar).
+
+    As the once-per-tick session-wide surface (status-format[0]), this is
+    also the reconcile heartbeat: the call above is rate-limited by
+    @cc-last-reconcile / @cc-reconcile-interval (tmux.py), so status-interval 1
+    costs at most one process scan per interval.
     """
+    tmux.reconcile(_pane_ids_running_claude)  # rate-limited self-heal, <=1 scan/10s
     windows = tmux.get_window_tabs()
     if not windows:
         return 0

@@ -6,7 +6,7 @@
 # tmux-which-key precedent). This file:
 #   * resolves its own dir + the bundled `bin/cc-tmux` CLI,
 #   * binds the keybindings (all overridable via @cc-*-key options),
-#   * wires @cc-status / @cc-status-inbox to the CLI status sources,
+#   * (status rows are wired by tmux.conf status-format slots, not here),
 #   * auto-discovers already-running Claude sessions on load.
 #
 # It doubles as its own display-menu helper: invoked as `cc-tmux.tmux __menu
@@ -115,10 +115,8 @@ case "$(_opt @cc-conductor-enabled off)" in
 esac
 
 # ---------------------------------------------------------------------------
-# Status sources + one-shot discover of already-running Claude sessions.
+# One-shot discover of already-running Claude sessions (see bottom of file).
 # ---------------------------------------------------------------------------
-tmux set-option -g @cc-status "#($CMD status)"
-tmux set-option -g @cc-status-inbox "#($CMD status-inbox)"
 
 # ---------------------------------------------------------------------------
 # MRU focus tracking — stamp @cc-visited on pane focus (recency tiebreak).
