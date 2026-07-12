@@ -264,20 +264,17 @@ def render_beads_bar(pulse_line: str) -> str:
     """Row-3 status-format string from roadmap-pulse cache content, or ``''``.
 
     ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content, which may
-    carry MULTIPLE lines (e.g. a ``"next: /apply cc-tmux-scout-adop… 0o 2u"``
-    line followed by a plain ``"12 open / 24 waiting"`` counts line) — the
-    cache file has always had both, but a naive single-line render silently
-    dropped everything past the first newline (cc-tmux-bar-cleanup). Every
-    non-blank line is now joined onto one full-width row with a DIM ``|``
-    separator, so both lines always show. Non-``next:`` lines (e.g. the open/
-    unarchived counts) always render FIRST, followed by any ``next:`` line(s)
-    LAST, regardless of their order in the source file — the cache file writes
-    ``next:`` first, but the counts read better leading the row. Each group
-    preserves its own internal relative order. A leading ``next:`` label is
-    highlighted in CYAN wherever it appears; every other line renders DIM.
-    Single-line content renders exactly as before (no separator artifact).
-    Returns the empty string for falsy/blank-only ``pulse_line`` so row 3 shows
-    nothing when there's nothing pending.
+    carry a ``"next: /apply cc-tmux-scout-adop… 0o 2u"`` line alongside a
+    plain ``"12 open / 24 waiting"`` counts line. Any ``next:`` line is
+    dropped entirely — row 3 shows only the counts line(s), never the
+    ``next:`` content, regardless of ordering in the source file. Remaining
+    non-``next:`` lines are joined onto one full-width row with a DIM ``|``
+    separator (relevant only if there were ever more than one — in practice
+    this is a single counts line). Single-line content renders exactly as
+    before (no separator artifact). Returns the empty string for
+    falsy/blank-only ``pulse_line``, or when the only content was a ``next:``
+    line with no counts to show, so row 3 shows nothing when there's nothing
+    pending.
 
     Pure function of its input (no tmux/subprocess).
     """
@@ -288,12 +285,8 @@ def render_beads_bar(pulse_line: str) -> str:
         return ""
 
     other_lines = [ln for ln in lines if not ln.startswith("next:")]
-    next_lines = [ln for ln in lines if ln.startswith("next:")]
+    if not other_lines:
+        return ""
 
-    segments = []
-    for ln in other_lines:
-        segments.append(f"#[fg={DIM}]{ln}")
-    for ln in next_lines:
-        rest = ln[len("next:"):]
-        segments.append(f"#[fg={CYAN}]next:#[fg={DIM}]{rest}")
+    segments = [f"#[fg={DIM}]{ln}" for ln in other_lines]
     return _BEADS_SEP.join(segments) + "#[default]"
