@@ -9,7 +9,8 @@ Subcommands split into two ownership groups:
   * Implemented: register, cycle, back, switch, focus, discover, clear,
     self-test, doctor (core); inbox, inbox-clear, picker-data, status,
     status-inbox (integration surface — these take no arguments, so their parsers
-    stay bare); usage (argless, Req-8), tabs-row (argless, cc-tmux-tabs-and-rename-fix)
+    stay bare); usage (argless, Req-8), accounts-popup (argless,
+    cc-tmux-account-switcher-popup), tabs-row (argless, cc-tmux-tabs-and-rename-fix)
     and conductor (Req-9, with its own action + flags).
 """
 
@@ -121,6 +122,15 @@ def build_parser() -> argparse.ArgumentParser:
     # -- usage: Claude multi-account usage status segment (Req-8) --------------
     # Takes no arguments (mirrors the retired tmux-nexus-creds sh script).
     sub.add_parser("usage", help="Emit the Claude usage status segment.")
+
+    # -- accounts-popup: account-switcher popup body (cc-tmux-account-switcher-popup)
+    # Data/render only, argless — resolves the current window itself (mirrors
+    # tabs-row). Invoked from the row-2 account-label click's MouseDown1Status
+    # binding in cc-tmux.tmux, wrapped there in `display-popup`.
+    sub.add_parser(
+        "accounts-popup",
+        help="Emit the account-switcher popup body (row-2 account-label click).",
+    )
 
     # -- window-icon: animated tab icon (Req: animated tab icon) ---------------
     # Invoked FROM a tmux window-status-format string

@@ -987,6 +987,63 @@ def cmd_session_bar(args) -> int:
     return 0
 
 
+def cmd_accounts_popup(args) -> int:
+    """Print the account-switcher popup body (cc-tmux-account-switcher-popup).
+
+    Non-Goals: read-only usage popup, no account SWITCHING action.
+
+    Fetches ``/credentials`` fresh (:func:`usage._query` — the raw payload,
+    not the short-TTL :func:`_active_usage` cache, because this handler needs
+    every credential, not just the active triple), applies
+    :func:`usage.dedupe_credentials` (if-lp8v/if-m5q6 client-side stopgap),
+    and extracts a ``(label, 5H, 7D)`` triple per surviving credential via the
+    same :func:`usage._account_label`/:func:`usage._extract_util` primitives
+    :func:`usage.extract_active`/:func:`usage.render_usage` already build on
+    — reused here rather than re-deriving the field-navigation logic. The
+    credential whose ``isActive`` flag is ``True`` supplies ``active_label``.
+
+    SES (a property of the currently-focused pane, not any credential row —
+    see proposal's "SES is not an account-level metric") is resolved via the
+    SAME path row 2 uses: :func:`_resolve_session_pane` +
+    :func:`_read_session_context` off the current window
+    (:func:`tmux.current_window_id`), mirroring :func:`_build_session_bar`.
+
+    Prints :func:`render.render_accounts_popup`'s plain-text body, or nothing
+    on any failure (fail-open, matches this module's universal contract).
+    Data/render only — no ``tmux display-popup`` call lives here; the
+    tmux-side ``MouseDown1Status`` binding (``cc-tmux.tmux``) wraps this
+    subcommand's output in ``display-popup``, the same DATA-ONLY split
+    :func:`cmd_inbox`/:func:`cmd_picker_data` already use for their fzf
+    popups.
+    """
+    payload = usage._query()
+    credentials = payload.get("credentials") if isinstance(payload, dict) else None
+    deduped = usage.dedupe_credentials(credentials) if isinstance(credentials, list) else []
+
+    active_label = ""
+    accounts: List[Tuple[str, Optional[float], Optional[float]]] = []
+    for cred in deduped:
+        label = usage._account_label(cred)
+        if not label:
+            continue
+        if cred.get("isActive") is True:
+            active_label = label
+        accounts.append((
+            label,
+            usage._extract_util(cred, "usage5hUsed", "usage5hLimit"),
+            usage._extract_util(cred, "usage7dUsed", "usage7dLimit"),
+        ))
+
+    window = tmux.current_window_id()
+    pane = _resolve_session_pane(window) if window else ""
+    active_ses_pct = _read_session_context(pane)[1] if pane else None
+
+    out = render.render_accounts_popup(accounts, active_label, active_ses_pct)
+    if out:
+        print(out)
+    return 0
+
+
 def _beads_pane(window_target: str) -> str:
     """The pane whose cwd drives row 3: top tracked pane, else the active pane.
 
@@ -1256,6 +1313,7 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "status": cmd_status,
     "status-inbox": cmd_status_inbox,
     "usage": cmd_usage,
+    "accounts-popup": cmd_accounts_popup,
     "window-icon": cmd_window_icon,
     "session-bar": cmd_session_bar,
     "beads-bar": cmd_beads_bar,

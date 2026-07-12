@@ -48,7 +48,7 @@ import sys
 import tempfile
 import time
 import urllib.request
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # tmux colour codes — identical to the retired tmux-nexus-creds sh script.
 DIM = "#454D54"
@@ -240,6 +240,97 @@ def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]
         _extract_util(active, "usage5hUsed", "usage5hLimit"),
         _extract_util(active, "usage7dUsed", "usage7dLimit"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Credentials dedupe (cc-tmux-account-switcher-popup task 1.2/2.1)
+#
+# The /credentials payload is known to accumulate historical duplicate rows
+# for the same account identity over time (if-lp8v/if-m5q6, nexus-agent-side
+# bloat, still open — 2,709 rows observed on one machine). This is a
+# self-contained CLIENT-SIDE view-layer stopgap, NOT a substitute for the
+# real nexus-agent-side prune those beads track — once that lands, this
+# becomes a no-op over an already-clean payload, not dead code to remove.
+# ---------------------------------------------------------------------------
+
+
+def dedupe_credentials(credentials: object) -> List[dict]:
+    """Collapse duplicate ``(accountEmail, orgUuid)`` rows, most-recent kept.
+
+    Groups by ``(accountEmail, orgUuid)`` when ``accountEmail`` is present
+    (mirrors :func:`_account_label`'s primary identity); when it is absent,
+    falls back to the label :func:`_account_label` would itself render (so
+    distinct email-less accounts do not collapse into one bucket just because
+    they both lack an email).
+
+    Within a group, an ``isActive: True`` row ALWAYS wins over an
+    ``isActive: False`` row, regardless of timestamps — confirmed live
+    (2026-07-12) that a group can contain rows with genuinely DIFFERENT
+    ``fingerprint``/``id`` values (distinct token-swap generations, not just
+    repeated polls of one identity) sharing the same ``(accountEmail,
+    orgUuid)``, and a stale sibling's ``usagePolledAt`` can be lexically
+    LATER than the real active row's (observed: the active row polled at
+    ``21:31:17.119Z``, a stale duplicate at ``21:31:17.154Z``, 35ms later) —
+    letting recency alone decide would silently drop the one row this
+    feature actually needs (the credential the accounts-popup marks SES on).
+    Only when both candidates share the same ``isActive`` value does the
+    recency tie-break apply: prefers whichever has the more recent
+    ``usagePolledAt`` (an ISO-8601 string, lexically comparable) when BOTH
+    carry one; otherwise "last one wins" — the payload's own list order is
+    presumed oldest-to-newest, matching an accumulating-log shape, and
+    ``usagePolledAt`` is frequently ``null`` on this machine (nexus-agent
+    has never polled most accounts), so that fallback is the common path.
+
+    Pure function, no HTTP — operates on the ``credentials`` list a caller
+    already fetched via :func:`_query`. Non-list input -> ``[]``; non-dict
+    entries within the list are skipped (fail-open, mirrors
+    :func:`_extract_util`'s tolerance for malformed rows). Return order
+    follows each group's first appearance in ``credentials``.
+    """
+    if not isinstance(credentials, list):
+        return []
+
+    order: List[Tuple[str, Optional[str]]] = []
+    groups: Dict[Tuple[str, Optional[str]], dict] = {}
+    for candidate in credentials:
+        if not isinstance(candidate, dict):
+            continue
+        email = candidate.get("accountEmail")
+        org = candidate.get("orgUuid")
+        org_key = org if isinstance(org, str) else None
+        key = (
+            (email, org_key)
+            if isinstance(email, str) and email
+            else (_account_label(candidate), org_key)
+        )
+
+        existing = groups.get(key)
+        if existing is None:
+            order.append(key)
+            groups[key] = candidate
+            continue
+
+        existing_active = existing.get("isActive") is True
+        candidate_active = candidate.get("isActive") is True
+        if candidate_active and not existing_active:
+            groups[key] = candidate
+            continue
+        if existing_active and not candidate_active:
+            continue  # never let a stale/inactive duplicate evict the live row
+
+        new_polled = candidate.get("usagePolledAt")
+        old_polled = existing.get("usagePolledAt")
+        if (
+            isinstance(new_polled, str) and new_polled
+            and isinstance(old_polled, str) and old_polled
+        ):
+            if new_polled >= old_polled:
+                groups[key] = candidate
+        else:
+            # No dependable timestamp on one/both sides -> last one wins.
+            groups[key] = candidate
+
+    return [groups[key] for key in order]
 
 
 def _read_usage_cache(path: str, now: float, ttl: float):

@@ -701,6 +701,118 @@ def _test_usage_extract_active() -> None:
     _check(u7 is None, "unpolled 7d -> None")
 
 
+def _test_usage_dedupe_credentials() -> None:
+    _check(usage.dedupe_credentials("nope") == [], "non-list -> []")
+    _check(usage.dedupe_credentials([]) == [], "empty list -> []")
+
+    # Duplicate (accountEmail, orgUuid) rows collapse to one, most-recent
+    # (by usagePolledAt) kept when BOTH entries carry a timestamp.
+    creds = [
+        {
+            "accountEmail": "leo@x.dev", "orgUuid": "abc123f",
+            "usagePolledAt": "2026-07-01T00:00:00Z", "usage5hUsed": 1.0, "usage5hLimit": 10.0,
+        },
+        {
+            "accountEmail": "leo@x.dev", "orgUuid": "abc123f",
+            "usagePolledAt": "2026-07-10T00:00:00Z", "usage5hUsed": 5.0, "usage5hLimit": 10.0,
+        },
+    ]
+    out = usage.dedupe_credentials(creds)
+    _check(len(out) == 1, f"duplicate identity collapses to one row: {len(out)}")
+    _check(out[0]["usage5hUsed"] == 5.0, "most-recent (by usagePolledAt) row kept")
+
+    # No usable usagePolledAt on either side -> last one wins (payload list
+    # order presumed oldest -> newest, the common case on this machine since
+    # usagePolledAt is frequently null).
+    creds_no_ts = [
+        {"accountEmail": "a@x.dev", "orgUuid": "1", "usage5hUsed": 1.0},
+        {"accountEmail": "a@x.dev", "orgUuid": "1", "usage5hUsed": 9.0},
+    ]
+    out2 = usage.dedupe_credentials(creds_no_ts)
+    _check(len(out2) == 1 and out2[0]["usage5hUsed"] == 9.0, "no timestamp -> last one wins")
+
+    # Distinct orgUuid under the same email -> two separate accounts, not merged.
+    creds_diff_org = [
+        {"accountEmail": "a@x.dev", "orgUuid": "1"},
+        {"accountEmail": "a@x.dev", "orgUuid": "2"},
+    ]
+    out3 = usage.dedupe_credentials(creds_diff_org)
+    _check(len(out3) == 2, "distinct orgUuid under same email stays distinct")
+
+    # No accountEmail -> falls back to the _account_label identity so distinct
+    # unlabeled accounts don't collapse into one bucket.
+    creds_no_email = [
+        {"accountName": "personal", "orgUuid": "1"},
+        {"accountName": "work", "orgUuid": "1"},
+    ]
+    out4 = usage.dedupe_credentials(creds_no_email)
+    _check(len(out4) == 2, "distinct accountName fallback identities stay distinct")
+
+    # Malformed rows (non-dict) are skipped, fail-open.
+    out5 = usage.dedupe_credentials([1, "x", None, {"accountEmail": "b@x.dev"}])
+    _check(out5 == [{"accountEmail": "b@x.dev"}], "non-dict rows skipped")
+
+    # isActive:True MUST win over isActive:False even when the inactive
+    # duplicate has a LATER usagePolledAt — confirmed live 2026-07-12 against
+    # the real nexus-agent payload: a group can hold genuinely different
+    # credential rows (distinct fingerprint/id, same accountEmail+orgUuid)
+    # from token-swap history, and a stale sibling's poll timestamp can
+    # lexically postdate the real active row's by milliseconds. Recency alone
+    # would silently drop the one row the accounts-popup needs for SES.
+    creds_active_vs_stale = [
+        {
+            "accountEmail": "c@x.dev", "orgUuid": "1", "fingerprint": "active-fp",
+            "isActive": True, "usagePolledAt": "2026-07-12T21:31:17.119Z",
+        },
+        {
+            "accountEmail": "c@x.dev", "orgUuid": "1", "fingerprint": "stale-fp",
+            "isActive": False, "usagePolledAt": "2026-07-12T21:31:17.154Z",
+        },
+    ]
+    out6 = usage.dedupe_credentials(creds_active_vs_stale)
+    _check(len(out6) == 1, "still collapses to one row")
+    _check(out6[0]["isActive"] is True, "isActive:True survives a later-timestamped inactive dup")
+    _check(out6[0]["fingerprint"] == "active-fp", "the active row's own data is kept, not the stale dup's")
+
+    # Same scenario, active row seen SECOND -> still wins (order-independent).
+    out7 = usage.dedupe_credentials(list(reversed(creds_active_vs_stale)))
+    _check(out7[0]["isActive"] is True, "isActive:True wins regardless of list order")
+
+
+def _test_render_accounts_popup() -> None:
+    accounts = [
+        ("leo@x.dev·f", 0.5, 0.85),
+        ("other@x.dev·2", 0.1, 0.2),
+    ]
+    out = render.render_accounts_popup(accounts, "leo@x.dev·f", 0.42)
+    lines = out.splitlines()
+    _check(len(lines) == 2, f"one line per account: {lines!r}")
+    active_line = next(l for l in lines if "leo@x.dev" in l)
+    other_line = next(l for l in lines if "other@x.dev" in l)
+    _check("SES:42%" in active_line, f"active row shows SES: {active_line!r}")
+    _check(
+        "5H:50%" in active_line and "7D:85%" in active_line,
+        f"active row shows 5H/7D too: {active_line!r}",
+    )
+    _check("SES:" not in other_line, f"non-active row has no SES: {other_line!r}")
+    _check(
+        "5H:10%" in other_line and "7D:20%" in other_line,
+        f"non-active row shows 5H/7D: {other_line!r}",
+    )
+    _check(active_line.startswith("*"), f"active row is marked: {active_line!r}")
+    _check(not other_line.startswith("*"), f"non-active row is not marked: {other_line!r}")
+    # Plain text popup: no tmux status-format escaping leaks in.
+    _check("#[" not in out, "popup body carries no tmux #[...] style codes")
+
+    # Unreachable nexus-agent / zero deduped credentials -> empty, fail-open.
+    _check(render.render_accounts_popup([], "leo@x.dev", 0.5) == "", "no accounts -> ''")
+
+    # No account matches active_label -> no row gets SES (e.g. the active
+    # credential had no usable label and was dropped by the caller).
+    out_no_match = render.render_accounts_popup(accounts, "", None)
+    _check("SES:" not in out_no_match, "no active_label match -> no SES anywhere")
+
+
 def _test_usage_active_usage_ttl() -> None:
     # Cache round-trip + TTL + negative caching, with _query monkeypatched to count.
     calls = {"n": 0}
@@ -1640,6 +1752,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.render_segment", _test_usage_render_segment),
     ("usage.fail_open", _test_usage_fail_open),
     ("usage.extract_active", _test_usage_extract_active),
+    ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
+    ("render.accounts_popup", _test_render_accounts_popup),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),

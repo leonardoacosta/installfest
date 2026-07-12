@@ -102,6 +102,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Account-switcher popup click (cc-tmux-account-switcher-popup) — row 2's
+# account-label segment carries a #[range=user|accounts] marker
+# (render.render_session_bar). ALL status-bar ranges (user/session/window/
+# pane) share the single MouseDown1Status key — there is no distinct
+# per-range binding on this tmux version (3.6a, confirmed via task 1.1's
+# spike) — so the specific range is read at click time from
+# #{mouse_status_range}. Falls through to tmux's own default action
+# (switch-client -t =) for every range OTHER than "accounts", which is what
+# keeps cmd_status_inbox's existing #[range=pane|<id>] click-to-hop behavior
+# (relying on that same implicit default) working unchanged. Positioned via
+# `-y S -x M` (immediately above the status line, at the mouse's x position —
+# task 1.1's other spike confirmation); `-E` closes the popup once the shell
+# command exits, so the command pauses on a keypress (read-only info popup,
+# no per-account action — see proposal Non-Goals).
+# ---------------------------------------------------------------------------
+tmux bind-key MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
+  "display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\"" \
+  "switch-client -t ="
+
+# ---------------------------------------------------------------------------
 # Conductor keys — ONLY when @cc-conductor-enabled is on (conductor.py is owned
 # by another engineer; we just wire the guarded bindings to its CLI).
 # ---------------------------------------------------------------------------

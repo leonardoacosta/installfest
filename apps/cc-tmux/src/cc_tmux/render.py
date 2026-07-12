@@ -227,6 +227,17 @@ def render_session_bar(
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
+
+    The account-label token on the right side is wrapped in
+    ``#[range=user|accounts]``/``#[norange]`` (cc-tmux-account-switcher-popup
+    task 3.1) — the same range-marker mechanism :func:`cmd_status_inbox`
+    already uses for its ``#[range=pane|<id>]`` badges, confirmed via task
+    1.1's spike to be the only way to bind a NON-default ``MouseDown1Status``
+    action to a specific status-bar segment on this tmux version (3.6a): all
+    ranges share one ``MouseDown1Status`` key, distinguished at click time via
+    ``#{mouse_status_range}`` — see ``cc-tmux.tmux``'s override. Dropped
+    entirely (no range wrapper) when ``account_label`` is empty, so an
+    unlabeled right side never emits a dead click target.
     """
     left_parts: List[str] = []
     if model_letter:
@@ -245,13 +256,77 @@ def render_session_bar(
 
     cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
     ps, p5, p7 = pct_for(ses_pct), pct_for(five_h_pct), pct_for(seven_d_pct)
+    label_seg = (
+        f"#[range=user|accounts]#[fg={DIM}]{account_label} #[norange]"
+        if account_label
+        else ""
+    )
     right = (
-        f"#[fg={DIM}]{account_label} "
+        f"{label_seg}"
         f"#[fg={DIM}]SES:#[fg={cs}]{ps}#[default] "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
     )
     return f"{left}#[align=right]{right}"
+
+
+# ---------------------------------------------------------------------------
+# Accounts popup (cc-tmux-account-switcher-popup)
+#
+# Renders the multi-line body shown when the row-2 account-label segment is
+# clicked (the #[range=user|accounts] marker above). PLAIN text, no
+# #[fg=...]/#[range=...] tmux status-format escaping: this string is printed
+# inside an fzf-less display-popup shell, not evaluated by tmux's own
+# status-format renderer, so those escape codes would show up as literal
+# garbage rather than colour.
+# ---------------------------------------------------------------------------
+
+
+def render_accounts_popup(
+    accounts: Sequence[Tuple[str, Optional[float], Optional[float]]],
+    active_label: str,
+    active_ses_pct: Optional[float],
+) -> str:
+    """Aligned plain-text popup body: one row per deduped tracked account.
+
+    ``accounts`` is every deduped account as an already-extracted
+    ``(label, five_h_pct, seven_d_pct)`` triple — the CLI handler
+    (:func:`cc_tmux.cli.cmd_accounts_popup`) builds these via
+    :func:`cc_tmux.usage.dedupe_credentials` +
+    :func:`cc_tmux.usage._account_label`/:func:`cc_tmux.usage._extract_util`,
+    so this function stays pure with no credential-dict shape knowledge.
+    Every row renders ``5H:xx% 7D:xx%``; the row whose label equals
+    ``active_label`` (exact match) is additionally prefixed with
+    ``SES:xx%`` (from ``active_ses_pct``) and marked with a leading ``*`` —
+    SES is a property of the currently-focused pane, not of a credential in
+    the abstract (proposal's "SES is not an account-level metric"), so it is
+    supplied by the caller rather than looked up per-account here.
+
+    Percent formatting reuses :func:`pct_for` (``--`` for an absent/unpolled
+    value); :func:`color_for` is deliberately NOT used — this is ANSI-less
+    plain text, not a tmux status-format string (see module docstring above).
+
+    Pure function of its inputs. Empty ``accounts`` -> ``""`` (fail-open: an
+    unreachable nexus-agent, or a payload with zero deduped/labelled
+    credentials, renders nothing rather than an empty/garbled popup).
+    """
+    if not accounts:
+        return ""
+
+    rows: List[Tuple[str, str, bool]] = []
+    for label, five_h, seven_d in accounts:
+        is_active = bool(active_label) and label == active_label
+        tail = f"5H:{pct_for(five_h)} 7D:{pct_for(seven_d)}"
+        if is_active:
+            tail = f"SES:{pct_for(active_ses_pct)} {tail}"
+        rows.append((label, tail, is_active))
+
+    label_width = max(len(label) for label, _tail, _active in rows)
+    lines = [
+        f"{'* ' if is_active else '  '}{label.ljust(label_width)}  {tail}"
+        for label, tail, is_active in rows
+    ]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
