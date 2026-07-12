@@ -42,6 +42,16 @@ class _FakePane:
     visited: float = 0.0
 
 
+@dataclass
+class _FakeWindow:
+    """Minimal stand-in for tmux.WindowInfo — render.render_tabs_row reads id/index/name/state."""
+
+    id: str
+    index: str
+    name: str
+    state: str = ""
+
+
 # ---------------------------------------------------------------------------
 # priority.py tests
 # ---------------------------------------------------------------------------
@@ -610,6 +620,42 @@ def _test_tmux_get_window_top_pane() -> None:
         tmux._run_tmux = saved  # type: ignore[assignment]
 
 
+def _test_tmux_get_window_tabs() -> None:
+    # Mirrors _test_tmux_get_window_top_pane's mocking convention: fake
+    # tmux._run_tmux, branching on the leading args (list-windows vs list-panes).
+    saved = tmux._run_tmux
+    try:
+        def fake_two_windows(args, *, check_available: bool = True):
+            if args[:1] == ["list-windows"]:
+                return "@1\x1f1\x1feditor\n@2\x1f2\x1fshell"
+            if args[:2] == ["list-panes", "-s"]:
+                return "@1\x1fidle\n@2\x1fwaiting\n@2\x1factive"
+            return None
+        tmux._run_tmux = fake_two_windows  # type: ignore[assignment]
+        windows = tmux.get_window_tabs()
+        _check(len(windows) == 2, "two windows enumerated")
+        by_id = {w.id: w for w in windows}
+        _check(by_id["@1"].index == "1" and by_id["@1"].name == "editor", "window @1 id/index/name")
+        _check(by_id["@1"].state == "idle", "window @1 top state (single pane)")
+        _check(by_id["@2"].name == "shell", "window @2 name")
+        _check(by_id["@2"].state == "waiting", "window @2 top state (waiting beats active)")
+
+        def fake_no_windows(args, *, check_available: bool = True):
+            return None
+        tmux._run_tmux = fake_no_windows  # type: ignore[assignment]
+        _check(tmux.get_window_tabs() == [], "no tmux output -> []")
+
+        def fake_windows_no_panes(args, *, check_available: bool = True):
+            if args[:1] == ["list-windows"]:
+                return "@1\x1f1\x1funtracked"
+            return None  # list-panes read fails -> every window has no tracked state
+        tmux._run_tmux = fake_windows_no_panes  # type: ignore[assignment]
+        windows2 = tmux.get_window_tabs()
+        _check(len(windows2) == 1 and windows2[0].state == "", "no pane data -> window state ''")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
 def _test_render_session_bar() -> None:
     # Full render: 2+ sessions, model + project + branch on the left, usage
     # gauges (account label + SES/5H/7D) on the right (restored post
@@ -643,35 +689,80 @@ def _test_render_beads_bar() -> None:
     # Empty pulse line -> '' (row 3 shows nothing).
     _check(render.render_beads_bar("") == "", "empty pulse -> ''")
 
-    # 'next:'-prefixed line -> CYAN label + DIM remainder + colour reset.
-    out = render.render_beads_bar("next: /apply foo 2o 3u")
-    _check(out.startswith(f"#[fg={render.CYAN}]next:"), "next: label highlighted CYAN")
-    _check(f"#[fg={render.DIM}] /apply foo 2o 3u" in out, "remainder rendered DIM")
-    _check(out.endswith("#[default]"), "resets colour at end")
+    # A pulse line that is ONLY a 'next:' line -> '' — that content is dropped
+    # entirely (row 3 never shows the next: segment, regardless of ordering),
+    # so with nothing else to show the row renders nothing.
+    _check(render.render_beads_bar("next: /apply foo 2o 3u") == "", "next:-only pulse -> ''")
 
-    # Plain (non-next:) line -> entirely DIM.
+    # Plain (non-next:) line -> entirely DIM, single trailing reset.
     out2 = render.render_beads_bar("12 open / 24 waiting")
     _check(
         out2 == f"#[fg={render.DIM}]12 open / 24 waiting#[default]",
         "plain pulse line -> all DIM",
     )
 
-    # Two-line cache content (next: line + counts line) -> BOTH lines joined
-    # onto one row with a DIM ' | ' separator, not silently truncated to the
-    # first line (the cc-tmux-bar-cleanup defect). The counts line renders
-    # FIRST and the next: line LAST, regardless of file order (the cache file
-    # writes next: first, but the row reads better counts-then-next).
+    # Two-line cache content (next: line + counts line) -> the next: line is
+    # dropped entirely and only the counts line renders, DIM, with no
+    # separator artifact from the discarded line (the cc-tmux-bar-cleanup
+    # regression this fixed: row 3 must never show next: content).
     out3 = render.render_beads_bar("next: /apply foo 2o 3u\n12 open, 3 unarchived")
-    _check(out3.startswith(f"#[fg={render.DIM}]12 open, 3 unarchived"), "two-line: counts line comes first")
-    _check(f"#[fg={render.CYAN}]next:" in out3, "two-line: next label still CYAN")
-    _check(" /apply foo 2o 3u" in out3, "two-line: next: remainder present")
-    _check(out3.index("12 open, 3 unarchived") < out3.index("next:"), "two-line: counts precede next:")
-    _check(f"#[fg={render.DIM}] | " in out3, "two-line: DIM pipe separator present")
-    _check(out3.endswith("#[default]"), "two-line: resets colour at end")
-    _check(out3.count("#[default]") == 1, "two-line: single trailing reset, not per-line")
+    _check(
+        out3 == f"#[fg={render.DIM}]12 open, 3 unarchived#[default]",
+        "two-line: next: line dropped, only counts line remains",
+    )
+    _check("next:" not in out3, "two-line: next: content never appears in the rendered row")
+
+    # Multiple non-next: lines -> joined with the DIM ' | ' separator, single
+    # trailing reset (the separator only matters when there's more than one
+    # surviving line).
+    out4 = render.render_beads_bar("12 open / 24 waiting\n3 blocked")
+    _check(
+        out4 == (
+            f"#[fg={render.DIM}]12 open / 24 waiting"
+            f"#[fg={render.DIM}] | #[fg={render.DIM}]3 blocked#[default]"
+        ),
+        "multi-line: both lines joined with a DIM pipe separator",
+    )
+    _check(out4.count("#[default]") == 1, "multi-line: single trailing reset, not per-line")
 
     # Blank-line-only content (e.g. a stray trailing newline) -> ''.
     _check(render.render_beads_bar("\n\n") == "", "blank-only content -> ''")
+
+
+def _test_render_tabs_row() -> None:
+    # Empty window list -> '' (nothing to show).
+    _check(render.render_tabs_row([], "@1", 0.0) == "", "empty window list -> ''")
+
+    windows = [
+        _FakeWindow(id="@1", index="1", name="editor", state="waiting"),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+
+    out = render.render_tabs_row(windows, "@2", now=1.0)
+
+    # Active window (id == active_window_id) renders bold CYAN; the animated
+    # icon for its tracked state is reused verbatim from animated_icon, not
+    # re-derived (window @1 is NOT active here — inactive windows still get
+    # their icon, only the colour differs).
+    icon_waiting = render.animated_icon("waiting", 1.0)
+    _check(f"#[fg={render.DIM}] 1:{icon_waiting} editor #[default]" in out, "inactive window: DIM, icon present")
+
+    # Untracked window (state == '') renders no icon at all — bare
+    # 'index:name', matching cmd_window_icon's existing untracked contract —
+    # and IS styled as the active window here (bold CYAN).
+    _check(f"#[fg={render.CYAN},bold] 2:shell #[default]" in out, "active + untracked: CYAN bold, no icon glyph")
+    _check("2:  shell" not in out, "untracked window never renders a double space where the icon would be")
+
+    # Swap which window is active -> the CYAN/DIM assignment flips accordingly.
+    out2 = render.render_tabs_row(windows, "@1", now=1.0)
+    _check(f"#[fg={render.CYAN},bold] 1:{icon_waiting} editor #[default]" in out2, "window @1 active -> CYAN bold")
+    _check(f"#[fg={render.DIM}] 2:shell #[default]" in out2, "window @2 inactive -> DIM")
+
+    # No matching active_window_id (e.g. tmux.current_window_id() failed and
+    # returned '') -> every window renders DIM, none crash on the empty-string
+    # comparison (fail-open).
+    out3 = render.render_tabs_row(windows, "", now=1.0)
+    _check(f"#[fg={render.CYAN}" not in out3, "no active id -> no window rendered as active")
 
 
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
@@ -818,8 +909,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.session_glyph", _test_render_session_glyph),
     ("tmux.session_count_glyph", _test_tmux_session_count_glyph),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
+    ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
     ("render.session_bar", _test_render_session_bar),
     ("render.beads_bar", _test_render_beads_bar),
+    ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_session_context", _test_cli_read_session_context),
 ]

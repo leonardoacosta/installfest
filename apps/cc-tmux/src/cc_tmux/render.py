@@ -257,6 +257,62 @@ def render_session_bar(
     return f"{left}#[align=right]{right}"
 
 
+# ---------------------------------------------------------------------------
+# Window-tabs row (cc-tmux-tabs-and-rename-fix)
+#
+# The per-window `window-status-format`/`window-status-current-format`
+# mechanism never re-evaluates its nested `#()` job on this tmux version (3.6a)
+# — confirmed via /openspec:explore runtime evidence — so the animated tab
+# icon it was meant to drive never actually moves. This renders the ENTIRE
+# tabs row as one string from a single top-level status-format slot instead
+# (the same slot class row 2/row 3 already use), which DOES re-evaluate its
+# `#()` job on every status-bar refresh. Same daemon-free, status-interval-
+# driven cadence as animated_icon/render_session_bar/render_beads_bar — no
+# background process, no timer of its own.
+# ---------------------------------------------------------------------------
+
+
+def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float) -> str:
+    """Row-1 status-format string: one ``index:icon name`` segment per window.
+
+    ``windows`` is any sequence of objects with ``id``/``index``/``name``/
+    ``state`` attributes (duck-typed via ``getattr``, matching this module's
+    other pane/window-consuming functions — see :func:`inbox_rows`); the
+    canonical source is :func:`cc_tmux.tmux.get_window_tabs`. ``state`` is the
+    window's highest-priority tracked ``@cc-state``, or ``""`` for a window
+    with no tracked Claude pane — that window renders with no icon (matches
+    :func:`cmd_window_icon`'s existing "untracked window -> no icon" contract),
+    just its bare ``index:name``. ``now`` is the caller-supplied wall-clock
+    time (``time.time()`` in production) handed straight to
+    :func:`animated_icon` for the animation frame — same invocation pattern
+    :func:`cc_tmux.cli.cmd_window_icon` already uses, reused here per window
+    rather than re-deriving the state->glyph mapping.
+
+    The active window (``id == active_window_id``) renders bold CYAN; every
+    other window renders DIM — the same semantic colour pair
+    :func:`render_session_bar` uses for emphasis vs. identity text, reused
+    here rather than inventing a third convention. No wrapping bg colour is
+    applied (theme ``.conf`` files wrap the whole row, same as
+    ``status-format[1]``/``[2]`` — see :func:`render_session_bar`).
+
+    Pure function of its inputs (no tmux/subprocess). Empty ``windows`` ->
+    ``""`` (nothing to show).
+    """
+    segments: List[str] = []
+    for w in windows:
+        state = getattr(w, "state", "") or ""
+        icon = animated_icon(state, now)
+        icon_part = f"{icon} " if icon else ""
+        index = getattr(w, "index", "")
+        name = getattr(w, "name", "")
+        label = f"{index}:{icon_part}{name}"
+
+        is_active = active_window_id and getattr(w, "id", None) == active_window_id
+        colour = f"{CYAN},bold" if is_active else DIM
+        segments.append(f"#[fg={colour}] {label} #[default]")
+    return "".join(segments)
+
+
 _BEADS_SEP = f"#[fg={DIM}] | "
 
 

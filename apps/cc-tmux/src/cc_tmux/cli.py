@@ -718,6 +718,29 @@ def cmd_beads_bar(args) -> int:
     return 0
 
 
+def cmd_tabs_row(args) -> int:
+    """Emit the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
+
+    Invoked FROM a top-level status-format slot (same slot class as
+    :func:`cmd_session_bar`/:func:`cmd_beads_bar` — NOT nested inside
+    ``window-status-format``, whose own embedded ``#()`` job never
+    re-evaluates on this tmux version, confirmed via /openspec:explore runtime
+    evidence). Takes no arguments: enumerates every window in the invoking
+    client's session via :func:`tmux.get_window_tabs`, resolves the active
+    window via :func:`tmux.current_window_id`, and hands both to
+    :func:`render.render_tabs_row`. Fail-open: no windows -> print nothing,
+    exit 0 (never blocks the status bar).
+    """
+    windows = tmux.get_window_tabs()
+    if not windows:
+        return 0
+    active_window_id = tmux.current_window_id()
+    out = render.render_tabs_row(windows, active_window_id, time.time())
+    if out:
+        sys.stdout.write(out)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # discover helpers
 # ---------------------------------------------------------------------------
@@ -823,6 +846,7 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "window-icon": cmd_window_icon,
     "session-bar": cmd_session_bar,
     "beads-bar": cmd_beads_bar,
+    "tabs-row": cmd_tabs_row,
     "conductor": cmd_conductor,
 }
 

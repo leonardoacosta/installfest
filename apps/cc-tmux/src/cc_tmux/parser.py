@@ -9,8 +9,8 @@ Subcommands split into two ownership groups:
   * Implemented: register, cycle, back, switch, focus, discover, clear,
     self-test, doctor (core); inbox, inbox-clear, picker-data, status,
     status-inbox (integration surface — these take no arguments, so their parsers
-    stay bare); usage (argless, Req-8) and conductor (Req-9, with its own action
-    + flags).
+    stay bare); usage (argless, Req-8), tabs-row (argless, cc-tmux-tabs-and-rename-fix)
+    and conductor (Req-9, with its own action + flags).
 """
 
 from __future__ import annotations
@@ -159,6 +159,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_beads_bar.add_argument(
         "window",
         help="Target window (tmux window_id e.g. @3, or an index) to scope the lookup to.",
+    )
+
+    # -- tabs-row: whole-row animated window tabs (cc-tmux-tabs-and-rename-fix)
+    # Invoked FROM a top-level status-format slot (e.g. status-format[0], NOT
+    # nested inside window-status-format — the per-window `#()` job embedded
+    # in the default window-status-format never re-evaluates on this tmux
+    # version, so the whole row renders from one top-level job instead, same
+    # slot class as session-bar/beads-bar). Takes no arguments — it enumerates
+    # every window in the invoking client's session itself (tmux.get_window_tabs).
+    sub.add_parser(
+        "tabs-row",
+        help="Emit the whole animated window-tabs row (invoked from a top-level status-format slot).",
     )
 
     # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----

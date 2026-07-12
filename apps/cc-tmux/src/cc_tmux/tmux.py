@@ -45,7 +45,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from . import log
 from .priority import PENDING_STATES, STATE_PRIORITY, VALID_STATES
@@ -97,6 +97,22 @@ class PaneInfo:
     wait_reason: str = ""
     project: str = ""
     branch: str = ""
+
+
+@dataclass
+class WindowInfo:
+    """One window in the invoking client's current session, for the tabs row.
+
+    ``state`` is the highest-priority ``@cc-state`` among the window's tracked
+    panes (same :data:`~cc_tmux.priority.STATE_PRIORITY` ordering
+    :func:`get_window_top_state` uses for a single window), or ``""`` when the
+    window has no tracked Claude pane. Source: :func:`get_window_tabs`.
+    """
+
+    id: str
+    index: str
+    name: str
+    state: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +274,65 @@ def get_window_top_pane(window_target: str) -> str:
     return min(candidates, key=lambda c: STATE_PRIORITY.get(c[1], len(STATE_PRIORITY)))[0]
 
 
+def get_window_tabs() -> List[WindowInfo]:
+    """Every window in the invoking client's current session, with its top state.
+
+    Two batched reads (not one ``get_window_top_state`` call per window, which
+    would be O(windows) tmux subprocess round-trips on every status-bar
+    refresh): a ``list-windows`` for id/index/name, and a single session-scoped
+    ``list-panes -s`` for every tracked pane's window id + state. Both omit an
+    explicit ``-t`` — the same implicit current-session resolution
+    :func:`cmd_session_bar`/:func:`cmd_beads_bar`'s window-scoped
+    ``#{window_id}`` argument relies on already (a ``#()`` job spawned from a
+    client's status-format string resolves default targets against that
+    client's session). Per-window state reuses
+    :data:`~cc_tmux.priority.STATE_PRIORITY` — the same waiting > idle > active
+    precedence :func:`get_window_top_state` applies to a single window — rather
+    than re-deriving the ordering. This is the data source for
+    :func:`cc_tmux.render.render_tabs_row`. Fail-open: no tmux / no windows ->
+    ``[]``.
+    """
+    fmt_w = _FS.join(["#{window_id}", "#{window_index}", "#{window_name}"])
+    windows_out = _run_tmux(["list-windows", "-F", fmt_w])
+    if not windows_out:
+        return []
+
+    windows: List[WindowInfo] = []
+    for line in windows_out.split("\n"):
+        if not line:
+            continue
+        parts = line.split(_FS)
+        if len(parts) != 3:
+            continue
+        window_id, index, name = parts
+        windows.append(WindowInfo(id=window_id, index=index, name=name))
+    if not windows:
+        return []
+
+    fmt_p = _FS.join(["#{window_id}", "#{@cc-state}"])
+    panes_out = _run_tmux(["list-panes", "-s", "-F", fmt_p])
+    top_state: Dict[str, str] = {}
+    if panes_out:
+        by_window: Dict[str, List[str]] = {}
+        for line in panes_out.split("\n"):
+            if not line:
+                continue
+            parts = line.split(_FS)
+            if len(parts) != 2:
+                continue
+            window_id, state = parts
+            if state in VALID_STATES:
+                by_window.setdefault(window_id, []).append(state)
+        for window_id, states in by_window.items():
+            top_state[window_id] = min(
+                states, key=lambda s: STATE_PRIORITY.get(s, len(STATE_PRIORITY))
+            )
+
+    for w in windows:
+        w.state = top_state.get(w.id, "")
+    return windows
+
+
 def session_count_glyph(project: str) -> str:
     """Session-count glyph for ``project`` — ``◌`` / ``◉`` / ``◉ N`` for 0 / 1 / 2+.
 
@@ -299,6 +374,18 @@ def current_pane_id() -> Optional[str]:
     if env_pane:
         return env_pane
     return _run_tmux(["display-message", "-p", "#{pane_id}"]) or None
+
+
+def current_window_id() -> str:
+    """Id of the active window for the invoking client's session, or ``''``.
+
+    Used by ``cc-tmux tabs-row`` (:func:`cc_tmux.cli.cmd_tabs_row`) to mark the
+    active tab distinctly in the combined row. Unlike :func:`current_pane_id`
+    (hook-invoked, has a ``$TMUX_PANE`` env fast path), tabs-row is invoked
+    from a status-format job with no equivalent env var, so this always shells
+    out. Fail-open: no tmux -> ``''``.
+    """
+    return _run_tmux(["display-message", "-p", "#{window_id}"]) or ""
 
 
 def switch_to_pane(pane_id: str) -> bool:
