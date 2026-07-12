@@ -70,11 +70,11 @@
   resolvable by the orchestrator itself. Run this session normally (or start a fresh Claude Code
   session in a tmux pane) for a period of real usage after the 1.2 trace logging deploys, then
   paste the contents of `~/.claude/scripts/state/cc-tmux-register-trace.log` back for analysis.
-- [ ] 4.2 Deploy: `chezmoi apply` for the theme conf + tmux.conf.tmpl changes; reinstall/reload [beads:if-kyaf]
+- [x] 4.2 Deploy: `chezmoi apply` for the theme conf + tmux.conf.tmpl changes; reinstall/reload [beads:if-kyaf]
   the live tmux session (`tmux source-file`) so the new `status-format[0]` wiring takes effect.
   Verify nexus-statusline/row-2/row-3 remain unaffected (no regression from today's earlier
   fixes).
-- [ ] 4.3 Live verification with pasted evidence: (a) row 3 shows only the counts line, no [beads:if-tdml]
+- [x] 4.3 Live verification with pasted evidence: (a) row 3 shows only the counts line, no [beads:if-tdml]
   `next:` anywhere; (b) `cc-tmux tabs-row` invoked directly, and the live rendered tab row
   (byte-captured via `tmux display-message`), both show a real icon glyph per window — sample
   the SAME window at two different wall-clock seconds and show the glyph advancing for a
@@ -82,4 +82,4 @@
   still reflect whatever the current rename format produces (title fix is NOT expected to be
   resolved by this task — only confirm the new tabs-row rendering doesn't regress whatever
   naming currently exists).
-- [ ] 4.4 cc-tmux self-test run in the deployed location; paste passing output. [beads:if-7sw2]
+- [x] 4.4 cc-tmux self-test run in the deployed location; paste passing output. [beads:if-7sw2]
