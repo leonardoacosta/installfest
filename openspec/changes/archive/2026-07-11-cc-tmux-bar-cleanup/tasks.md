@@ -48,13 +48,13 @@
 
 ## E2E Batch
 
-- [ ] 4.1 Deploy: nx repo push with SKIP_DEPLOY=1 + rebuild/reinstall nexus-statusline [beads:if-kz1]
+- [x] 4.1 Deploy: nx repo push with SKIP_DEPLOY=1 + rebuild/reinstall nexus-statusline [beads:if-kz1]
   (snapshot first, prior spec task 4.4 pattern); `chezmoi apply` for theme confs; reinstall the
   cc-tmux plugin copy if the installer does not symlink. Verify nexus-statusline service healthy
   post-restart.
-- [ ] 4.2 Live verification with pasted evidence: (a) `session-context.<pane>.json` now carries [beads:if-me6]
+- [x] 4.2 Live verification with pasted evidence: (a) `session-context.<pane>.json` now carries [beads:if-me6]
   the model letter (cat the file); (b) row 2 shows `◉ F if > main`-style render with NO
   account/SES/5H/7D (capture `tmux display-message` or screenshot); (c) row 3 shows
   `next: … | N open, M unarchived` with no `radar:stale`; (d) row 1 status-right no longer
   shows the account/usage segment; (e) `cc-tmux usage` still renders when invoked manually.
-- [ ] 4.3 cc-tmux self-test run in the deployed location; paste passing output. [beads:if-rx6]
+- [x] 4.3 cc-tmux self-test run in the deployed location; paste passing output. [beads:if-rx6]
