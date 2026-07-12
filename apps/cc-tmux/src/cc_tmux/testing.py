@@ -1014,6 +1014,79 @@ def _test_cli_beads_pane_fallback() -> None:
         tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
 
 
+def _test_cli_resolve_session_pane_active_tracked() -> None:
+    # Row 2 pane resolution (cc-tmux-active-pane-resolution): the window's
+    # tmux-active pane wins outright when it is a tracked Claude pane (its
+    # @cc-state is in VALID_STATES) — the priority-pick fallback is never
+    # consulted for its return value.
+    saved_active = tmux.get_window_active_pane
+    saved_option = tmux.get_pane_option
+    saved_top = tmux.get_window_top_pane
+    try:
+        tmux.get_window_active_pane = lambda w: "%5"  # type: ignore[assignment]
+        tmux.get_pane_option = lambda pane, opt: "idle"  # type: ignore[assignment]
+        tmux.get_window_top_pane = lambda w: "%99"  # type: ignore[assignment]
+        _check(cli._resolve_session_pane("@1") == "%5", "tracked active pane must win")
+    finally:
+        tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
+        tmux.get_pane_option = saved_option  # type: ignore[assignment]
+        tmux.get_window_top_pane = saved_top  # type: ignore[assignment]
+
+
+def _test_cli_resolve_session_pane_active_untracked_fallback() -> None:
+    # Active pane resolves but is untracked (no/invalid @cc-state, e.g. a
+    # plain shell pane focused next to a background Claude pane) -> falls
+    # back to the priority-pick winner from get_window_top_pane.
+    saved_active = tmux.get_window_active_pane
+    saved_option = tmux.get_pane_option
+    saved_top = tmux.get_window_top_pane
+    try:
+        tmux.get_window_active_pane = lambda w: "%5"  # type: ignore[assignment]
+        tmux.get_pane_option = lambda pane, opt: ""  # type: ignore[assignment]  # untracked
+        tmux.get_window_top_pane = lambda w: "%2"  # type: ignore[assignment]
+        _check(cli._resolve_session_pane("@1") == "%2", "untracked active pane -> top-pane fallback")
+    finally:
+        tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
+        tmux.get_pane_option = saved_option  # type: ignore[assignment]
+        tmux.get_window_top_pane = saved_top  # type: ignore[assignment]
+
+
+def _test_cli_resolve_session_pane_no_active_fallback() -> None:
+    # No active pane resolvable at all (get_window_active_pane falsy, e.g.
+    # tmux.display-message failed) -> falls back cleanly to
+    # get_window_top_pane, fail-open, no exception. get_pane_option must
+    # never be invoked here (short-circuit on the falsy `active`).
+    saved_active = tmux.get_window_active_pane
+    saved_option = tmux.get_pane_option
+    saved_top = tmux.get_window_top_pane
+    try:
+        tmux.get_window_active_pane = lambda w: ""  # type: ignore[assignment]
+
+        def _boom(pane, opt):
+            raise AssertionError("get_pane_option must not be called when active pane is falsy")
+
+        tmux.get_pane_option = _boom  # type: ignore[assignment]
+        tmux.get_window_top_pane = lambda w: "%3"  # type: ignore[assignment]
+        _check(cli._resolve_session_pane("@1") == "%3", "no active pane -> top-pane fallback, fail-open")
+    finally:
+        tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
+        tmux.get_pane_option = saved_option  # type: ignore[assignment]
+        tmux.get_window_top_pane = saved_top  # type: ignore[assignment]
+
+
+def _test_render_session_bar_no_glyph() -> None:
+    # session_count was removed as a render_session_bar parameter entirely
+    # (cc-tmux-active-pane-resolution) — the leading session-count glyph
+    # (◉/◌) must never appear, regardless of how many tracked panes exist
+    # for the project, since the function no longer takes a pane count at
+    # all. Left side is now purely model_letter/project/branch composition.
+    out_full = render.render_session_bar("O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
+    _check("◉" not in out_full and "◌" not in out_full, "populated call -> no glyph token")
+
+    out_empty = render.render_session_bar("", "", "", "", None, None, None)
+    _check("◉" not in out_empty and "◌" not in out_empty, "empty call -> no glyph token")
+
+
 def _test_cli_read_session_context() -> None:
     # No pane id -> ('', None, '', False, 0) without ever touching the filesystem.
     _check(
@@ -1337,6 +1410,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
+    ("cli.resolve_session_pane_active_tracked", _test_cli_resolve_session_pane_active_tracked),
+    ("cli.resolve_session_pane_active_untracked_fallback", _test_cli_resolve_session_pane_active_untracked_fallback),
+    ("cli.resolve_session_pane_no_active_fallback", _test_cli_resolve_session_pane_no_active_fallback),
+    ("render.session_bar_no_glyph", _test_render_session_bar_no_glyph),
     ("cli.read_session_context", _test_cli_read_session_context),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
