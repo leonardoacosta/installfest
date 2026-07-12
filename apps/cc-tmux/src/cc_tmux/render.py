@@ -12,9 +12,9 @@ emoji) with sensible defaults, each overridable via ``@cc-icon-<state>``.
 from __future__ import annotations
 
 import re
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .usage import CYAN, DIM
+from .usage import CYAN, DIM, color_for, pct_for
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -180,7 +180,7 @@ def inbox_rows(
 
 # ---------------------------------------------------------------------------
 # Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars,
-# trimmed by cc-tmux-bar-cleanup)
+# corrected post cc-tmux-bar-cleanup)
 #
 # Both are *pure* composition functions. They emit tmux status-format strings
 # using the same ``#[fg=…]``/``#[default]`` escaping convention as
@@ -189,10 +189,11 @@ def inbox_rows(
 # read tmux/cache state and hand plain values in — nothing here touches tmux or
 # a subprocess.
 #
-# Claude usage stats (account label, SES/5H/7D gauges) no longer render on
-# either row — cc-tmux-bar-cleanup moved that surface to the in-pane Claude
-# statusline (nexus-statusline) only, to stop the duplicate rendering across
-# bars. ``render_session_bar`` is left-side identity only now.
+# Claude usage stats (account label, SES/5H/7D gauges) render on row 2's
+# right side, alongside the left-side session/model/git identity. Only row 1
+# (the window-tabs `status-right`) stays usage-free — that part of
+# cc-tmux-bar-cleanup was correct and stays; cleanup's removal of usage from
+# row 2 itself was a live-testing regression, reverted here.
 # ---------------------------------------------------------------------------
 
 # Branch-name colour (purple), distinct from usage.py's util palette. Session
@@ -217,17 +218,23 @@ def render_session_bar(
     model_letter: str,
     project: str,
     branch: str,
+    account_label: str,
+    ses_pct: Optional[float],
+    five_h_pct: Optional[float],
+    seven_d_pct: Optional[float],
 ) -> str:
-    """Row-2 status-format string: session/model/git identity, left side only.
+    """Row-2 status-format string: session/model/git on the left, usage on the right.
 
-    session-count glyph + model letter + project + git branch. Claude usage
-    stats (account label, SES/5H/7D gauges) used to render on a right-hand
-    side here too, but cc-tmux-bar-cleanup removed them — that data lives only
-    in the in-pane Claude statusline (nexus-statusline) now, to stop the
-    duplicate rendering across bars.
+    Left side: session-count glyph + model letter (sourced from
+    session-context.<pane>.json, tracks mid-session /model switches) + project +
+    git branch. Right side: account label + SES:/5H:/7D: gauges, each coloured
+    via color_for and formatted via pct_for. The two sides are joined with a
+    #[align=right] directive so tmux fills the gap between them. ses_pct /
+    five_h_pct / seven_d_pct are utilization ratios in 0..1 (or None when
+    unpolled -> '--' in DIM).
 
-    Pure function of its inputs (no tmux/subprocess). Empty ``model_letter`` /
-    ``project`` / ``branch`` fields drop out (fail-open).
+    Pure function of its inputs (no tmux/subprocess). Empty model_letter /
+    project / branch fields drop out of the left side (fail-open).
     """
     left_parts = [f"#[fg={DIM}]{_session_glyph(session_count)}"]
     if model_letter:
@@ -237,7 +244,17 @@ def render_session_bar(
     if branch:
         left_parts.append(f"#[fg={DIM}]>")
         left_parts.append(f"#[fg={BRANCH}]{branch}")
-    return " ".join(left_parts) + "#[default]"
+    left = " ".join(left_parts) + "#[default]"
+
+    cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
+    ps, p5, p7 = pct_for(ses_pct), pct_for(five_h_pct), pct_for(seven_d_pct)
+    right = (
+        f"#[fg={DIM}]{account_label} "
+        f"#[fg={DIM}]SES:#[fg={cs}]{ps}#[default] "
+        f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
+        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
+    )
+    return f"{left}#[align=right]{right}"
 
 
 _BEADS_SEP = f"#[fg={DIM}] | "
@@ -252,7 +269,11 @@ def render_beads_bar(pulse_line: str) -> str:
     cache file has always had both, but a naive single-line render silently
     dropped everything past the first newline (cc-tmux-bar-cleanup). Every
     non-blank line is now joined onto one full-width row with a DIM ``|``
-    separator, so both lines always show. A leading ``next:`` label is
+    separator, so both lines always show. Non-``next:`` lines (e.g. the open/
+    unarchived counts) always render FIRST, followed by any ``next:`` line(s)
+    LAST, regardless of their order in the source file — the cache file writes
+    ``next:`` first, but the counts read better leading the row. Each group
+    preserves its own internal relative order. A leading ``next:`` label is
     highlighted in CYAN wherever it appears; every other line renders DIM.
     Single-line content renders exactly as before (no separator artifact).
     Returns the empty string for falsy/blank-only ``pulse_line`` so row 3 shows
@@ -266,11 +287,13 @@ def render_beads_bar(pulse_line: str) -> str:
     if not lines:
         return ""
 
+    other_lines = [ln for ln in lines if not ln.startswith("next:")]
+    next_lines = [ln for ln in lines if ln.startswith("next:")]
+
     segments = []
-    for ln in lines:
-        if ln.startswith("next:"):
-            rest = ln[len("next:"):]
-            segments.append(f"#[fg={CYAN}]next:#[fg={DIM}]{rest}")
-        else:
-            segments.append(f"#[fg={DIM}]{ln}")
+    for ln in other_lines:
+        segments.append(f"#[fg={DIM}]{ln}")
+    for ln in next_lines:
+        rest = ln[len("next:"):]
+        segments.append(f"#[fg={CYAN}]next:#[fg={DIM}]{rest}")
     return _BEADS_SEP.join(segments) + "#[default]"

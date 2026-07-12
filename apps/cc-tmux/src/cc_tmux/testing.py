@@ -611,28 +611,31 @@ def _test_tmux_get_window_top_pane() -> None:
 
 
 def _test_render_session_bar() -> None:
-    # Full render: 2+ sessions, model + project + branch, left side only
-    # (cc-tmux-bar-cleanup dropped the account/SES/5H/7D right side entirely).
-    out = render.render_session_bar(2, "O", "if", "main")
+    # Full render: 2+ sessions, model + project + branch on the left, usage
+    # gauges (account label + SES/5H/7D) on the right (restored post
+    # cc-tmux-bar-cleanup regression).
+    out = render.render_session_bar(2, "O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
     _check("◉ 2" in out, "2+ sessions -> filled + count glyph")
     _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
     _check("if" in out, "project present on the left")
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
-    _check("#[align=right]" not in out, "no right-side usage split (bar-cleanup)")
-    _check(
-        "SES:" not in out and "5H:" not in out and "7D:" not in out,
-        "no usage gauges render on the session bar (bar-cleanup)",
-    )
+    _check("#[align=right]" in out, "left/right sides split via align=right")
+    _check("leo@x.dev" in out, "account label present on the right")
+    _check("SES:" in out and "5H:" in out and "7D:" in out, "usage gauges render on the session bar")
     _check(out.endswith("#[default]"), "resets colour at end")
 
+    # None percentages -> '--' rendered in DIM for every gauge.
+    out_none = render.render_session_bar(1, "", "if", "main", "leo@x.dev", None, None, None)
+    _check(out_none.count("--") == 3, "unpolled gauges all render '--'")
+
     # Single session -> bare filled glyph (not the 2+ '◉ N' form).
-    out2 = render.render_session_bar(1, "S", "oo", "dev")
+    out2 = render.render_session_bar(1, "S", "oo", "dev", "", None, None, None)
     _check("◉" in out2 and "◉ 1" not in out2, "1 session -> bare filled glyph")
 
     # 0 sessions + no model/project/branch -> hollow glyph only; fields fail-open.
-    out3 = render.render_session_bar(0, "", "", "")
+    out3 = render.render_session_bar(0, "", "", "", "", None, None, None)
     _check("◌" in out3 and "◉" not in out3, "0 sessions -> hollow glyph only")
-    _check(f"#[fg={render.CYAN}]" not in out3, "no model letter -> no CYAN segment (fail-open)")
+    _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
 
@@ -655,11 +658,14 @@ def _test_render_beads_bar() -> None:
 
     # Two-line cache content (next: line + counts line) -> BOTH lines joined
     # onto one row with a DIM ' | ' separator, not silently truncated to the
-    # first line (the cc-tmux-bar-cleanup defect).
+    # first line (the cc-tmux-bar-cleanup defect). The counts line renders
+    # FIRST and the next: line LAST, regardless of file order (the cache file
+    # writes next: first, but the row reads better counts-then-next).
     out3 = render.render_beads_bar("next: /apply foo 2o 3u\n12 open, 3 unarchived")
-    _check(out3.startswith(f"#[fg={render.CYAN}]next:"), "two-line: next label still CYAN")
+    _check(out3.startswith(f"#[fg={render.DIM}]12 open, 3 unarchived"), "two-line: counts line comes first")
+    _check(f"#[fg={render.CYAN}]next:" in out3, "two-line: next label still CYAN")
     _check(" /apply foo 2o 3u" in out3, "two-line: next: remainder present")
-    _check("12 open, 3 unarchived" in out3, "two-line: second line content present")
+    _check(out3.index("12 open, 3 unarchived") < out3.index("next:"), "two-line: counts precede next:")
     _check(f"#[fg={render.DIM}] | " in out3, "two-line: DIM pipe separator present")
     _check(out3.endswith("#[default]"), "two-line: resets colour at end")
     _check(out3.count("#[default]") == 1, "two-line: single trailing reset, not per-line")

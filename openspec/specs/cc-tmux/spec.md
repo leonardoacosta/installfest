@@ -404,16 +404,17 @@ a session-count indicator, a single-letter model tag (Fable=F, Opus=O, Haiku=H, 
 project code, and the git branch. The model letter SHALL be sourced from the per-pane
 `session-context.<pane>.json` cache written by nexus-statusline — not from the SessionStart hook
 payload, whose `model` field is unreliable and which never re-fires on a mid-session `/model`
-switch. The row SHALL NOT render Claude usage statistics (account label, session-context %,
-5-hour, or 7-day gauges) — those live exclusively in the in-pane Claude statusline. This row
-SHALL remain separate from the window-tabs row.
+switch. Right-justified on the same row, the plugin SHALL render Claude usage statistics for the
+active nexus-agent credential: an account label, and SES:/5H:/7D: utilization gauges (session-
+context %, 5-hour, and 7-day), each coloured by utilization threshold. This row SHALL remain
+separate from the window-tabs row, whose own `status-right` stays usage-free.
 
-#### Scenario: row 2 renders the session identity
-- Given: a tracked Claude pane in project `if` on branch `main`, model Fable, and it is the only
-  tracked session for that project
+#### Scenario: row 2 renders the session identity and usage
+- Given: a tracked Claude pane in project `if` on branch `main`, model Fable, it is the only
+  tracked session for that project, and the active nexus-agent credential has usage data
 - When: the session-bar row renders
 - Then: the left side shows `◉ F if > main` (session-count glyph, model letter, project, branch)
-  and nothing renders on the right side
+  and the right side shows the account label plus SES:/5H:/7D: gauges
 
 #### Scenario: model letter tracks a mid-session model switch
 - Given: a tracked pane whose `session-context.<pane>.json` model letter changes from `F` to `O`
@@ -426,6 +427,11 @@ SHALL remain separate from the window-tabs row.
 - When: the session-bar row renders
 - Then: the row renders glyph, project, and branch with no model letter (fail-open, no error)
 
+#### Scenario: unpolled usage windows render as '--'
+- Given: an active nexus-agent credential that has not yet been polled for 5-hour/7-day usage
+- When: the session-bar row renders
+- Then: the SES:/5H:/7D: gauges render `--` in a dimmed colour rather than a stale/wrong percent
+
 #### Scenario: untracked window shows nothing on this row
 - Given: a tmux window with no tracked Claude pane
 - When: the session-bar row renders for that window
@@ -436,14 +442,17 @@ The plugin SHALL render a second dedicated tmux status row (`status-format[2]`) 
 current project's cached roadmap-pulse content, read directly from
 `~/.claude/scripts/state/roadmap-pulse.<code>.line`. When the cache contains multiple lines
 (`next: …` plus a counts line), the plugin SHALL join them onto one row with a visible separator
-— no cached line is silently dropped. No new data production mechanism SHALL be introduced for
-this row — it reads the cache nexus-statusline's own `getRoadmapPulse()` already maintains.
+— no cached line is silently dropped. The counts line SHALL render first, followed by the `next:`
+line last, regardless of the lines' order in the source cache file. No new data production
+mechanism SHALL be introduced for this row — it reads the cache nexus-statusline's own
+`getRoadmapPulse()` already maintains.
 
-#### Scenario: row 3 joins both cached pulse lines
+#### Scenario: row 3 joins both cached pulse lines, counts before next
 - Given: a cached roadmap-pulse file containing `next: /apply foo…` and `0 open, 2 unarchived`
-  on separate lines
+  on separate lines (in that file order)
 - When: the beads-bar row renders
-- Then: it shows both parts on one row (e.g. `next: /apply foo… | 0 open, 2 unarchived`)
+- Then: it shows both parts on one row with the counts line first (e.g.
+  `0 open, 2 unarchived | next: /apply foo…`)
 
 #### Scenario: single-line cache renders as-is
 - Given: a cached roadmap-pulse file containing only a counts line

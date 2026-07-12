@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import log, notify, registry, render, tmux
+from . import log, notify, registry, render, tmux, usage
 from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
@@ -587,6 +587,34 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
     return letter, pct
 
 
+def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
+    """``(account_label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+
+    Reuses ``usage.py``'s query + active-credential-finding + field-extraction
+    logic (same package) rather than re-deriving it. Fail-open on every branch.
+    """
+    try:
+        payload = usage._query()
+        if not payload:
+            return "", None, None
+        credentials = payload.get("credentials")
+        if not isinstance(credentials, list):
+            return "", None, None
+        active = next(
+            (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
+            None,
+        )
+        if active is None:
+            return "", None, None
+        return (
+            usage._account_label(active),
+            usage._extract_util(active, "usage5hUsed", "usage5hLimit"),
+            usage._extract_util(active, "usage7dUsed", "usage7dLimit"),
+        )
+    except Exception:
+        return "", None, None
+
+
 def cmd_session_bar(args) -> int:
     """Emit the row-2 session status-format string for a window (Req rows 2).
 
@@ -594,10 +622,10 @@ def cmd_session_bar(args) -> int:
     (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
     refresh. Resolves the window's representative pane, reads @cc-project /
     @cc-branch and the per-pane model letter (from ``session-context.<pane>.json``
-    via :func:`_read_session_context`), and hands them to
-    :func:`render.render_session_bar`. Left side only (session/model/git
-    identity) — Claude usage stats (account/SES/5H/7D) live only in the in-pane
-    Claude statusline now, not here (cc-tmux-bar-cleanup). Fail-open: any
+    via :func:`_read_session_context`), and hands them along with the active
+    account's usage (via :func:`_active_usage`) to
+    :func:`render.render_session_bar`. Left side is session/model/git identity;
+    right side is the account label + SES:/5H:/7D: gauges. Fail-open: any
     missing piece degrades to a partial render; empty window -> print nothing,
     exit 0.
     """
@@ -612,9 +640,13 @@ def cmd_session_bar(args) -> int:
     # so pass the count, not tmux.session_count_glyph()'s already-mapped string.
     session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
 
-    model_letter, _ctx_pct = _read_session_context(pane)
+    model_letter, ses_pct = _read_session_context(pane)
+    account_label, five_h_pct, seven_d_pct = _active_usage()
 
-    out = render.render_session_bar(session_count, model_letter, project, branch)
+    out = render.render_session_bar(
+        session_count, model_letter, project, branch,
+        account_label, ses_pct, five_h_pct, seven_d_pct,
+    )
     if out:
         sys.stdout.write(out)
     return 0
