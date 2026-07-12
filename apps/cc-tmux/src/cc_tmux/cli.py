@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import select
 import subprocess
 import sys
@@ -800,8 +801,14 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
     (longest-prefix match, NOT the ``@cc-project`` display name) and reads the
     matching roadmap-pulse cache line plus its mtime age (``time.time() -
     st_mtime``, floored at 0), so the caller can flag stale counts (plan 006 /
-    BEADS-01). Fail-open: no pane, no cwd, no code, missing/unreadable/empty
-    file -> ``("", None)``; content readable but stat fails -> ``(content, None)``.
+    BEADS-01). Any line starting with ``radar:`` is dropped here, defensively —
+    the producer (``~/dev/cc`` ``roadmap-pulse``) stopped emitting that line in
+    ``--line`` mode as of commit ``88d0558e``, but a stale/rolled-back cache
+    file on disk could still carry one; stripping it at the read layer means
+    every caller sees clean content regardless of producer version or cache
+    age (cc-tmux-row3-openspec-beads-format task 2.1). Fail-open: no pane, no
+    cwd, no code, missing/unreadable/empty file -> ``("", None)``; content
+    readable but stat fails -> ``(content, None)``.
     """
     if not pane_id:
         return "", None
@@ -813,7 +820,10 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
         if not code:
             return "", None
         path = _cc_state_dir() / f"roadmap-pulse.{code}.line"
-        content = path.read_text(encoding="utf-8").strip()
+        raw = path.read_text(encoding="utf-8").strip()
+        content = "\n".join(
+            ln for ln in raw.splitlines() if not ln.startswith("radar:")
+        ).strip()
         try:
             age: Optional[float] = max(0.0, time.time() - path.stat().st_mtime)
         except Exception:
@@ -989,6 +999,48 @@ def _beads_pane(window_target: str) -> str:
     return tmux.get_window_top_pane(window_target) or tmux.get_window_active_pane(window_target)
 
 
+# roadmap-pulse `--line` mode's two-line cache format (cc-tmux-row3-openspec-
+# beads-format task 1.2, ~/dev/cc `scripts/bin/roadmap-pulse`):
+#   openspec: {open} open, {unarchived} unarchived
+#   beads: {ready} ready, {blocked} blocked
+# Each line is optional and parsed independently — see _parse_roadmap_pulse_counts.
+_OPENSPEC_LINE_RE = re.compile(r"^openspec:\s*(\d+)\s+open,\s*(\d+)\s+unarchived\s*$")
+_BEADS_LINE_RE = re.compile(r"^beads:\s*(\d+)\s+ready,\s*(\d+)\s+blocked\s*$")
+
+
+def _parse_roadmap_pulse_counts(
+    content: str,
+) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
+    """Parse roadmap-pulse's two-line ``--line`` cache format into counts.
+
+    ``content`` is the (already ``radar:``-stripped, per :func:`_read_roadmap_pulse`)
+    cache text. Returns ``(openspec_open, openspec_unarchived, beads_ready,
+    beads_blocked)``. The ``openspec:`` and ``beads:`` lines are matched and
+    parsed independently of each other and of line order: a missing or
+    unparseable ``beads:`` line degrades ONLY the beads half to ``(None, None)``
+    without affecting an otherwise-valid ``openspec:`` half, and vice versa —
+    the same fail-open contract the rest of this module uses (e.g.
+    :func:`_read_session_context`'s per-field ``None`` degradation), so a
+    malformed half never blanks the other.
+    """
+    openspec_open: Optional[int] = None
+    openspec_unarchived: Optional[int] = None
+    beads_ready: Optional[int] = None
+    beads_blocked: Optional[int] = None
+
+    for line in content.splitlines():
+        line = line.strip()
+        m = _OPENSPEC_LINE_RE.match(line)
+        if m:
+            openspec_open, openspec_unarchived = int(m.group(1)), int(m.group(2))
+            continue
+        m = _BEADS_LINE_RE.match(line)
+        if m:
+            beads_ready, beads_blocked = int(m.group(1)), int(m.group(2))
+
+    return openspec_open, openspec_unarchived, beads_ready, beads_blocked
+
+
 def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-3 beads/roadmap status-format string for a window (Req rows 3).
 
@@ -997,15 +1049,23 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     builders. Resolves the window's representative pane (unless ``pane`` is
     already known), falling back to the window's active pane when no
     ``@cc-state`` pane exists (plan 006 / BEADS-03), reads its project's
-    roadmap-pulse line + cache age, and hands both to
-    :func:`render.render_beads_bar`. Fail-open: nothing pending -> ``""``.
+    roadmap-pulse line + cache age, parses the two-line ``openspec:``/``beads:``
+    content into structured counts (:func:`_parse_roadmap_pulse_counts`), and
+    hands the parsed counts plus age to :func:`render.render_beads_bar` — both
+    halves currently share the single cache file's mtime as their age, since
+    there is only one cache file today (forward-compatible with a future
+    per-half cache split, task 2.3). Fail-open: nothing pending -> ``""``.
     """
     if pane is None:
         pane = _beads_pane(window)
     if not pane:
         return ""
     content, age_sec = _read_roadmap_pulse(pane)
-    return render.render_beads_bar(content, age_sec)
+    openspec_open, openspec_unarchived, beads_ready, beads_blocked = _parse_roadmap_pulse_counts(content)
+    return render.render_beads_bar(
+        openspec_open, openspec_unarchived, beads_ready, beads_blocked,
+        openspec_age_sec=age_sec, beads_age_sec=age_sec,
+    )
 
 
 def cmd_beads_bar(args) -> int:

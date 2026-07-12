@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .usage import CYAN, DIM, YELLOW, color_for, pct_for
+from .usage import CYAN, DIM, RED, YELLOW, color_for, pct_for
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -325,44 +325,107 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
 # data never masquerades as current (plan 006 / BEADS-01).
 BEADS_STALE_AFTER_SEC = 900.0
 
+# Row 3 "high count" thresholds for the unarchived-proposal / blocked-bead
+# halves (cc-tmux-row3-openspec-beads-format task 2.3): 5 is roughly a day's
+# worth of shipped-but-unarchived specs, or blocked beads piling up, before
+# it stops being "a couple things to clean up next session" and becomes a
+# RED alarm. Any count > 0 is already YELLOW; these constants only gate the
+# YELLOW -> RED escalation, mirroring BEADS_STALE_AFTER_SEC's
+# documented-constant convention above.
+BEADS_UNARCHIVED_HIGH = 5
+BEADS_BLOCKED_HIGH = 5
+
 _BEADS_SEP = f"#[fg={DIM}] | "
 
 
-def render_beads_bar(pulse_line: str, age_sec: Optional[float] = None) -> str:
-    """Row-3 status-format string from roadmap-pulse cache content, or ``''``.
+def _threshold_color(n: int, high: int) -> str:
+    """DIM at ``0`` (healthy), YELLOW above ``0``, RED at/above ``high``."""
+    if n <= 0:
+        return DIM
+    if n >= high:
+        return RED
+    return YELLOW
 
-    ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content, which may
-    carry a ``"next: /apply cc-tmux-scout-adop… 0o 2u"`` line alongside a
-    plain ``"12 open / 24 waiting"`` counts line. Any ``next:`` line is
-    dropped entirely — row 3 shows only the counts line(s), never the
-    ``next:`` content, regardless of ordering in the source file. Remaining
-    non-``next:`` lines are joined onto one full-width row with a DIM ``|``
-    separator (relevant only if there were ever more than one — in practice
-    this is a single counts line). Single-line content renders exactly as
-    before (no separator artifact). Returns the empty string for
-    falsy/blank-only ``pulse_line``, or when the only content was a ``next:``
-    line with no counts to show, so row 3 shows nothing when there's nothing
-    pending.
 
-    ``age_sec`` is the cache file's age in seconds (or ``None`` when
-    unknown). Ages beyond ``BEADS_STALE_AFTER_SEC`` append a DIM trailing
-    ``" (<duration>)"`` marker via :func:`format_duration`, so stale counts
-    never masquerade as current (plan 006 / BEADS-01).
+def _pulse_segment(
+    label: str,
+    n1: int,
+    word1: str,
+    n2: int,
+    word2: str,
+    age_sec: Optional[float],
+    high: int,
+) -> str:
+    """One ``"label: N word1 M word2 (age)"`` segment, ``n2`` threshold-colored.
 
-    Pure function of its input (no tmux/subprocess).
+    ``n1`` (open/ready) is purely informational and stays DIM. ``n2``
+    (unarchived/blocked) is a health signal, colored via
+    :func:`_threshold_color`. ``age_sec`` beyond ``BEADS_STALE_AFTER_SEC``
+    appends a DIM trailing ``" (<duration>)"`` marker, independent per segment.
     """
-    if not pulse_line:
-        return ""
-    lines = [ln for ln in pulse_line.splitlines() if ln.strip()]
-    if not lines:
-        return ""
-
-    other_lines = [ln for ln in lines if not ln.startswith("next:")]
-    if not other_lines:
-        return ""
-
-    segments = [f"#[fg={DIM}]{ln}" for ln in other_lines]
-    out = _BEADS_SEP.join(segments)
+    n2_color = _threshold_color(n2, high)
+    seg = (
+        f"#[fg={DIM}]{label}: {n1} {word1} "
+        f"#[fg={n2_color}]{n2}#[fg={DIM}] {word2}"
+    )
     if age_sec is not None and age_sec > BEADS_STALE_AFTER_SEC:
-        out += f" ({format_duration(age_sec)})"
-    return out + "#[default]"
+        seg += f" ({format_duration(age_sec)})"
+    return seg
+
+
+def render_beads_bar(
+    openspec_open: Optional[int],
+    openspec_unarchived: Optional[int],
+    beads_ready: Optional[int],
+    beads_blocked: Optional[int],
+    openspec_age_sec: Optional[float] = None,
+    beads_age_sec: Optional[float] = None,
+) -> str:
+    """Row-3 status-format string from parsed roadmap-pulse counts, or ``''``.
+
+    Renders up to two ``|``-separated segments:
+    ``openspec: {open} open {unarchived} unarchived ({age})`` and
+    ``beads: {ready} ready {blocked} blocked ({age})`` (cc-tmux-row3-openspec-
+    beads-format task 2.3), replacing the prior raw-pulse-line passthrough.
+    Each half is independent and fail-open: a half whose pair of counts is not
+    BOTH present (``None`` from an absent/malformed cache line — see
+    :func:`cc_tmux.cli._parse_roadmap_pulse_counts`) is omitted entirely
+    rather than rendered with a placeholder, so a broken ``beads:`` line never
+    blanks a valid ``openspec:`` half and vice versa. Both halves omitted (no
+    cache, or nothing parsed) -> ``""``, matching the row's original
+    "no cache -> empty" contract.
+
+    ``unarchived``/``blocked`` are colored by semantic threshold
+    (:func:`_threshold_color`; DIM healthy, YELLOW above 0, RED at/above
+    :data:`BEADS_UNARCHIVED_HIGH`/:data:`BEADS_BLOCKED_HIGH`); ``open``/
+    ``ready`` stay DIM (informational, not a health signal).
+    ``openspec_age_sec``/``beads_age_sec`` are each independent cache-file
+    ages in seconds — both halves read the SAME cache file's single mtime
+    today (so callers typically pass the same value for both), but the
+    per-segment marker is forward-compatible with a future per-half cache
+    split (plan 006 / BEADS-01) with no further render.py change needed.
+    Ages beyond ``BEADS_STALE_AFTER_SEC`` append a DIM trailing
+    ``" (<duration>)"`` marker via :func:`format_duration`, independently per
+    segment.
+
+    Pure function of its inputs (no tmux/subprocess).
+    """
+    segments = []
+    if openspec_open is not None and openspec_unarchived is not None:
+        segments.append(
+            _pulse_segment(
+                "openspec", openspec_open, "open", openspec_unarchived, "unarchived",
+                openspec_age_sec, BEADS_UNARCHIVED_HIGH,
+            )
+        )
+    if beads_ready is not None and beads_blocked is not None:
+        segments.append(
+            _pulse_segment(
+                "beads", beads_ready, "ready", beads_blocked, "blocked",
+                beads_age_sec, BEADS_BLOCKED_HIGH,
+            )
+        )
+
+    if not segments:
+        return ""
+    return _BEADS_SEP.join(segments) + "#[default]"

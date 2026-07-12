@@ -882,72 +882,123 @@ def _test_render_session_bar() -> None:
 
 
 def _test_render_beads_bar() -> None:
-    # Empty pulse line -> '' (row 3 shows nothing).
-    _check(render.render_beads_bar("") == "", "empty pulse -> ''")
+    # cc-tmux-row3-openspec-beads-format task 2.3: render_beads_bar now takes
+    # structured (openspec_open, openspec_unarchived, beads_ready,
+    # beads_blocked) counts + independent per-half ages, rather than a raw
+    # pulse-line string.
+    D = render.DIM
+    Y = render.YELLOW
+    R = render.RED
 
-    # A pulse line that is ONLY a 'next:' line -> '' — that content is dropped
-    # entirely (row 3 never shows the next: segment, regardless of ordering),
-    # so with nothing else to show the row renders nothing.
-    _check(render.render_beads_bar("next: /apply foo 2o 3u") == "", "next:-only pulse -> ''")
+    # No counts at all (no cache, or nothing parsed from either line) -> ''.
+    _check(render.render_beads_bar(None, None, None, None) == "", "all None -> ''")
 
-    # Plain (non-next:) line -> entirely DIM, single trailing reset.
-    out2 = render.render_beads_bar("12 open / 24 waiting")
+    # A half is "present" only when BOTH its counts are non-None — a
+    # partially-present half (one count set, the other None, e.g. from a
+    # malformed line) renders as fully absent, same as fully-None (task 2.2's
+    # fail-open contract: a broken half never leaks a placeholder value).
+    out_partial = render.render_beads_bar(12, None, 5, 2)
+    _check("openspec:" not in out_partial, "partial openspec half (unarchived=None) omitted entirely")
     _check(
-        out2 == f"#[fg={render.DIM}]12 open / 24 waiting#[default]",
-        "plain pulse line -> all DIM",
+        out_partial == f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]",
+        "partial openspec half omitted -> only the valid beads half renders",
     )
 
-    # Two-line cache content (next: line + counts line) -> the next: line is
-    # dropped entirely and only the counts line renders, DIM, with no
-    # separator artifact from the discarded line (the cc-tmux-bar-cleanup
-    # regression this fixed: row 3 must never show next: content).
-    out3 = render.render_beads_bar("next: /apply foo 2o 3u\n12 open, 3 unarchived")
+    # Openspec-only (beads half fully absent) -> single segment, no
+    # separator, no beads text anywhere.
+    out_openspec_only = render.render_beads_bar(12, 0, None, None)
     _check(
-        out3 == f"#[fg={render.DIM}]12 open, 3 unarchived#[default]",
-        "two-line: next: line dropped, only counts line remains",
+        out_openspec_only == f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived#[default]",
+        "openspec-only: single segment, zero unarchived -> DIM",
     )
-    _check("next:" not in out3, "two-line: next: content never appears in the rendered row")
-
-    # Multiple non-next: lines -> joined with the DIM ' | ' separator, single
-    # trailing reset (the separator only matters when there's more than one
-    # surviving line).
-    out4 = render.render_beads_bar("12 open / 24 waiting\n3 blocked")
     _check(
-        out4 == (
-            f"#[fg={render.DIM}]12 open / 24 waiting"
-            f"#[fg={render.DIM}] | #[fg={render.DIM}]3 blocked#[default]"
+        "beads:" not in out_openspec_only and "|" not in out_openspec_only,
+        "openspec-only: no beads segment, no separator",
+    )
+
+    # Beads-only (openspec half fully absent) -> single segment.
+    out_beads_only = render.render_beads_bar(None, None, 5, 0)
+    _check(
+        out_beads_only == f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]",
+        "beads-only: single segment, zero blocked -> DIM",
+    )
+    _check("openspec:" not in out_beads_only, "beads-only: no openspec segment")
+
+    # Both halves present, zero unarchived/blocked -> DIM throughout, joined
+    # by the DIM ' | ' separator, single trailing reset (mirrors the old
+    # multi-line-join shape, now built from two structured segments).
+    out_both_zero = render.render_beads_bar(12, 0, 5, 0)
+    _check(
+        out_both_zero == (
+            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
         ),
-        "multi-line: both lines joined with a DIM pipe separator",
+        "both halves, zero unarchived/blocked -> DIM, joined by separator",
     )
-    _check(out4.count("#[default]") == 1, "multi-line: single trailing reset, not per-line")
+    _check(out_both_zero.count("#[default]") == 1, "single trailing reset, not per-segment")
 
-    # Blank-line-only content (e.g. a stray trailing newline) -> ''.
-    _check(render.render_beads_bar("\n\n") == "", "blank-only content -> ''")
-
-    # Staleness marker (plan 006 / BEADS-01): fresh or unknown age -> unchanged;
-    # age beyond BEADS_STALE_AFTER_SEC -> DIM trailing "(<duration>)" marker.
-    base = f"#[fg={render.DIM}]12 open / 24 waiting#[default]"
-    _check(render.render_beads_bar("12 open / 24 waiting", None) == base, "age None -> no marker")
-    _check(render.render_beads_bar("12 open / 24 waiting", 60.0) == base, "fresh age -> no marker")
+    # Nonzero-but-below-threshold unarchived/blocked -> YELLOW; open/ready
+    # counts always stay DIM regardless of their own value (informational,
+    # not a health signal).
+    out_yellow = render.render_beads_bar(12, 3, 5, 2)
     _check(
-        render.render_beads_bar("12 open / 24 waiting", render.BEADS_STALE_AFTER_SEC) == base,
+        out_yellow == (
+            f"#[fg={D}]openspec: 12 open #[fg={Y}]3#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]"
+        ),
+        "unarchived/blocked > 0 and < high threshold -> YELLOW",
+    )
+
+    # At/above the documented high-count threshold -> RED.
+    hi_u, hi_b = render.BEADS_UNARCHIVED_HIGH, render.BEADS_BLOCKED_HIGH
+    out_red = render.render_beads_bar(12, hi_u, 5, hi_b)
+    _check(
+        out_red == (
+            f"#[fg={D}]openspec: 12 open #[fg={R}]{hi_u}#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={R}]{hi_b}#[fg={D}] blocked#[default]"
+        ),
+        "unarchived/blocked >= documented high threshold -> RED",
+    )
+    _check(render._threshold_color(hi_u - 1, hi_u) == Y, "one below threshold -> still YELLOW, not RED")
+
+    # Staleness markers (plan 006 / BEADS-01, extended to independent
+    # per-segment ages by task 2.3): fresh/unknown age -> unchanged; age
+    # beyond BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)"
+    # marker on that segment only, the other segment unaffected.
+    base = (
+        f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+        f"{render._BEADS_SEP}"
+        f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+    )
+    _check(render.render_beads_bar(12, 0, 5, 0, None, None) == base, "both ages None -> no markers")
+    _check(render.render_beads_bar(12, 0, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
+    _check(
+        render.render_beads_bar(12, 0, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC) == base,
         "age exactly at threshold -> not yet stale (strict >)",
     )
+
+    out_stale_openspec = render.render_beads_bar(12, 0, 5, 0, 901.0, None)
     _check(
-        render.render_beads_bar("12 open / 24 waiting", 901.0)
-        == f"#[fg={render.DIM}]12 open / 24 waiting (15m)#[default]",
-        "just past threshold -> (15m) marker",
+        out_stale_openspec == (
+            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived (15m)"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+        ),
+        "stale openspec age only -> (15m) marker on the openspec segment, beads segment unaffected",
     )
+
+    out_stale_beads = render.render_beads_bar(12, 0, 5, 0, None, 7500.0)
     _check(
-        render.render_beads_bar("12 open / 24 waiting", 7500.0)
-        == f"#[fg={render.DIM}]12 open / 24 waiting (2h)#[default]",
-        "2h-stale -> (2h) marker inside the DIM run",
+        out_stale_beads == (
+            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked (2h)#[default]"
+        ),
+        "stale beads age only -> (2h) marker on the beads segment, openspec segment unaffected",
     )
-    out_stale_multi = render.render_beads_bar("12 open / 24 waiting\n3 blocked", 7500.0)
-    _check(out_stale_multi.endswith(" (2h)#[default]"), "multi-line stale -> single trailing marker")
-    _check(out_stale_multi.count("(2h)") == 1, "marker appears exactly once")
-    _check(render.render_beads_bar("", 7500.0) == "", "stale but empty content -> still ''")
-    _check(render.render_beads_bar("next: /apply foo 2o 3u", 7500.0) == "", "stale next:-only -> still ''")
 
 
 def _test_render_tabs_row() -> None:
@@ -1065,6 +1116,119 @@ def _test_cli_read_roadmap_pulse_fail_open() -> None:
             else:
                 os.environ[key] = val
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_cli_read_roadmap_pulse_radar_strip() -> None:
+    # Defensive radar: line strip (cc-tmux-row3-openspec-beads-format task
+    # 2.1): a stray radar:-prefixed line (e.g. a stale cache file written
+    # before ~/dev/cc commit 88d0558e removed it from --line mode) is
+    # dropped; content with none is unaffected.
+    if registry.tomllib is None:
+        return  # 3.10 interpreter: the resolved-code path below needs tomllib.
+
+    saved_dotfiles = os.environ.get("DOTFILES")
+    saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    saved_run = tmux._run_tmux
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-radar-test-")
+    try:
+        rel = "cc-tmux-radar-project-zzz"
+        os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+        with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+            f.write(f'[[projects]]\ncode = "zr"\nname = "T"\npath = "{rel}"\n')
+        os.environ["DOTFILES"] = tmpdir
+
+        cfg = os.path.join(tmpdir, "cfg")
+        state_dir = os.path.join(cfg, "scripts", "state")
+        os.makedirs(state_dir, exist_ok=True)
+        os.environ["CLAUDE_CONFIG_DIR"] = cfg
+
+        cwd = os.path.join(os.path.expanduser("~"), rel, "sub")
+        tmux._run_tmux = lambda args, *, check_available=True: cwd  # type: ignore[assignment]
+        pulse_file = os.path.join(state_dir, "roadmap-pulse.zr.line")
+
+        # A stray radar: line is stripped entirely; the other lines survive.
+        with open(pulse_file, "w") as f:
+            f.write("radar:stale (1d)\nopenspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+        content, _age = cli._read_roadmap_pulse("%1")
+        _check(
+            content == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            "radar: line stripped, other lines preserved",
+        )
+        _check("radar:" not in content, "no radar: content survives the read")
+
+        # Content with no radar: line at all is unaffected.
+        with open(pulse_file, "w") as f:
+            f.write("openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+        content2, _age2 = cli._read_roadmap_pulse("%1")
+        _check(
+            content2 == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            "content without a radar: line is unaffected",
+        )
+
+        # A radar:-only cache file strips down to empty content (fail-open,
+        # matching the row's existing 'nothing to show' contract).
+        with open(pulse_file, "w") as f:
+            f.write("radar:stale (1d)\n")
+        content3, _age3 = cli._read_roadmap_pulse("%1")
+        _check(content3 == "", "radar:-only content -> '' after stripping")
+    finally:
+        tmux._run_tmux = saved_run  # type: ignore[assignment]
+        for key, val in (("DOTFILES", saved_dotfiles), ("CLAUDE_CONFIG_DIR", saved_cfg)):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_cli_parse_roadmap_pulse_counts() -> None:
+    # cc-tmux-row3-openspec-beads-format task 2.2: parse the two-line
+    # "openspec: N open, M unarchived" / "beads: N ready, M blocked" cache
+    # format into structured counts, each half independent and fail-open.
+    both = "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    _check(
+        cli._parse_roadmap_pulse_counts(both) == (12, 3, 5, 2),
+        "well-formed two-line content -> both halves parsed",
+    )
+
+    reordered = "beads: 5 ready, 2 blocked\nopenspec: 12 open, 3 unarchived"
+    _check(
+        cli._parse_roadmap_pulse_counts(reordered) == (12, 3, 5, 2),
+        "line order doesn't affect parsing",
+    )
+
+    openspec_only = "openspec: 12 open, 3 unarchived"
+    _check(
+        cli._parse_roadmap_pulse_counts(openspec_only) == (12, 3, None, None),
+        "missing beads line -> beads half absent (None, None), openspec half intact",
+    )
+
+    malformed_beads = "openspec: 12 open, 3 unarchived\nbeads: garbage"
+    _check(
+        cli._parse_roadmap_pulse_counts(malformed_beads) == (12, 3, None, None),
+        "malformed beads line -> beads half absent, openspec half intact",
+    )
+
+    beads_only = "beads: 5 ready, 2 blocked"
+    _check(
+        cli._parse_roadmap_pulse_counts(beads_only) == (None, None, 5, 2),
+        "missing openspec line -> openspec half absent (None, None), beads half intact",
+    )
+
+    malformed_openspec = "openspec: not-a-number open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    _check(
+        cli._parse_roadmap_pulse_counts(malformed_openspec) == (None, None, 5, 2),
+        "malformed openspec line -> openspec half absent, beads half intact",
+    )
+
+    _check(
+        cli._parse_roadmap_pulse_counts("") == (None, None, None, None),
+        "empty content -> both halves absent",
+    )
+    _check(
+        cli._parse_roadmap_pulse_counts("some unrelated line") == (None, None, None, None),
+        "unrelated content -> both halves absent",
+    )
 
 
 def _test_cli_beads_pane_fallback() -> None:
@@ -1484,6 +1648,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.beads_bar", _test_render_beads_bar),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
+    ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
+    ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
     ("cli.resolve_session_pane_active_tracked", _test_cli_resolve_session_pane_active_tracked),
     ("cli.resolve_session_pane_active_untracked_fallback", _test_cli_resolve_session_pane_active_untracked_fallback),
