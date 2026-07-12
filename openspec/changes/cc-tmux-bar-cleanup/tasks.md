@@ -41,7 +41,7 @@
 
 ## UI Batch
 
-- [ ] 3.1 Remove the `#(~/.tmux/plugins/cc-tmux/bin/cc-tmux usage)` segment from `status-right` [beads:if-2jg]
+- [x] 3.1 Remove the `#(~/.tmux/plugins/cc-tmux/bin/cc-tmux usage)` segment from `status-right` [beads:if-2jg]
   in `tokyo-night-abyss-theme.conf`, `vercel-theme.conf`, and `one-hunter-vercel-theme.conf`
   (nord has none). Do not otherwise reflow the status-right layout.
   - touches: `home/dot_config/tmux/tokyo-night-abyss-theme.conf`, `home/dot_config/tmux/vercel-theme.conf`, `home/dot_config/tmux/one-hunter-vercel-theme.conf`
