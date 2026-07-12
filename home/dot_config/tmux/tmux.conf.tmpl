@@ -226,18 +226,28 @@ set -g @cc-window-rename-format title
 set -g status-position bottom
 
 # Status bar update interval — 1s (tmux's floor) drives the cc-tmux animated
-# tab icon (window-icon subcommand, re-evaluated via window-status-format);
-# also refreshes the credential status segment.
+# tab icon (re-evaluated via the status-format[0] tabs-row job below); also
+# refreshes the credential status segment.
 set -g status-interval 1
 
 # Status bar justification
 set -g status-justify left
 
-# Three-line status bar: row 1 is the tab/clock line (unchanged); rows 2 and 3
-# are defined per theme via status-format[1] (cc-tmux session-bar) and
-# status-format[2] (cc-tmux beads-bar). A theme that leaves status 3 on without
-# defining both extra rows falls back to tmux's default pane-list row.
+# Three-line status bar: row 1 is the window-tabs line, defined repo-wide
+# below via status-format[0] (cc-tmux tabs-row) — it replaces tmux's native
+# per-window setw-based tab-rendering mechanism, confirmed broken on this
+# tmux version (jobs nested inside it never execute). Rows 2 and 3 are
+# defined per theme via status-format[1] (cc-tmux session-bar) and
+# status-format[2] (cc-tmux beads-bar). A theme that leaves status 3 on
+# without defining both extra rows falls back to tmux's default pane-list row.
 set -g status 3
+
+# Row 1 (tabs-row): entire window-tabs list (icon + index + name per window,
+# active-window highlighting) rendered as one string by cc-tmux tabs-row.
+# Repo-wide default, not per-theme — the job's output carries its own fixed
+# CYAN/DIM palette internally (same precedent as rows 2/3, which also use a
+# fixed palette regardless of active theme), so no #[bg=...] wrapper here.
+set -g status-format[0] "#(~/.tmux/plugins/cc-tmux/bin/cc-tmux tabs-row)"
 
 # Theme: {{ .theme }}
 # To add themes: create ~/.config/tmux/<theme>-theme.conf and update .chezmoi.toml.tmpl
