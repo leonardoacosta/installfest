@@ -21,24 +21,24 @@
 
 ## API Batch
 
-- [ ] 2.1 `apps/cc-tmux/src/cc_tmux/render.py`: new `render_tabs_row(windows, active_window_id) [beads:if-6isi]
+- [x] 2.1 `apps/cc-tmux/src/cc_tmux/render.py`: new `render_tabs_row(windows, active_window_id) [beads:if-6isi]
   -> str` pure function composing the FULL top-level window-tabs row (icon + index + name per
   window, active-window highlighting) as one string, replacing the broken per-window
   `window-status-format`/`window-status-current-format` job mechanism. Reuses the existing icon
   glyph/animation logic (`animated_icon`/`resolve_icons`) and session-glyph conventions already
   in this module — do not reimplement icon-state mapping a second time.
   - touches: `apps/cc-tmux/src/cc_tmux/render.py`
-- [ ] 2.2 `apps/cc-tmux/src/cc_tmux/tmux.py`: add a helper enumerating all windows (id, index, [beads:if-dc2f]
+- [x] 2.2 `apps/cc-tmux/src/cc_tmux/tmux.py`: add a helper enumerating all windows (id, index, [beads:if-dc2f]
   name, tracked Claude pane's highest-priority state if any) for `render_tabs_row`'s input —
   reuse `get_hop_panes`/`priority` module logic rather than re-deriving state precedence.
   - touches: `apps/cc-tmux/src/cc_tmux/tmux.py`
-- [ ] 2.3 `apps/cc-tmux/src/cc_tmux/parser.py` + `cli.py`: register a new `tabs-row` subcommand [beads:if-oxlx]
+- [x] 2.3 `apps/cc-tmux/src/cc_tmux/parser.py` + `cli.py`: register a new `tabs-row` subcommand [beads:if-oxlx]
   (`cmd_tabs_row`) that gathers live window data via the 2.2 helper and calls
   `render.render_tabs_row`. Invoked as `#(cc-tmux tabs-row)` from a top-level status-format slot
   (wired in the UI batch below), re-evaluated on every status-bar refresh — same daemon-free,
   no-background-process cadence as the existing `session-bar`/`beads-bar` subcommands.
   - touches: `apps/cc-tmux/src/cc_tmux/parser.py`, `apps/cc-tmux/src/cc_tmux/cli.py`
-- [ ] 2.4 `apps/cc-tmux/src/cc_tmux/testing.py`: update `_test_render_beads_bar` for the [beads:if-0ggk]
+- [x] 2.4 `apps/cc-tmux/src/cc_tmux/testing.py`: update `_test_render_beads_bar` for the [beads:if-0ggk]
   `next:`-removed behavior (delete the counts-before-next assertions from today's earlier fix,
   add a case proving a `next:`-containing cache line is dropped entirely). Add test coverage for
   `render_tabs_row` (icon rendering, active-window highlight, empty-window-list case) and for
