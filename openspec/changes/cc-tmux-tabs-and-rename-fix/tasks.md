@@ -48,7 +48,7 @@
 
 ## UI Batch
 
-- [ ] 3.1 `home/dot_config/tmux/tmux.conf.tmpl` + the four theme confs [beads:if-thgc]
+- [x] 3.1 `home/dot_config/tmux/tmux.conf.tmpl` + the four theme confs [beads:if-thgc]
   (`tokyo-night-abyss-theme.conf`, `vercel-theme.conf`, `one-hunter-vercel-theme.conf`,
   `nord-theme.conf`): wire `status-format[0]` (or an equivalent top-level slot) to
   `#(~/.tmux/plugins/cc-tmux/bin/cc-tmux tabs-row)`, replacing tmux's default per-window
