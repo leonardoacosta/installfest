@@ -12,7 +12,7 @@ Ledger rule: when a row moves to DONE/BLOCKED/REJECTED, append a
 | # | Plan | Priority | Effort | Status | Depends on | Beads |
 | - | ---- | -------- | ------ | ------ | ---------- | ----- |
 | 001 | [cc-tmux liveness + doctor truthfulness + reconcile revival](001-cc-tmux-liveness-and-doctor.md) | P1 | M | DONE | — | if-clqv |
-| 002 | [transition matrix: approval hole, transition-only timestamps, SessionStart matcher](002-cc-tmux-transition-matrix.md) | P1 | S | OPEN | — | if-r78i |
+| 002 | [transition matrix: approval hole, transition-only timestamps, SessionStart matcher](002-cc-tmux-transition-matrix.md) | P1 | S | DONE | — | if-r78i |
 | 003 | [TTL-cache 4MB credentials fetch + session-context ts cutoff + glyph cleanup/docs](003-cc-tmux-usage-cache-and-staleness.md) | P1 | M | DONE | — | if-xtox |
 | 004 | [git dirty/ahead via session-context.json (cross-repo nx write + cc-tmux read)](004-session-context-git-status.md) | P2 | M | DONE | 003 | if-vnrv |
 | 005 | [render consolidation: one spawn per tick + trace-write gating](005-cc-tmux-render-consolidation.md) | P2 | M | DONE | 001, 003 | if-pw0g |
