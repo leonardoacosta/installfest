@@ -333,10 +333,16 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     return "".join(segments)
 
 
+# Row 3 stale threshold: the roadmap-pulse cache is written under a ~5-minute
+# SWR contract (rules/TOOLING.md Ambient Surfacing); 15 minutes = three missed
+# refresh cycles, at which point the counts get a trailing age marker so stale
+# data never masquerades as current (plan 006 / BEADS-01).
+BEADS_STALE_AFTER_SEC = 900.0
+
 _BEADS_SEP = f"#[fg={DIM}] | "
 
 
-def render_beads_bar(pulse_line: str) -> str:
+def render_beads_bar(pulse_line: str, age_sec: Optional[float] = None) -> str:
     """Row-3 status-format string from roadmap-pulse cache content, or ``''``.
 
     ``pulse_line`` is the raw ``roadmap-pulse.<code>.line`` content, which may
@@ -352,6 +358,11 @@ def render_beads_bar(pulse_line: str) -> str:
     line with no counts to show, so row 3 shows nothing when there's nothing
     pending.
 
+    ``age_sec`` is the cache file's age in seconds (or ``None`` when
+    unknown). Ages beyond ``BEADS_STALE_AFTER_SEC`` append a DIM trailing
+    ``" (<duration>)"`` marker via :func:`format_duration`, so stale counts
+    never masquerade as current (plan 006 / BEADS-01).
+
     Pure function of its input (no tmux/subprocess).
     """
     if not pulse_line:
@@ -365,4 +376,7 @@ def render_beads_bar(pulse_line: str) -> str:
         return ""
 
     segments = [f"#[fg={DIM}]{ln}" for ln in other_lines]
-    return _BEADS_SEP.join(segments) + "#[default]"
+    out = _BEADS_SEP.join(segments)
+    if age_sec is not None and age_sec > BEADS_STALE_AFTER_SEC:
+        out += f" ({format_duration(age_sec)})"
+    return out + "#[default]"

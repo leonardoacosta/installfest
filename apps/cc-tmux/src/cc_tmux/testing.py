@@ -716,6 +716,24 @@ def _test_tmux_get_window_top_pane() -> None:
         tmux._run_tmux = saved  # type: ignore[assignment]
 
 
+def _test_tmux_get_window_active_pane() -> None:
+    # Fallback pane source for row 3 (plan 006 / BEADS-03): plain active pane,
+    # no @cc-state required. Mirrors _test_tmux_get_window_top_pane's mocking.
+    saved = tmux._run_tmux
+    try:
+        def fake_active(args, *, check_available: bool = True):
+            if args[:1] == ["display-message"]:
+                return "%5"
+            return None
+        tmux._run_tmux = fake_active  # type: ignore[assignment]
+        _check(tmux.get_window_active_pane("@1") == "%5", "active pane id passes through")
+
+        tmux._run_tmux = lambda args, *, check_available=True: None  # type: ignore[assignment]
+        _check(tmux.get_window_active_pane("@1") == "", "no tmux -> '' (fail-open)")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
 def _test_tmux_get_window_tabs() -> None:
     # Mirrors _test_tmux_get_window_top_pane's mocking convention: fake
     # tmux._run_tmux, branching on the leading args (list-windows vs list-panes).
@@ -847,6 +865,31 @@ def _test_render_beads_bar() -> None:
     # Blank-line-only content (e.g. a stray trailing newline) -> ''.
     _check(render.render_beads_bar("\n\n") == "", "blank-only content -> ''")
 
+    # Staleness marker (plan 006 / BEADS-01): fresh or unknown age -> unchanged;
+    # age beyond BEADS_STALE_AFTER_SEC -> DIM trailing "(<duration>)" marker.
+    base = f"#[fg={render.DIM}]12 open / 24 waiting#[default]"
+    _check(render.render_beads_bar("12 open / 24 waiting", None) == base, "age None -> no marker")
+    _check(render.render_beads_bar("12 open / 24 waiting", 60.0) == base, "fresh age -> no marker")
+    _check(
+        render.render_beads_bar("12 open / 24 waiting", render.BEADS_STALE_AFTER_SEC) == base,
+        "age exactly at threshold -> not yet stale (strict >)",
+    )
+    _check(
+        render.render_beads_bar("12 open / 24 waiting", 901.0)
+        == f"#[fg={render.DIM}]12 open / 24 waiting (15m)#[default]",
+        "just past threshold -> (15m) marker",
+    )
+    _check(
+        render.render_beads_bar("12 open / 24 waiting", 7500.0)
+        == f"#[fg={render.DIM}]12 open / 24 waiting (2h)#[default]",
+        "2h-stale -> (2h) marker inside the DIM run",
+    )
+    out_stale_multi = render.render_beads_bar("12 open / 24 waiting\n3 blocked", 7500.0)
+    _check(out_stale_multi.endswith(" (2h)#[default]"), "multi-line stale -> single trailing marker")
+    _check(out_stale_multi.count("(2h)") == 1, "marker appears exactly once")
+    _check(render.render_beads_bar("", 7500.0) == "", "stale but empty content -> still ''")
+    _check(render.render_beads_bar("next: /apply foo 2o 3u", 7500.0) == "", "stale next:-only -> still ''")
+
 
 def _test_render_tabs_row() -> None:
     # Empty window list -> '' (nothing to show).
@@ -899,20 +942,20 @@ def _test_render_tabs_row() -> None:
 
 
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
-    # No pane id -> '' without ever touching tmux.
-    _check(cli._read_roadmap_pulse("") == "", "empty pane -> ''")
+    # No pane id -> ('', None) without ever touching tmux.
+    _check(cli._read_roadmap_pulse("") == ("", None), "empty pane -> ('', None)")
 
     saved_run = tmux._run_tmux
     try:
-        # tmux returns no cwd -> '' (nothing to resolve).
+        # tmux returns no cwd -> ('', None) (nothing to resolve).
         tmux._run_tmux = lambda args, *, check_available=True: ""  # type: ignore[assignment]
-        _check(cli._read_roadmap_pulse("%1") == "", "no cwd -> ''")
+        _check(cli._read_roadmap_pulse("%1") == ("", None), "no cwd -> ('', None)")
 
-        # cwd present but registry resolves no code -> ''.
+        # cwd present but registry resolves no code -> ('', None).
         tmux._run_tmux = (  # type: ignore[assignment]
             lambda args, *, check_available=True: "/definitely/not/tracked"
         )
-        _check(cli._read_roadmap_pulse("%1") == "", "untracked cwd -> ''")
+        _check(cli._read_roadmap_pulse("%1") == ("", None), "untracked cwd -> ('', None)")
     finally:
         tmux._run_tmux = saved_run  # type: ignore[assignment]
 
@@ -944,18 +987,17 @@ def _test_cli_read_roadmap_pulse_fail_open() -> None:
         # (so the fail-open cases below aren't passing vacuously).
         with open(pulse_file, "w") as f:
             f.write("next: /apply zz-thing 1o 2u\n")
-        _check(
-            cli._read_roadmap_pulse("%1") == "next: /apply zz-thing 1o 2u",
-            "reads + strips the resolved pulse line",
-        )
+        content, age = cli._read_roadmap_pulse("%1")
+        _check(content == "next: /apply zz-thing 1o 2u", "reads + strips the resolved pulse line")
+        _check(isinstance(age, float) and 0.0 <= age < 60.0, "fresh write -> small non-negative float age")
 
-        # Missing file -> '' (fail-open, never raises).
+        # Missing file -> ('', None) (fail-open, never raises).
         os.unlink(pulse_file)
-        _check(cli._read_roadmap_pulse("%1") == "", "missing pulse file -> ''")
+        _check(cli._read_roadmap_pulse("%1") == ("", None), "missing pulse file -> ('', None)")
 
-        # A directory where the file should be -> unreadable -> '' (never raises).
+        # A directory where the file should be -> unreadable -> ('', None) (never raises).
         os.makedirs(pulse_file)
-        _check(cli._read_roadmap_pulse("%1") == "", "unreadable pulse path -> ''")
+        _check(cli._read_roadmap_pulse("%1") == ("", None), "unreadable pulse path -> ('', None)")
     finally:
         tmux._run_tmux = saved_run2  # type: ignore[assignment]
         for key, val in (("DOTFILES", saved_dotfiles), ("CLAUDE_CONFIG_DIR", saved_cfg)):
@@ -964,6 +1006,26 @@ def _test_cli_read_roadmap_pulse_fail_open() -> None:
             else:
                 os.environ[key] = val
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_cli_beads_pane_fallback() -> None:
+    # Row 3 pane resolution (plan 006 / BEADS-03): tracked pane wins; with no
+    # tracked pane the window's active pane is used; both empty -> ''.
+    saved_top = tmux.get_window_top_pane
+    saved_active = tmux.get_window_active_pane
+    try:
+        tmux.get_window_top_pane = lambda w: "%2"  # type: ignore[assignment]
+        tmux.get_window_active_pane = lambda w: "%9"  # type: ignore[assignment]
+        _check(cli._beads_pane("@1") == "%2", "tracked pane preferred over active pane")
+
+        tmux.get_window_top_pane = lambda w: ""  # type: ignore[assignment]
+        _check(cli._beads_pane("@1") == "%9", "no tracked pane -> active-pane fallback")
+
+        tmux.get_window_active_pane = lambda w: ""  # type: ignore[assignment]
+        _check(cli._beads_pane("@1") == "", "no pane at all -> '' (fail-open)")
+    finally:
+        tmux.get_window_top_pane = saved_top  # type: ignore[assignment]
+        tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
 
 
 def _test_cli_read_session_context() -> None:
@@ -1189,11 +1251,13 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("render.session_glyph", _test_render_session_glyph),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
+    ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
     ("render.session_bar", _test_render_session_bar),
     ("render.beads_bar", _test_render_beads_bar),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
+    ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
     ("cli.read_session_context", _test_cli_read_session_context),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),

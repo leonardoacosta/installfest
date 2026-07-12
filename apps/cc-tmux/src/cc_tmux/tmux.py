@@ -274,6 +274,18 @@ def get_window_top_pane(window_target: str) -> str:
     return min(candidates, key=lambda c: STATE_PRIORITY.get(c[1], len(STATE_PRIORITY)))[0]
 
 
+def get_window_active_pane(window_target: str) -> str:
+    """Id of ``window_target``'s ACTIVE pane, or ``""``. No @cc-state required.
+
+    Fallback pane source for views whose only real input is a pane cwd (the
+    beads row — plan 006 / BEADS-03): ``display-message -t <window>`` resolves
+    a window target to its active pane, so this works for windows with no
+    tracked Claude pane at all. Fail-open: no tmux / bad target -> ``""``.
+    """
+    out = _run_tmux(["display-message", "-p", "-t", window_target, "#{pane_id}"])
+    return out or ""
+
+
 def get_window_tabs() -> List[WindowInfo]:
     """Every window in the invoking client's current session, with its top state.
 

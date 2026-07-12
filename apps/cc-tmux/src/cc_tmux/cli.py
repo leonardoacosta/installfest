@@ -775,26 +775,34 @@ def _cc_state_dir() -> Path:
     return Path(base) / "scripts" / "state"
 
 
-def _read_roadmap_pulse(pane_id: str) -> str:
-    """Raw ``roadmap-pulse.<code>.line`` content for ``pane_id``'s project, or ``''``.
+def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
+    """``(content, age_sec)`` of ``roadmap-pulse.<code>.line`` for ``pane_id``'s project.
 
     Resolves the pane's cwd (``#{pane_current_path}``) to a registry short code
     (longest-prefix match, NOT the ``@cc-project`` display name) and reads the
-    matching roadmap-pulse cache line. Fail-open: no pane, no cwd, no code,
-    missing/unreadable/empty file -> ``''``.
+    matching roadmap-pulse cache line plus its mtime age (``time.time() -
+    st_mtime``, floored at 0), so the caller can flag stale counts (plan 006 /
+    BEADS-01). Fail-open: no pane, no cwd, no code, missing/unreadable/empty
+    file -> ``("", None)``; content readable but stat fails -> ``(content, None)``.
     """
     if not pane_id:
-        return ""
+        return "", None
     try:
         cwd = tmux._run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"])
         if not cwd:
-            return ""
+            return "", None
         code = registry.resolve_project_code(cwd)
         if not code:
-            return ""
-        return (_cc_state_dir() / f"roadmap-pulse.{code}.line").read_text(encoding="utf-8").strip()
+            return "", None
+        path = _cc_state_dir() / f"roadmap-pulse.{code}.line"
+        content = path.read_text(encoding="utf-8").strip()
+        try:
+            age: Optional[float] = max(0.0, time.time() - path.stat().st_mtime)
+        except Exception:
+            age = None
+        return content, age
     except Exception:
-        return ""
+        return "", None
 
 
 # session-context.<pane>.json freshness cutoff (plan 003): the writer
@@ -932,20 +940,35 @@ def cmd_session_bar(args) -> int:
     return 0
 
 
+def _beads_pane(window_target: str) -> str:
+    """The pane whose cwd drives row 3: top tracked pane, else the active pane.
+
+    Prefers :func:`tmux.get_window_top_pane` (the same representative-pane
+    choice row 2 uses) but falls back to the window's plain active pane when
+    no ``@cc-state`` pane exists — row 3 needs only a cwd, so it must not
+    depend on hook liveness (plan 006 / BEADS-03). ``""`` when tmux is
+    unavailable or the window is empty.
+    """
+    return tmux.get_window_top_pane(window_target) or tmux.get_window_active_pane(window_target)
+
+
 def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-3 beads/roadmap status-format string for a window (Req rows 3).
 
     Body of the former ``cmd_beads_bar`` handler, extracted (plan 005) so
     :func:`cmd_render_all` can share one resolved pane across both row
     builders. Resolves the window's representative pane (unless ``pane`` is
-    already known), reads its project's roadmap-pulse line, and hands it to
+    already known), falling back to the window's active pane when no
+    ``@cc-state`` pane exists (plan 006 / BEADS-03), reads its project's
+    roadmap-pulse line + cache age, and hands both to
     :func:`render.render_beads_bar`. Fail-open: nothing pending -> ``""``.
     """
     if pane is None:
-        pane = tmux.get_window_top_pane(window)
+        pane = _beads_pane(window)
     if not pane:
         return ""
-    return render.render_beads_bar(_read_roadmap_pulse(pane))
+    content, age_sec = _read_roadmap_pulse(pane)
+    return render.render_beads_bar(content, age_sec)
 
 
 def cmd_beads_bar(args) -> int:
@@ -1025,7 +1048,7 @@ def cmd_render_all(args) -> int:
     window = args.window
     pane = tmux.get_window_top_pane(window)
     session_row = _build_session_bar(window, pane=pane) if pane else ""
-    beads_row = _build_beads_bar(window, pane=pane) if pane else ""
+    beads_row = _build_beads_bar(window, pane=(pane or tmux.get_window_active_pane(window)))
     tmux.set_global_option(_ROW_SESSION_OPT, session_row)
     tmux.set_global_option(_ROW_BEADS_OPT, beads_row)
     tabs = _build_tabs_row(window)
