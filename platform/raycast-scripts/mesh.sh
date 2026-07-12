@@ -2,15 +2,15 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title mxl
+# @raycast.title mesh
 # @raycast.mode silent
 
 # Optional parameters:
 # @raycast.icon 🛰️
 
 # Documentation:
-# @raycast.description MX Mesh
+# @raycast.description Mesh
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/personal/mx/
+cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/personal/mesh/"

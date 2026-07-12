@@ -248,11 +248,11 @@ path = "dev/priceless/lv"
 tiers = ["remote", "local"]
 
 [[projects]]
-code = "mx"
-name = "MX Mesh"
+code = "mesh"
+name = "Mesh"
 category = "personal"
 icon = "🛰️"
-path = "dev/personal/mx"
+path = "dev/personal/mesh"
 tiers = ["remote", "local"]
 
 [[projects]]
