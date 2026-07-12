@@ -30,8 +30,8 @@ real transition and never re-yank focus on a re-asserted state.
 
 **Invariant 4 (hot path skips git identity):** ``active`` is the most frequent
 register and must stay cheap, so :func:`set_pane_state` resolves git identity
-only for ``waiting`` / ``idle``. Callers may also invoke
-:func:`set_pane_git_identity` directly (e.g. the inbox backfills on open).
+only for ``waiting`` / ``idle``. :func:`set_pane_git_identity` is invoked only
+via :func:`set_pane_state`'s resolver seam.
 
 **Invariant 5 (fail open):** with no ``$TMUX`` or no ``tmux`` binary, every
 function no-ops (returns ``None`` / ``False`` / ``[]``) rather than raising, so a
@@ -251,8 +251,8 @@ def get_window_top_pane(window_target: str) -> str:
     The pane-id analogue of :func:`get_window_top_state` — same scoped
     ``list-panes -t <window>`` read and same priority sort, but returns the
     winning pane's id instead of its state string. Used by the session-bar to
-    pick the window's representative pane (the one whose ``@cc-model`` /
-    ``@cc-project`` / ``@cc-branch`` the row renders). ``""`` means no tracked
+    pick the window's representative pane (the one whose ``@cc-project`` /
+    ``@cc-branch`` the row renders). ``""`` means no tracked
     (Claude) pane in that window. Fail-open: no tmux -> ''.
     """
     fmt = _FS.join(["#{pane_id}", "#{@cc-state}"])
@@ -517,7 +517,10 @@ def set_pane_git_identity(pane_id: str) -> None:
     Uses the pane's current working directory: project = git toplevel basename
     (falling back to the directory basename outside a repo), branch = current git
     branch (empty outside a repo / detached). Fail-open: writes nothing it cannot
-    resolve.
+    resolve for project; branch now UNSETS on a definitive empty resolution
+    (outside any repo, detached HEAD / mid-rebase) rather than leaving the
+    previous branch rendering as current (stale-value bug) — only an
+    unresolvable cwd (early-return above) still writes nothing at all.
     """
     cwd = _run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"])
     if not cwd:
@@ -530,6 +533,12 @@ def set_pane_git_identity(pane_id: str) -> None:
         _set_opt(pane_id, OPT_PROJECT, project)
     if branch:
         _set_opt(pane_id, OPT_BRANCH, branch)
+    else:
+        # '' is a definitive "no branch" resolution (outside any repo,
+        # detached HEAD / mid-rebase) — unset rather than let the previous
+        # branch keep rendering as current (stale-value bug). Fail-open bias:
+        # show nothing over showing wrong.
+        _unset_opt(pane_id, OPT_BRANCH)
 
 
 def set_pane_title(pane_id: str, title: str) -> None:

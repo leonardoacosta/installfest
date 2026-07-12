@@ -757,32 +757,37 @@ def _read_roadmap_pulse(pane_id: str) -> str:
 SESSION_CONTEXT_MAX_AGE_SECS = 900.0
 
 
-def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
-    """``(model_letter, context_used_pct)`` from ``session-context.<pane>.json``.
+def _read_session_context(pane_id: str) -> Tuple[str, Optional[float], str, bool, int]:
+    """``(model_letter, context_used_pct, branch, dirty, ahead)`` from
+    ``session-context.<pane>.json``.
 
-    nexus-statusline writes ``{context_used_pct, model, ts}`` per pane (keyed on
-    the raw ``#{pane_id}`` e.g. ``%3``). ``model`` is a single-letter tag
+    nexus-statusline writes
+    ``{context_used_pct, model, ts, branch?, dirty?, ahead?}`` per pane (keyed
+    on the raw ``#{pane_id}`` e.g. ``%3``). ``model`` is a single-letter tag
     (F/O/H/S) refreshed on every statusline render — unlike the old
     SessionStart-hook path this replaces (see ``cmd_register``'s note), it also
     tracks mid-session ``/model`` switches. ``context_used_pct`` is 0-100;
     divided by 100 here to keep the 0..1 ratio convention used elsewhere in this
-    module. A ``ts`` older than the freshness cutoff (defined just above) is
-    treated as stale and rendered as absent (plan 003). Fail-open: missing
-    pane id / file / bad shape / non-numeric -> ``("", None)`` for the piece
-    that failed.
+    module. ``branch``/``dirty``/``ahead`` are optional (absent on an older
+    nexus binary that hasn't been redeployed yet -> ``("", False, 0)``
+    defaults, backward compatible). A ``ts`` older than the freshness cutoff
+    (defined just above) is treated as stale and rendered as fully absent
+    (plan 003) — the git fields share that same freshness gate, they have no
+    cutoff logic of their own. Fail-open: missing pane id / file / bad shape /
+    non-numeric -> ``("", None, "", False, 0)`` for the piece that failed.
     """
     if not pane_id:
-        return "", None
+        return "", None, "", False, 0
     try:
         data = json.loads((_cc_state_dir() / f"session-context.{pane_id}.json").read_text(encoding="utf-8"))
     except Exception:
-        return "", None
+        return "", None, "", False, 0
 
     ts = data.get("ts")
     if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-        return "", None
+        return "", None, "", False, 0
     if time.time() - float(ts) > SESSION_CONTEXT_MAX_AGE_SECS:
-        return "", None
+        return "", None, "", False, 0
 
     letter = data.get("model")
     if not isinstance(letter, str):
@@ -795,7 +800,19 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
     else:
         pct = float(pct) / 100.0
 
-    return letter, pct
+    branch = data.get("branch")
+    if not isinstance(branch, str):
+        branch = ""
+
+    dirty = data.get("dirty") is True
+
+    ahead_raw = data.get("ahead")
+    if isinstance(ahead_raw, bool) or not isinstance(ahead_raw, int) or ahead_raw < 0:
+        ahead = 0
+    else:
+        ahead = ahead_raw
+
+    return letter, pct, branch, dirty, ahead
 
 
 def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
@@ -816,32 +833,38 @@ def cmd_session_bar(args) -> int:
 
     Invoked FROM a tmux ``status-format[1]`` string
     (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
-    refresh. Resolves the window's representative pane, reads @cc-project /
-    @cc-branch and the per-pane model letter (from ``session-context.<pane>.json``
-    via :func:`_read_session_context`), and hands them along with the active
-    account's usage (via :func:`_active_usage`) to
-    :func:`render.render_session_bar`. Left side is session/model/git identity;
-    right side is the account label + SES:/5H:/7D: gauges. Fail-open: any
-    missing piece degrades to a partial render; empty window -> print nothing,
-    exit 0.
+    refresh. Resolves the window's representative pane, reads @cc-project and
+    the per-pane model letter / branch / dirty / ahead (from
+    ``session-context.<pane>.json`` via :func:`_read_session_context`), and
+    hands them along with the active account's usage (via
+    :func:`_active_usage`) to :func:`render.render_session_bar`. ``@cc-branch``
+    (hook-coupled, can go stale) is only a fallback for when the
+    session-context file lacks a fresh branch. Left side is session/model/git
+    identity; right side is the account label + SES:/5H:/7D: gauges.
+    Fail-open: any missing piece degrades to a partial render; empty window ->
+    print nothing, exit 0.
     """
     pane = tmux.get_window_top_pane(args.window)
     if not pane:
         return 0
 
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
-    branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
 
     # Raw session count (an int) — render_session_bar maps it to a glyph
     # itself (render._session_glyph), so pass the count, not a pre-mapped string.
     session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
 
-    model_letter, ses_pct = _read_session_context(pane)
+    model_letter, ses_pct, ctx_branch, dirty, ahead = _read_session_context(pane)
+    # Prefer the session-context branch (refreshed per statusline render,
+    # hook-independent) over @cc-branch (hook-coupled, can go stale) whenever
+    # the context file is fresh (003's ts gate) and carries a branch.
+    branch = ctx_branch or tmux.get_pane_option(pane, tmux.OPT_BRANCH)
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
     out = render.render_session_bar(
         session_count, model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
+        dirty=dirty, ahead=ahead,
     )
     if out:
         sys.stdout.write(out)

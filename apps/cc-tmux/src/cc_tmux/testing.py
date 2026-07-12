@@ -282,6 +282,42 @@ def _test_set_pane_state_writes_state_and_timestamp() -> None:
     _check(wrote_reason, "must write @cc-wait-reason when waiting")
 
 
+def _test_tmux_set_pane_git_identity_unsets_branch() -> None:
+    calls: List[List[str]] = []
+
+    def fake_run(args, *, check_available: bool = True):
+        calls.append(list(args))
+        if args and args[0] == "display-message":
+            return "/tmp/somewhere"
+        return ""
+
+    saved_run = tmux._run_tmux
+    saved_top = tmux._git_toplevel_name
+    saved_branch = tmux._git_branch
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    tmux._git_toplevel_name = lambda cwd: "proj"  # type: ignore[assignment]
+    tmux._git_branch = lambda cwd: ""  # type: ignore[assignment]
+    try:
+        tmux.set_pane_git_identity("%7")
+    finally:
+        tmux._run_tmux = saved_run  # type: ignore[assignment]
+        tmux._git_toplevel_name = saved_top  # type: ignore[assignment]
+        tmux._git_branch = saved_branch  # type: ignore[assignment]
+
+    wrote_project = any(
+        c[0] == "set-option" and tmux.OPT_PROJECT in c and "proj" in c for c in calls
+    )
+    unset_branch = any(
+        c[0] == "set-option" and "-u" in c and tmux.OPT_BRANCH in c for c in calls
+    )
+    set_branch = any(
+        c[0] == "set-option" and "-u" not in c and tmux.OPT_BRANCH in c for c in calls
+    )
+    _check(wrote_project, "empty-branch resolution must still write @cc-project")
+    _check(unset_branch, "empty-branch resolution must UNSET @cc-branch (stale-value bug)")
+    _check(not set_branch, "empty-branch resolution must not SET @cc-branch")
+
+
 def _test_set_pane_state_reassert_skips_timestamp() -> None:
     # Re-asserted state (idle -> idle): @cc-state may be rewritten but
     # @cc-timestamp must NOT be restamped — the inbox dismiss contract
@@ -744,6 +780,29 @@ def _test_render_session_bar() -> None:
     _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
+    # dirty=True, ahead>0 -> both YELLOW markers render alongside the branch.
+    out_dirty = render.render_session_bar(1, "F", "if", "main", "", None, None, None, dirty=True, ahead=2)
+    _check(f"#[fg={render.BRANCH}]main" in out_dirty, "branch still renders with markers present")
+    _check(f"#[fg={render.YELLOW}]*" in out_dirty, "dirty=True -> YELLOW '*' marker")
+    _check(f"#[fg={render.YELLOW}]^2" in out_dirty, "ahead=2 -> YELLOW '^2' marker")
+
+    # dirty=False, ahead=0 -> no markers at all.
+    out_clean = render.render_session_bar(1, "F", "if", "main", "", None, None, None, dirty=False, ahead=0)
+    _check("*" not in out_clean, "dirty=False -> no '*' marker")
+    _check("^" not in out_clean, "ahead=0 -> no '^N' marker")
+
+    # Empty branch + dirty=True, ahead=5 -> markers gated on branch, neither appears.
+    out_nobranch = render.render_session_bar(1, "F", "if", "", "", None, None, None, dirty=True, ahead=5)
+    _check("*" not in out_nobranch, "no branch -> dirty marker suppressed (gated on branch)")
+    _check("^" not in out_nobranch, "no branch -> ahead marker suppressed (gated on branch)")
+
+    # No-kwargs call -> byte-identical to explicit dirty=False, ahead=0 (backward compat).
+    out_default = render.render_session_bar(1, "F", "if", "main", "", None, None, None)
+    out_explicit_default = render.render_session_bar(
+        1, "F", "if", "main", "", None, None, None, dirty=False, ahead=0
+    )
+    _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=False, ahead=0")
+
 
 def _test_render_beads_bar() -> None:
     # Empty pulse line -> '' (row 3 shows nothing).
@@ -908,8 +967,11 @@ def _test_cli_read_roadmap_pulse_fail_open() -> None:
 
 
 def _test_cli_read_session_context() -> None:
-    # No pane id -> ('', None) without ever touching the filesystem.
-    _check(cli._read_session_context("") == ("", None), "empty pane -> ('', None)")
+    # No pane id -> ('', None, '', False, 0) without ever touching the filesystem.
+    _check(
+        cli._read_session_context("") == ("", None, "", False, 0),
+        "empty pane -> ('', None, '', False, 0)",
+    )
 
     saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
     tmpdir = tempfile.mkdtemp(prefix="cc-tmux-session-context-test-")
@@ -922,40 +984,93 @@ def _test_cli_read_session_context() -> None:
         with open(fixture, "w") as f:
             f.write(f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}}}')
 
-        letter, pct = cli._read_session_context("%9")
+        letter, pct, branch, dirty, ahead = cli._read_session_context("%9")
         _check(letter == "F", f"model letter not read from fixture: {letter!r}")
         _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
+        _check(
+            (branch, dirty, ahead) == ("", False, 0),
+            f"legacy payload without git keys -> ('', False, 0): got {(branch, dirty, ahead)!r}",
+        )
 
-        # Missing file -> fail-open ('', None), never raises.
+        # Missing file -> fail-open ('', None, '', False, 0), never raises.
         os.unlink(fixture)
-        _check(cli._read_session_context("%9") == ("", None), "missing file -> ('', None)")
+        _check(
+            cli._read_session_context("%9") == ("", None, "", False, 0),
+            "missing file -> ('', None, '', False, 0)",
+        )
 
-        # Malformed JSON -> fail-open ('', None), never raises.
+        # Malformed JSON -> fail-open, never raises.
         with open(fixture, "w") as f:
             f.write("not json")
-        _check(cli._read_session_context("%9") == ("", None), "malformed JSON -> ('', None)")
+        _check(
+            cli._read_session_context("%9") == ("", None, "", False, 0),
+            "malformed JSON -> ('', None, '', False, 0)",
+        )
 
-        # Stale ts (older than the freshness cutoff) -> fail-open ('', None).
+        # Stale ts (older than the freshness cutoff) -> fail-open, including git fields.
         with open(fixture, "w") as f:
-            f.write(f'{{"context_used_pct": 42, "model": "F", "ts": {time.time() - 3600}}}')
-        _check(cli._read_session_context("%9") == ("", None), "stale ts -> ('', None)")
+            f.write(
+                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time() - 3600}, '
+                f'"branch": "main", "dirty": true, "ahead": 3}}'
+            )
+        _check(
+            cli._read_session_context("%9") == ("", None, "", False, 0),
+            "stale ts -> ('', None, '', False, 0), git fields included in the fail-open",
+        )
 
-        # Missing ts -> unverifiable, treated as stale -> ('', None).
+        # Missing ts -> unverifiable, treated as stale -> fail-open.
         with open(fixture, "w") as f:
             f.write('{"context_used_pct": 42, "model": "F"}')
-        _check(cli._read_session_context("%9") == ("", None), "missing ts -> ('', None)")
+        _check(
+            cli._read_session_context("%9") == ("", None, "", False, 0),
+            "missing ts -> ('', None, '', False, 0)",
+        )
 
-        # Boolean ts -> non-numeric, treated as stale -> ('', None).
+        # Boolean ts -> non-numeric, treated as stale -> fail-open.
         with open(fixture, "w") as f:
             f.write('{"context_used_pct": 42, "model": "F", "ts": true}')
-        _check(cli._read_session_context("%9") == ("", None), "boolean ts -> ('', None)")
+        _check(
+            cli._read_session_context("%9") == ("", None, "", False, 0),
+            "boolean ts -> ('', None, '', False, 0)",
+        )
 
         # Fresh ts + multi-char model -> letter clamps to one char.
         with open(fixture, "w") as f:
             f.write(f'{{"context_used_pct": 42, "model": "Fable", "ts": {time.time()}}}')
-        letter, pct = cli._read_session_context("%9")
+        letter, pct, branch, dirty, ahead = cli._read_session_context("%9")
         _check(letter == "F", f"multi-char model should clamp to one letter: {letter!r}")
         _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
+
+        # Full payload with fresh ts + valid git fields -> parsed through.
+        with open(fixture, "w") as f:
+            f.write(
+                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
+                f'"branch": "main", "dirty": true, "ahead": 3}}'
+            )
+        _check(
+            cli._read_session_context("%9") == ("F", 0.42, "main", True, 3),
+            "full fresh payload -> ('F', 0.42, 'main', True, 3)",
+        )
+
+        # Garbage-typed git fields -> defaults; bool ahead -> 0 (bool-is-int guard).
+        with open(fixture, "w") as f:
+            f.write(
+                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
+                f'"branch": 5, "dirty": "yes", "ahead": -2}}'
+            )
+        _, _, branch, dirty, ahead = cli._read_session_context("%9")
+        _check(
+            (branch, dirty, ahead) == ("", False, 0),
+            f"garbage-typed git fields -> ('', False, 0): got {(branch, dirty, ahead)!r}",
+        )
+
+        with open(fixture, "w") as f:
+            f.write(
+                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
+                f'"branch": "main", "dirty": true, "ahead": true}}'
+            )
+        _, _, _, _, ahead = cli._read_session_context("%9")
+        _check(ahead == 0, f"boolean ahead must not be treated as int 1: got {ahead!r}")
     finally:
         if saved_cfg is None:
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -1035,6 +1150,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.set_pane_state_hot_path", _test_set_pane_state_hot_path_skips_git),
     ("tmux.set_pane_state_unknown", _test_set_pane_state_unknown_state),
     ("tmux.set_pane_state_writes", _test_set_pane_state_writes_state_and_timestamp),
+    ("tmux.set_pane_git_identity_unsets_branch", _test_tmux_set_pane_git_identity_unsets_branch),
     ("tmux.set_pane_state_reassert_ts", _test_set_pane_state_reassert_skips_timestamp),
     ("registry.resolve_project_code", _test_registry_resolve_project_code),
     ("cli.compose_title_name", _test_compose_title_name),

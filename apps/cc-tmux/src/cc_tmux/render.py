@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .usage import CYAN, DIM, color_for, pct_for
+from .usage import CYAN, DIM, YELLOW, color_for, pct_for
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -222,16 +222,22 @@ def render_session_bar(
     ses_pct: Optional[float],
     five_h_pct: Optional[float],
     seven_d_pct: Optional[float],
+    *,
+    dirty: bool = False,
+    ahead: int = 0,
 ) -> str:
     """Row-2 status-format string: session/model/git on the left, usage on the right.
 
     Left side: session-count glyph + model letter (sourced from
     session-context.<pane>.json, tracks mid-session /model switches) + project +
-    git branch. Right side: account label + SES:/5H:/7D: gauges, each coloured
-    via color_for and formatted via pct_for. The two sides are joined with a
-    #[align=right] directive so tmux fills the gap between them. ses_pct /
-    five_h_pct / seven_d_pct are utilization ratios in 0..1 (or None when
-    unpolled -> '--' in DIM).
+    git branch. When ``branch`` is non-empty, a YELLOW ``*`` marks a dirty
+    worktree and a YELLOW ``^N`` marks N commits ahead of upstream — both
+    dropped (fail-open) when no branch renders, so a marker never appears
+    without the branch it describes. Right side: account label + SES:/5H:/7D:
+    gauges, each coloured via color_for and formatted via pct_for. The two
+    sides are joined with a #[align=right] directive so tmux fills the gap
+    between them. ses_pct / five_h_pct / seven_d_pct are utilization ratios in
+    0..1 (or None when unpolled -> '--' in DIM).
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
@@ -243,7 +249,12 @@ def render_session_bar(
         left_parts.append(f"#[fg={DIM}]{project}")
     if branch:
         left_parts.append(f"#[fg={DIM}]>")
-        left_parts.append(f"#[fg={BRANCH}]{branch}")
+        seg = f"#[fg={BRANCH}]{branch}"
+        if dirty:
+            seg += f"#[fg={YELLOW}]*"
+        if ahead > 0:
+            seg += f"#[fg={YELLOW}]^{ahead}"
+        left_parts.append(seg)
     left = " ".join(left_parts) + "#[default]"
 
     cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
