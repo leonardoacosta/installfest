@@ -8,7 +8,7 @@ and state auto-deletes when a pane closes.
 The tracked options on each Claude pane:
 
     @cc-state        waiting | idle | active
-    @cc-timestamp    epoch seconds when the state was last set
+    @cc-timestamp    epoch seconds of the last REAL state transition (re-asserts do not restamp)
     @cc-visited      epoch seconds the pane was last focused (recency tiebreak)
     @cc-task         short human summary of what the pane is doing
     @cc-wait-reason  question | plan | permission | elicitation  (only when waiting)
@@ -482,6 +482,9 @@ def set_pane_state(
     Returns ``True`` only on a real transition (invariant 3). The return value is
     the real-transition guard callers use to decide whether to auto-hop / focus.
 
+    ``@cc-timestamp`` is stamped only on a real transition (or when ``timestamp``
+    is passed explicitly) — re-asserted states keep their existing stamp.
+
     Git identity (invariant 4): resolved only for ``waiting`` / ``idle`` by
     default (``active`` — the hot path — skips it). Pass ``resolve_git`` to force
     the decision either way. ``git_resolver`` is an injection seam for tests.
@@ -498,7 +501,13 @@ def set_pane_state(
     changed = is_real_transition(old_state, state)
 
     _set_opt(pane_id, OPT_STATE, state)
-    _set_opt(pane_id, OPT_TIMESTAMP, str(timestamp if timestamp is not None else time.time()))
+    # @cc-timestamp records the last REAL transition, not the last register:
+    # cmd_inbox's dismiss contract ("a fresh transition reappears") and the
+    # priority ordering ("most-recent state change") both read it as
+    # transition time, so a re-asserted state must not restamp. An explicit
+    # ``timestamp`` kwarg is a deliberate caller override and always writes.
+    if changed or timestamp is not None:
+        _set_opt(pane_id, OPT_TIMESTAMP, str(timestamp if timestamp is not None else time.time()))
 
     if task is not None:
         _set_opt(pane_id, OPT_TASK, task)

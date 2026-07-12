@@ -281,6 +281,25 @@ def _test_set_pane_state_writes_state_and_timestamp() -> None:
     _check(wrote_reason, "must write @cc-wait-reason when waiting")
 
 
+def _test_set_pane_state_reassert_skips_timestamp() -> None:
+    # Re-asserted state (idle -> idle): @cc-state may be rewritten but
+    # @cc-timestamp must NOT be restamped — the inbox dismiss contract
+    # (cli.cmd_inbox: "a fresh transition reappears") and priority ordering
+    # read the timestamp as TRANSITION time.
+    with _TmuxMock("idle") as mock:
+        tmux.set_pane_state("%1", "idle", git_resolver=lambda _p: None)
+    wrote_ts = any(c[0] == "set-option" and tmux.OPT_TIMESTAMP in c for c in mock.calls)
+    _check(not wrote_ts, "re-assert must NOT restamp @cc-timestamp")
+
+    # An explicit timestamp kwarg is a caller override: writes even on re-assert.
+    with _TmuxMock("idle") as mock2:
+        tmux.set_pane_state("%1", "idle", timestamp=123.0, git_resolver=lambda _p: None)
+    wrote_override = any(
+        c[0] == "set-option" and tmux.OPT_TIMESTAMP in c and "123.0" in c for c in mock2.calls
+    )
+    _check(wrote_override, "explicit timestamp kwarg must write even on re-assert")
+
+
 # ---------------------------------------------------------------------------
 # registry.py / cli.py title window-rename tests (tab naming)
 # ---------------------------------------------------------------------------
@@ -903,6 +922,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.set_pane_state_hot_path", _test_set_pane_state_hot_path_skips_git),
     ("tmux.set_pane_state_unknown", _test_set_pane_state_unknown_state),
     ("tmux.set_pane_state_writes", _test_set_pane_state_writes_state_and_timestamp),
+    ("tmux.set_pane_state_reassert_ts", _test_set_pane_state_reassert_skips_timestamp),
     ("registry.resolve_project_code", _test_registry_resolve_project_code),
     ("cli.compose_title_name", _test_compose_title_name),
     ("paths.tmux_conf_candidates", _test_tmux_conf_candidates),

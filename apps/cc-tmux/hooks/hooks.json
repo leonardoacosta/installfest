@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -57,7 +57,6 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "AskUserQuestion|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
@@ -69,7 +68,6 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "AskUserQuestion|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
