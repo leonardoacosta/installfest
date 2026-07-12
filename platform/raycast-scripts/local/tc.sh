@@ -13,4 +13,4 @@
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/personal/tribal-cities/
+cursor ~/dev/priceless/tribal-cities/

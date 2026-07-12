@@ -136,7 +136,7 @@ code = "tl"
 name = "Tavern Ledger"
 category = "priceless"
 icon = "🍺"
-path = "dev/personal/tl"
+path = "dev/priceless/tl"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -144,7 +144,7 @@ code = "tc"
 name = "Tribal Cities"
 category = "priceless"
 icon = "⛺"
-path = "dev/personal/tribal-cities"
+path = "dev/priceless/tribal-cities"
 tiers = ["remote", "local"]
 
 [[projects]]
@@ -242,9 +242,9 @@ tiers = ["remote"]
 [[projects]]
 code = "lv"
 name = "Las Vegas"
-category = "personal"
+category = "priceless"
 icon = "♣️"
-path = "dev/personal/lv"
+path = "dev/priceless/lv"
 tiers = ["remote", "local"]
 
 [[projects]]
