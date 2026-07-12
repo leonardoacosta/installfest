@@ -1,6 +1,6 @@
 {
   "name": "cc-tmux",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Code + tmux plugin: track, cycle, and dispatch parallel Claude panes. Self-registers state hooks (waiting/idle/active) with no settings.json edit.",
   "author": {
     "name": "Leonardo Acosta",
