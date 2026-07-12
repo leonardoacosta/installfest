@@ -211,12 +211,22 @@ if-shell "test -f ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux" \
 if-shell "test -f ~/.tmux/plugins/cc-tmux/cc-tmux.tmux" \
   "run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux"
 
-# cc-tmux config: window tab = <project-code>:<session-title>, truncated to 10
-# chars combined. Read fresh on every register (state change), so this survives
-# a `tmux kill-server` + relaunch instead of only living in the running server's
-# option table (see skills/cc-config/SKILL.md for the full @cc-* option table).
+# cc-tmux config: window tab = <project-code>:<session-title>, truncated to 20
+# chars combined (cc-tmux-rename-fix-and-truncate, 2026-07-12 — was 10). Read
+# fresh on every register (state change), so this survives a `tmux kill-server`
+# + relaunch instead of only living in the running server's option table (see
+# skills/cc-config/SKILL.md for the full @cc-* option table).
 set -g @cc-window-rename on
 set -g @cc-window-rename-format title
+
+# cc-tmux-subagent-tab-icon: how long a background subagent dispatch keeps
+# showing its tab-icon glyph (◇/◆) after launch with no further hook signal —
+# background dispatches have no reliable "stop" event, so this timeout is the
+# only cleanup mechanism (aged out lazily on every read, see
+# prune_background_entries in cli.py). Default matches cc_tmux's own
+# _subagent_bg_timeout() fallback (300s / 5min) — override here only if that
+# default is genuinely wrong for your workflow, not as a first resort.
+set -g @cc-subagent-bg-timeout 300
 
 # -----------------------------------------------------------------------------
 # Status Bar - Tab-like Appearance
