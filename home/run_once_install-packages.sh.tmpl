@@ -147,12 +147,11 @@ fi
 provision_ssh_keys_from_op
 
 if [[ -f "$HOME/.ssh/id_ed25519.pub" ]]; then
-    # Set up authorized_keys for inbound SSH connections
     mkdir -p "$HOME/.ssh"
     chmod 700 "$HOME/.ssh"
-    cp "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/authorized_keys"
-    chmod 600 "$HOME/.ssh/authorized_keys"
-    success "SSH authorized_keys configured for inbound connections"
+    # authorized_keys is chezmoi-managed (home/private_dot_ssh/private_authorized_keys)
+    # -- do NOT also write it here. Two owners disagreeing on content re-diverges the
+    # file on every `chezmoi apply` and can silently abort under --no-tty (if-6sj).
 
     # Add key to SSH agent
     ssh-add "$HOME/.ssh/id_ed25519" 2>/dev/null || true

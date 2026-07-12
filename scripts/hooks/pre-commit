@@ -3,9 +3,11 @@
 # pre-commit — runs before git commit
 #
 # 0. Secret scan (blocks the commit on findings).
-# 1. Regenerate Raycast scripts when projects.toml or generator is staged
+# 1. check.sh baseline — zsh/sh syntax, template render, shellcheck, terraform
+#    validate (blocks the commit on any failure; if-ev7).
+# 2. Regenerate Raycast scripts when projects.toml or generator is staged
 #    (auto-stages output so commits always contain matching artifacts).
-# 2. Flush beads pending changes to JSONL.
+# 3. Flush beads pending changes to JSONL.
 
 # === 0. Secret scan (blocks commit on findings) ===
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
@@ -13,7 +15,19 @@ if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/.githooks/pre-commit" ]; then
     "$REPO_ROOT/.githooks/pre-commit" || exit 1
 fi
 
-# === 1. Raycast script regeneration ===
+# === 1. check.sh baseline (blocks commit on failure; if-ev7) ===
+# NOTE: no `|| true` — a failing check MUST block the commit. ~2.3s warm.
+if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/scripts/check.sh" ]; then
+    if ! "$REPO_ROOT/scripts/check.sh" >/tmp/if-precommit-check.$$ 2>&1; then
+        echo "Error: scripts/check.sh failed — fix before committing" >&2
+        cat /tmp/if-precommit-check.$$ >&2
+        rm -f /tmp/if-precommit-check.$$
+        exit 1
+    fi
+    rm -f /tmp/if-precommit-check.$$
+fi
+
+# === 2. Raycast script regeneration ===
 # Trigger only when the source-of-truth files are staged. Fail the commit
 # if generation errors so drift never lands in main.
 if git diff --cached --name-only 2>/dev/null | grep -qE '^(home/projects\.toml|scripts/generate-raycast\.sh)$'; then
@@ -36,7 +50,7 @@ if git diff --cached --name-only 2>/dev/null | grep -qE '^(home/projects\.toml|s
     fi
 fi
 
-# === 2. Beads JSONL flush ===
+# === 3. Beads JSONL flush ===
 if ! command -v bd >/dev/null 2>&1; then
     exit 0
 fi

@@ -549,26 +549,42 @@ def cmd_doctor(args) -> int:
     count = len(panes)
     add("INFO", "tracked panes", str(count))
 
+    # Live Claude-process count — computed once, shared by both hook rows below.
+    # live_exc (not None) means the check itself failed; surfaced by the "hook
+    # liveness" row exactly as before this refactor.
+    live_exc: Optional[Exception] = None
+    try:
+        live: Optional[int] = len(_pane_ids_running_claude(tmux.iter_panes_with_process()))
+    except Exception as exc:  # noqa: BLE001 - surfaced by hook liveness row below
+        live = None
+        live_exc = exc
+
     # hook freshness — pure per-pane @cc-timestamp verdict (plan 005 RPF-3
     # follow-up): a different, simpler signal than the "hook liveness" row
     # below (which needs the live Claude process count + register-trace file).
-    # 'stale' is the disabled-plugin signature — tracked panes still carry
-    # state while no hook has written for ages, independent of whether Claude
-    # happens to be running right now.
+    # 'stale' is the disabled-plugin signature IF Claude is actively running
+    # right now — gated on live-Claude-count (if-s0go) because per-pane
+    # @cc-timestamp age alone is NOT a valid staleness signal on its own (an
+    # idle-but-healthy pane legitimately freezes for hours with no hook firing).
     verdict = hook_freshness([p.timestamp for p in panes], time.time())
     if verdict == "none":
         add("INFO", "hook freshness", "no tracked panes (nothing to assess)")
     elif verdict == "fresh":
         newest_ts = max(p.timestamp for p in panes if p.timestamp > 0)
         add("PASS", "hook freshness", f"newest @cc-timestamp {int(time.time() - newest_ts)}s ago")
-    else:
+    elif live:
         add("WARN", "hook freshness",
-            "newest @cc-timestamp > 30min old - if a Claude session is active, "
+            "newest @cc-timestamp > 30min old with Claude actively running - "
             "hooks may not be reaching cc-tmux (check plugin enabled + version)")
+    else:
+        add("INFO", "hook freshness",
+            "newest @cc-timestamp > 30min old, but no Claude pane is currently "
+            "running - likely a legitimately idle pane, not a dead hook")
 
     # hook liveness — is the Claude hook side writing state while panes run?
     try:
-        live = len(_pane_ids_running_claude(tmux.iter_panes_with_process()))
+        if live_exc is not None:
+            raise live_exc
         candidates: List[float] = [p.timestamp for p in panes if p.timestamp > 0]
         trace = _cc_state_dir() / _REGISTER_TRACE_FILE
         if trace.is_file():
