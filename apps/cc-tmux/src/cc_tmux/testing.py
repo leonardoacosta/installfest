@@ -1129,6 +1129,22 @@ def _test_cli_evaluate_hook_liveness_ages() -> None:
            "1-hour-old register with live panes -> WARN")
 
 
+def _test_cli_trace_needs_trim() -> None:
+    _check(cli.trace_needs_trim(0) is False, "empty file must not trim")
+    _check(cli.trace_needs_trim(cli._REGISTER_TRACE_TRIM_BYTES) is False, "at threshold must not trim")
+    _check(cli.trace_needs_trim(cli._REGISTER_TRACE_TRIM_BYTES + 1) is True, "past threshold must trim")
+    _check(cli.trace_needs_trim(100, threshold=10) is True, "explicit threshold honored")
+
+
+def _test_cli_hook_freshness() -> None:
+    _check(cli.hook_freshness([], 1000.0) == "none", "no panes -> none")
+    _check(cli.hook_freshness([0.0], 1000.0) == "none", "zero timestamps -> none")
+    _check(cli.hook_freshness([900.0], 1000.0) == "fresh", "recent -> fresh")
+    _check(cli.hook_freshness([100.0], 10000.0) == "stale", "old -> stale")
+    _check(cli.hook_freshness([100.0, 9990.0], 10000.0) == "fresh", "newest wins")
+    _check(cli.hook_freshness([100.0], 1000.0, stale_after=899.0) == "stale", "custom window")
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -1183,6 +1199,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),
     ("cli.evaluate_hook_liveness_ages", _test_cli_evaluate_hook_liveness_ages),
+    ("cli.trace_needs_trim", _test_cli_trace_needs_trim),
+    ("cli.hook_freshness", _test_cli_hook_freshness),
 ]
 
 

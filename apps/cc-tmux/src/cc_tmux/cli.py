@@ -117,6 +117,17 @@ def _read_hook_stdin() -> dict:
 
 _REGISTER_TRACE_FILE = "cc-tmux-register-trace.log"
 _REGISTER_TRACE_MAX_LINES = 2000
+# Trim only when the file exceeds ~2x its line cap (2000 lines ~= 260 KB
+# observed; 512 KB ~= 4000 lines). The common path is then a single O(1)
+# O_APPEND write instead of a full read+rewrite per hook fire — which also
+# removes the read-modify-write lost-line race between concurrent pane hooks
+# on the hot path (the rare trim can still race; acceptable for a diagnostic).
+_REGISTER_TRACE_TRIM_BYTES = 512 * 1024
+
+
+def trace_needs_trim(size_bytes: int, threshold: int = _REGISTER_TRACE_TRIM_BYTES) -> bool:
+    """Pure gate: trim the register trace only past the byte threshold."""
+    return size_bytes > threshold
 
 
 def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bool) -> None:
@@ -129,11 +140,13 @@ def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bo
     ``rename_attempted`` is hardcoded true here since ``cmd_register`` calls
     ``_maybe_rename_window`` unconditionally — kept as an explicit field (not
     inlined into ``rename_fired``) in case that call ever becomes conditional.
-    Capped to the last ``_REGISTER_TRACE_MAX_LINES`` lines (read-trim-rewrite,
-    atomic via ``.tmp`` + ``os.replace`` — same pattern as
-    ``conductor.write_instructions``) so the file never grows unboundedly. This
-    is a diagnostic trace file, NOT part of the invariant-1 pane-option state
-    store — fail-open: any error here must never break ``cmd_register``.
+    Append-by-default (plan 005): the common path is a single O_APPEND write;
+    trimming to the last ``_REGISTER_TRACE_MAX_LINES`` lines (atomic via
+    ``.tmp`` + ``os.replace`` — same pattern as ``conductor.write_instructions``)
+    only happens once the file passes :func:`trace_needs_trim`'s byte
+    threshold, so the file never grows unboundedly. This is a diagnostic trace
+    file, NOT part of the invariant-1 pane-option state store — fail-open: any
+    error here must never break ``cmd_register``.
     """
     try:
         entry = {
@@ -145,14 +158,14 @@ def _trace_register(hook_payload: dict, pane_id: Optional[str], rename_fired: bo
         }
         path = _cc_state_dir() / _REGISTER_TRACE_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        lines: List[str] = []
-        if path.is_file():
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+        if trace_needs_trim(path.stat().st_size):
             lines = path.read_text(encoding="utf-8").splitlines()
-        lines = lines[-(_REGISTER_TRACE_MAX_LINES - 1):]
-        lines.append(json.dumps(entry, sort_keys=True))
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+            lines = lines[-_REGISTER_TRACE_MAX_LINES:]
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
     except Exception:
         pass
 
@@ -301,6 +314,23 @@ def _evaluate_plugin_listing(raw: str, repo_version: str) -> Tuple[List[Tuple[st
 
     install_path = entry.get("installPath")
     return rows, install_path if isinstance(install_path, str) else ""
+
+
+_HOOK_STALE_AFTER_SECS = 1800.0  # 30 min without any @cc-timestamp movement
+
+
+def hook_freshness(timestamps: List[float], now: float,
+                   stale_after: float = _HOOK_STALE_AFTER_SECS) -> str:
+    """'none' (no tracked panes), 'fresh', or 'stale' for the doctor liveness row.
+
+    Pure (self-tested). 'stale' means tracked panes exist but the NEWEST
+    @cc-timestamp is older than ``stale_after`` - the disabled-plugin
+    signature: panes still carry state while no hook has written for ages.
+    """
+    real = [t for t in timestamps if t > 0]
+    if not real:
+        return "none"
+    return "fresh" if (now - max(real)) <= stale_after else "stale"
 
 
 _HOOK_LIVENESS_STALE_SECS = 1800.0  # 30 min; register fires on every prompt/tool/Stop
@@ -458,13 +488,31 @@ def cmd_doctor(args) -> int:
                 add("FAIL", "focus hook", "pane-focus-in[9909] missing (reload the plugin)")
 
     # tracked-pane count
-    count = len(tmux.get_hop_panes())
+    panes = tmux.get_hop_panes()
+    count = len(panes)
     add("INFO", "tracked panes", str(count))
+
+    # hook freshness — pure per-pane @cc-timestamp verdict (plan 005 RPF-3
+    # follow-up): a different, simpler signal than the "hook liveness" row
+    # below (which needs the live Claude process count + register-trace file).
+    # 'stale' is the disabled-plugin signature — tracked panes still carry
+    # state while no hook has written for ages, independent of whether Claude
+    # happens to be running right now.
+    verdict = hook_freshness([p.timestamp for p in panes], time.time())
+    if verdict == "none":
+        add("INFO", "hook freshness", "no tracked panes (nothing to assess)")
+    elif verdict == "fresh":
+        newest_ts = max(p.timestamp for p in panes if p.timestamp > 0)
+        add("PASS", "hook freshness", f"newest @cc-timestamp {int(time.time() - newest_ts)}s ago")
+    else:
+        add("WARN", "hook freshness",
+            "newest @cc-timestamp > 30min old - if a Claude session is active, "
+            "hooks may not be reaching cc-tmux (check plugin enabled + version)")
 
     # hook liveness — is the Claude hook side writing state while panes run?
     try:
         live = len(_pane_ids_running_claude(tmux.iter_panes_with_process()))
-        candidates: List[float] = [p.timestamp for p in tmux.get_hop_panes() if p.timestamp > 0]
+        candidates: List[float] = [p.timestamp for p in panes if p.timestamp > 0]
         trace = _cc_state_dir() / _REGISTER_TRACE_FILE
         if trace.is_file():
             try:
@@ -828,25 +876,26 @@ def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
         return "", None, None
 
 
-def cmd_session_bar(args) -> int:
-    """Emit the row-2 session status-format string for a window (Req rows 2).
+def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
+    """Build the row-2 session status-format string for a window (Req rows 2).
 
-    Invoked FROM a tmux ``status-format[1]`` string
-    (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
-    refresh. Resolves the window's representative pane, reads @cc-project and
-    the per-pane model letter / branch / dirty / ahead (from
+    Body of the former ``cmd_session_bar`` handler, extracted (plan 005) so
+    :func:`cmd_render_all` can share one resolved pane across both row
+    builders instead of each spawning its own process. Resolves the window's
+    representative pane (unless ``pane`` is already known), reads @cc-project
+    and the per-pane model letter / branch / dirty / ahead (from
     ``session-context.<pane>.json`` via :func:`_read_session_context`), and
     hands them along with the active account's usage (via
     :func:`_active_usage`) to :func:`render.render_session_bar`. ``@cc-branch``
     (hook-coupled, can go stale) is only a fallback for when the
     session-context file lacks a fresh branch. Left side is session/model/git
     identity; right side is the account label + SES:/5H:/7D: gauges.
-    Fail-open: any missing piece degrades to a partial render; empty window ->
-    print nothing, exit 0.
+    Fail-open: any missing piece degrades to a partial render; no pane -> ``""``.
     """
-    pane = tmux.get_window_top_pane(args.window)
+    if pane is None:
+        pane = tmux.get_window_top_pane(window)
     if not pane:
-        return 0
+        return ""
 
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
 
@@ -861,31 +910,81 @@ def cmd_session_bar(args) -> int:
     branch = ctx_branch or tmux.get_pane_option(pane, tmux.OPT_BRANCH)
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
-    out = render.render_session_bar(
+    return render.render_session_bar(
         session_count, model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
         dirty=dirty, ahead=ahead,
     )
+
+
+def cmd_session_bar(args) -> int:
+    """Emit the row-2 session status-format string for a window (Req rows 2).
+
+    Invoked FROM a tmux ``status-format[1]`` string
+    (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
+    refresh. Thin wrapper over :func:`_build_session_bar` — kept for other
+    machines' deployed confs that still call this subcommand directly until
+    they re-apply the plan-005 conf change (see Maintenance notes).
+    """
+    out = _build_session_bar(args.window)
     if out:
         sys.stdout.write(out)
     return 0
+
+
+def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
+    """Build the row-3 beads/roadmap status-format string for a window (Req rows 3).
+
+    Body of the former ``cmd_beads_bar`` handler, extracted (plan 005) so
+    :func:`cmd_render_all` can share one resolved pane across both row
+    builders. Resolves the window's representative pane (unless ``pane`` is
+    already known), reads its project's roadmap-pulse line, and hands it to
+    :func:`render.render_beads_bar`. Fail-open: nothing pending -> ``""``.
+    """
+    if pane is None:
+        pane = tmux.get_window_top_pane(window)
+    if not pane:
+        return ""
+    return render.render_beads_bar(_read_roadmap_pulse(pane))
 
 
 def cmd_beads_bar(args) -> int:
     """Emit the row-3 beads/roadmap status-format string for a window (Req rows 3).
 
     Invoked FROM a tmux ``status-format[2]`` string
-    (``#(cc-tmux beads-bar #{window_id})``). Resolves the window's representative
-    pane, reads its project's roadmap-pulse line, and hands it to
-    :func:`render.render_beads_bar`. Fail-open: nothing pending -> print nothing.
+    (``#(cc-tmux beads-bar #{window_id})``). Thin wrapper over
+    :func:`_build_beads_bar` — kept for other machines' deployed confs that
+    still call this subcommand directly until they re-apply the plan-005 conf
+    change (see Maintenance notes).
     """
-    pane = tmux.get_window_top_pane(args.window)
-    if not pane:
-        return 0
-    out = render.render_beads_bar(_read_roadmap_pulse(pane))
+    out = _build_beads_bar(args.window)
     if out:
         sys.stdout.write(out)
     return 0
+
+
+def _build_tabs_row(active_window_id: str) -> str:
+    """Build the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
+
+    Body of the former ``cmd_tabs_row`` handler, extracted (plan 005) so
+    :func:`cmd_render_all` can compose it alongside rows 2/3 in one process.
+    Takes the active window id as a parameter instead of resolving it via
+    :func:`tmux.current_window_id` (the caller already knows it — same value
+    ``#{window_id}`` supplies at the tmux status-format layer). Enumerates
+    every window in the invoking client's session via
+    :func:`tmux.get_window_tabs` and hands both to :func:`render.render_tabs_row`.
+    Fail-open: no windows -> ``""``.
+
+    As the once-per-tick session-wide surface (status-format[0] /
+    ``render-all``), this is also the reconcile heartbeat: the call below is
+    rate-limited by @cc-last-reconcile / @cc-reconcile-interval (tmux.py), so
+    status-interval 1 costs at most one process scan per interval.
+    """
+    tmux.reconcile(_pane_ids_running_claude)  # rate-limited self-heal, <=1 scan/10s
+    windows = tmux.get_window_tabs()
+    if not windows:
+        return ""
+    return render.render_tabs_row(windows, active_window_id, time.time())
 
 
 def cmd_tabs_row(args) -> int:
@@ -895,25 +994,43 @@ def cmd_tabs_row(args) -> int:
     :func:`cmd_session_bar`/:func:`cmd_beads_bar` — NOT nested inside
     ``window-status-format``, whose own embedded ``#()`` job never
     re-evaluates on this tmux version, confirmed via /openspec:explore runtime
-    evidence). Takes no arguments: enumerates every window in the invoking
-    client's session via :func:`tmux.get_window_tabs`, resolves the active
-    window via :func:`tmux.current_window_id`, and hands both to
-    :func:`render.render_tabs_row`. Fail-open: no windows -> print nothing,
-    exit 0 (never blocks the status bar).
-
-    As the once-per-tick session-wide surface (status-format[0]), this is
-    also the reconcile heartbeat: the call above is rate-limited by
-    @cc-last-reconcile / @cc-reconcile-interval (tmux.py), so status-interval 1
-    costs at most one process scan per interval.
+    evidence). Thin wrapper over :func:`_build_tabs_row` — kept for other
+    machines' deployed confs that still call this subcommand directly until
+    they re-apply the plan-005 conf change (see Maintenance notes).
     """
-    tmux.reconcile(_pane_ids_running_claude)  # rate-limited self-heal, <=1 scan/10s
-    windows = tmux.get_window_tabs()
-    if not windows:
-        return 0
-    active_window_id = tmux.current_window_id()
-    out = render.render_tabs_row(windows, active_window_id, time.time())
+    out = _build_tabs_row(tmux.current_window_id())
     if out:
         sys.stdout.write(out)
+    return 0
+
+
+# Global user options carrying the pre-rendered rows 2/3 for status-format[1]/[2]
+# (bare `#{@cc-row-session}` lookup). Render TRANSPORT, not state (invariant 2):
+# overwritten on every render-all tick, never read back by any Python code —
+# only tmux's drawing pass consumes them. Rows 2/3 therefore trail the tabs row
+# by at most one status-interval tick.
+_ROW_SESSION_OPT = "@cc-row-session"
+_ROW_BEADS_OPT = "@cc-row-beads"
+
+
+def cmd_render_all(args) -> int:
+    """All three status rows from one interpreter spawn (plan 005).
+
+    Replaces the 3-spawns-per-tick wiring (tabs-row + session-bar + beads-bar
+    as separate #() jobs). The window's representative pane is resolved ONCE
+    and shared by both row builders. Fail-open: any failure inside a builder
+    degrades that row to '' (options are ALWAYS rewritten, so a failing tick
+    blanks a row rather than freezing stale content).
+    """
+    window = args.window
+    pane = tmux.get_window_top_pane(window)
+    session_row = _build_session_bar(window, pane=pane) if pane else ""
+    beads_row = _build_beads_bar(window, pane=pane) if pane else ""
+    tmux.set_global_option(_ROW_SESSION_OPT, session_row)
+    tmux.set_global_option(_ROW_BEADS_OPT, beads_row)
+    tabs = _build_tabs_row(window)
+    if tabs:
+        sys.stdout.write(tabs)
     return 0
 
 
@@ -1023,6 +1140,7 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "session-bar": cmd_session_bar,
     "beads-bar": cmd_beads_bar,
     "tabs-row": cmd_tabs_row,
+    "render-all": cmd_render_all,
     "conductor": cmd_conductor,
 }
 

@@ -173,6 +173,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit the whole animated window-tabs row (invoked from a top-level status-format slot).",
     )
 
+    # -- render-all: all three status rows from ONE interpreter spawn ----------
+    # Invoked FROM status-format[0] (`#(cc-tmux render-all #{window_id})`).
+    # Prints the tabs row on stdout and writes rows 2/3 to the global user
+    # options @cc-row-session / @cc-row-beads, consumed by status-format[1]/[2]
+    # via bare `#{@cc-row-session}` lookup (zero extra processes).
+    p_render_all = sub.add_parser(
+        "render-all",
+        help="Emit the tabs row and publish rows 2/3 as @cc-row-* options (one spawn per tick).",
+    )
+    p_render_all.add_argument(
+        "window",
+        help="Active window id (#{window_id} from the status-format context).",
+    )
+
     # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----
     p_conductor = sub.add_parser(
         "conductor",
