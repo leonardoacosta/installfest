@@ -295,6 +295,13 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     applied (theme ``.conf`` files wrap the whole row, same as
     ``status-format[1]``/``[2]`` — see :func:`render_session_bar`).
 
+    Each segment is wrapped in ``#[range=window|<index>]``/``#[norange]`` —
+    the same range markup tmux's native window-status rendering emits, which
+    is what makes the default ``MouseDown1Status`` binding (``switch-client
+    -t =``) know which window a click landed on. Replacing tmux's native
+    per-window rendering with this custom job (see module docstring) means we
+    must emit that markup ourselves or clicks land nowhere.
+
     Pure function of its inputs (no tmux/subprocess). Empty ``windows`` ->
     ``""`` (nothing to show).
     """
@@ -305,11 +312,13 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
         icon_part = f"{icon} " if icon else ""
         index = getattr(w, "index", "")
         name = getattr(w, "name", "")
-        label = f"{index}:{icon_part}{name}"
+        label = f"{index} {icon_part}{name}"
 
         is_active = active_window_id and getattr(w, "id", None) == active_window_id
         colour = f"{CYAN},bold" if is_active else DIM
-        segments.append(f"#[fg={colour}] {label} #[default]")
+        segments.append(
+            f"#[fg={colour}]#[range=window|{index}] {label} #[norange]#[default]"
+        )
     return "".join(segments)
 
 

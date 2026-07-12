@@ -743,26 +743,40 @@ def _test_render_tabs_row() -> None:
     # Active window (id == active_window_id) renders bold CYAN; the animated
     # icon for its tracked state is reused verbatim from animated_icon, not
     # re-derived (window @1 is NOT active here — inactive windows still get
-    # their icon, only the colour differs).
+    # their icon, only the colour differs). Index/icon/name are space-
+    # separated (not colon-separated), matching the old #I #(icon)#W
+    # convention, and each segment is wrapped in #[range=window|N]/#[norange]
+    # so the default MouseDown1Status binding can route clicks.
     icon_waiting = render.animated_icon("waiting", 1.0)
-    _check(f"#[fg={render.DIM}] 1:{icon_waiting} editor #[default]" in out, "inactive window: DIM, icon present")
+    _check(
+        f"#[fg={render.DIM}]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]" in out,
+        "inactive window: DIM, icon present, range=window|1, space-separated",
+    )
 
     # Untracked window (state == '') renders no icon at all — bare
-    # 'index:name', matching cmd_window_icon's existing untracked contract —
+    # 'index name', matching cmd_window_icon's existing untracked contract —
     # and IS styled as the active window here (bold CYAN).
-    _check(f"#[fg={render.CYAN},bold] 2:shell #[default]" in out, "active + untracked: CYAN bold, no icon glyph")
+    _check(
+        f"#[fg={render.CYAN},bold]#[range=window|2] 2 shell #[norange]#[default]" in out,
+        "active + untracked: CYAN bold, no icon glyph, range=window|2",
+    )
     _check("2:  shell" not in out, "untracked window never renders a double space where the icon would be")
+    _check(":" not in out, "no colon separator anywhere in the rendered row")
 
     # Swap which window is active -> the CYAN/DIM assignment flips accordingly.
     out2 = render.render_tabs_row(windows, "@1", now=1.0)
-    _check(f"#[fg={render.CYAN},bold] 1:{icon_waiting} editor #[default]" in out2, "window @1 active -> CYAN bold")
-    _check(f"#[fg={render.DIM}] 2:shell #[default]" in out2, "window @2 inactive -> DIM")
+    _check(
+        f"#[fg={render.CYAN},bold]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]" in out2,
+        "window @1 active -> CYAN bold, range=window|1",
+    )
+    _check(f"#[fg={render.DIM}]#[range=window|2] 2 shell #[norange]#[default]" in out2, "window @2 inactive -> DIM")
 
     # No matching active_window_id (e.g. tmux.current_window_id() failed and
     # returned '') -> every window renders DIM, none crash on the empty-string
-    # comparison (fail-open).
+    # comparison (fail-open). Range markup still present per-window.
     out3 = render.render_tabs_row(windows, "", now=1.0)
     _check(f"#[fg={render.CYAN}" not in out3, "no active id -> no window rendered as active")
+    _check("#[range=window|1]" in out3 and "#[range=window|2]" in out3, "range markup present regardless of active id")
 
 
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
