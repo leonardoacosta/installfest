@@ -19,9 +19,16 @@ Governing rules carried into this module:
   uses tmux *global* options only as navigation breadcrumbs (via
   ``cc_tmux.tmux.set_global_option``), never as a parallel pane-state store. The
   instruction text is config content, persisted to a file, not derived pane state.
-* **Invariant 5 (fail open):** reads (``list``, ``context``) always exit 0; only
-  genuine misuse (unknown/absent dispatch target, no ``claude`` binary for a
-  spawn, a git failure for a worktree, popup while disabled) exits non-zero.
+* **Invariant 5 (fail open):** reads (``list``, ``context``) always exit 0; genuine
+  misuse (unknown/absent dispatch target, no ``claude`` binary for a spawn, a git
+  failure for a worktree, popup while disabled) AND a dispatch action whose tmux
+  call itself failed exit non-zero — a dispatch is a write, not a fail-open read.
+* **Worktree lifecycle is manual by design:** ``spawn-worktree`` creates
+  ``.worktrees/conductor-<stamp>`` on branch ``conductor/<stamp>`` and never
+  removes either (no background reaper — same no-new-daemon stance as the
+  rest of the plugin). Clean up with ``git worktree remove <path>`` +
+  ``git branch -D conductor/<stamp>``, or cc's ``wt reap`` for stale
+  ``.worktrees/`` entries older than 24h.
 
 Env contract: the detached session is created with ``CC_TMUX_CONDUCTOR=1`` so the
 plugin's SessionStart / UserPromptSubmit context-injection hook — shell-guarded on
@@ -32,12 +39,13 @@ Claude panes.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from . import log, tmux
 from .priority import sort_panes
@@ -54,6 +62,12 @@ _DEFAULT_SESSION = "conductor"
 
 # Marker env var set on the detached session so context injection self-guards.
 _CONDUCTOR_ENV = "CC_TMUX_CONDUCTOR"
+
+# Prompt-seeding readiness poll (spawn modes). Bounded; on timeout we still
+# seed (best effort — same failure surface as the old fixed sleep, never worse).
+_READY_TIMEOUT = 10.0
+_READY_INTERVAL = 0.25
+_READY_GRACE = 0.3
 
 
 # The mode-selection playbook the conductor's Claude sees on every prompt. This is
@@ -193,6 +207,16 @@ def _ensure_session(name: str) -> bool:
 # Actions
 # ---------------------------------------------------------------------------
 
+def _attach_command(name: str) -> str:
+    """Shell command for ``display-popup -E``: attach to the conductor session.
+
+    ``name`` is user config (``@cc-conductor-session``) — quote it so spaces or
+    shell metacharacters can neither break the attach nor inject into the
+    popup's shell. Pure (testable).
+    """
+    return f"tmux attach-session -t {shlex.quote(name)}"
+
+
 def _popup(respawn: bool) -> int:
     """Open a popup attached to the conductor session (created on demand).
 
@@ -219,7 +243,7 @@ def _popup(respawn: bool) -> int:
         )
         return 1
 
-    opened = tmux._run_tmux(["display-popup", "-E", f"tmux attach-session -t {name}"])
+    opened = tmux._run_tmux(["display-popup", "-E", _attach_command(name)])
     if opened is None:
         sys.stderr.write("cc-tmux conductor: display-popup failed.\n")
         return 1
@@ -243,8 +267,18 @@ def _update_instructions() -> int:
 
 
 def _dispatchable_panes() -> List[tmux.PaneInfo]:
-    """Every tracked pane except the conductor's own session, in priority order."""
-    return sort_panes(tmux.get_hop_panes(exclude_session=session_name()))
+    """Every tracked pane except the conductor's own session, in priority order.
+
+    Reads through :func:`cc_tmux.tmux.reconcile` so stale ``@cc-state`` left by a
+    dead Claude is healed (rate-limited, fail-open) before the conductor lists,
+    snapshots, or dispatches — a dead pane must not receive a prompt into its
+    surviving bare shell.
+    """
+    from . import cli  # deferred: cli.py imports this module at load time
+
+    panes = tmux.reconcile(cli._pane_ids_running_claude)
+    name = session_name()
+    return sort_panes([p for p in panes if p.session != name])
 
 
 def _list(as_json: bool) -> int:
@@ -315,8 +349,30 @@ def _dispatch_switch(target: Optional[str]) -> int:
     if not target:
         sys.stderr.write("cc-tmux conductor: switch requires --target <pane>.\n")
         return 2
-    tmux.switch_to_pane(target)
+    if not tmux.switch_to_pane(target):
+        sys.stderr.write(f"cc-tmux conductor: could not switch to pane {target}.\n")
+        return 1
     return 0
+
+
+def _send_prompt_refusal(state: Optional[str], force: bool) -> Optional[str]:
+    """Reason ``send-prompt`` must be refused, or ``None`` to proceed. Pure.
+
+    ``state is None`` means the target is not in the dispatchable set at all
+    (untracked, unknown, or just healed away) — typing into it would land in
+    whatever process owns the pane, potentially a bare shell that EXECUTES the
+    prompt text. ``--force`` overrides both refusals.
+    """
+    if force:
+        return None
+    if state is None:
+        return (
+            "is not a tracked Claude pane (unknown or stale target); "
+            "re-run with --force to send anyway"
+        )
+    if state == "active":
+        return "is active (busy); re-run with --force to send anyway"
+    return None
 
 
 def _dispatch_send_prompt(target: Optional[str], prompt: Optional[str], force: bool) -> int:
@@ -327,28 +383,78 @@ def _dispatch_send_prompt(target: Optional[str], prompt: Optional[str], force: b
         sys.stderr.write("cc-tmux conductor: send-prompt requires --prompt <text>.\n")
         return 2
     state = _pane_state(target)
-    if state == "active" and not force:
-        sys.stderr.write(
-            f"cc-tmux conductor: pane {target} is active (busy); "
-            "re-run with --force to send anyway.\n"
-        )
+    reason = _send_prompt_refusal(state, force)
+    if reason:
+        sys.stderr.write(f"cc-tmux conductor: pane {target} {reason}.\n")
         return 1
+    # Residual TOCTOU: the state above was read through a reconciled snapshot
+    # moments ago, but the pane can still die between that read and the
+    # send-keys below. Reconciling shrinks the stale window from unbounded to
+    # seconds; it cannot eliminate it. Accepted residual risk.
     # -l sends the text literally, then a separate Enter submits it.
-    tmux._run_tmux(["send-keys", "-t", target, "-l", prompt])
-    tmux._run_tmux(["send-keys", "-t", target, "Enter"])
+    sent = tmux._run_tmux(["send-keys", "-t", target, "-l", prompt])
+    entered = tmux._run_tmux(["send-keys", "-t", target, "Enter"])
+    if sent is None or entered is None:
+        sys.stderr.write(f"cc-tmux conductor: send-keys to pane {target} failed.\n")
+        return 1
     return 0
 
 
-def _resolve_dir(target: Optional[str]) -> Optional[str]:
-    """Directory for a spawn: the target if it is a dir, else the current pane cwd."""
-    if target and os.path.isdir(target):
-        return os.path.abspath(target)
+def _resolve_dir(target: Optional[str]) -> Tuple[Optional[str], str]:
+    """Directory for a spawn: ``(directory, "")`` or ``(None, reason)``.
+
+    Three rules (in order):
+    * An EXPLICIT ``--target`` that is not a directory is misuse — it never
+      falls back to the invoking pane's cwd (silent wrong-project dispatch).
+      ``~`` is expanded so a quoted tilde also works.
+    * With no target, inside the conductor session (``CC_TMUX_CONDUCTOR=1``)
+      the cwd fallback is refused — the conductor's cwd is its arbitrary
+      start directory, not a project root.
+    * Otherwise the documented fallback: the invoking pane's current path.
+    """
+    if target:
+        expanded = os.path.abspath(os.path.expanduser(target))
+        if os.path.isdir(expanded):
+            return expanded, ""
+        return None, f"--target {target!r} is not a directory (explicit targets never fall back)"
+    if os.environ.get(_CONDUCTOR_ENV, "").strip() == "1":
+        return None, "dispatch from the conductor requires an explicit --target <dir>"
     pane = tmux.current_pane_id()
     if pane:
         cwd = tmux._run_tmux(["display-message", "-p", "-t", pane, "#{pane_current_path}"])
         if cwd and os.path.isdir(cwd):
-            return cwd
-    return None
+            return cwd, ""
+    return None, "no --target given and the current pane directory could not be resolved"
+
+
+def _pane_ready(content: Optional[str]) -> bool:
+    """True once a spawned pane shows any painted content. Pure.
+
+    The window is created running ``claude`` directly (no shell prompt), so a
+    blank capture means the TUI has not painted yet; any non-whitespace output
+    means startup has begun and the input loop is imminent.
+    """
+    return bool(content and content.strip())
+
+
+def _wait_for_pane_ready(
+    pane_id: str,
+    *,
+    timeout: float = _READY_TIMEOUT,
+    interval: float = _READY_INTERVAL,
+    capture: Optional[Callable[[], Optional[str]]] = None,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+) -> bool:
+    """Poll until the pane paints or ``timeout`` elapses. Injectable for tests."""
+    if capture is None:
+        capture = lambda: tmux._run_tmux(["capture-pane", "-p", "-t", pane_id])  # noqa: E731
+    deadline = clock() + timeout
+    while clock() < deadline:
+        if _pane_ready(capture()):
+            return True
+        sleep(interval)
+    return False
 
 
 def _open_window(cwd: str, prompt: Optional[str]) -> int:
@@ -363,20 +469,28 @@ def _open_window(cwd: str, prompt: Optional[str]) -> int:
         sys.stderr.write("cc-tmux conductor: could not open a new window.\n")
         return 1
     if prompt is not None:
-        # Give claude a beat to start before seeding the prompt.
-        time.sleep(0.5)
-        tmux._run_tmux(["send-keys", "-t", new_pane, "-l", prompt])
-        tmux._run_tmux(["send-keys", "-t", new_pane, "Enter"])
+        # Bounded readiness poll: wait for claude's first paint instead of a
+        # blind sleep; on timeout, seed anyway (fail-open best effort). The
+        # grace beat lets the TUI finish entering raw mode after first paint
+        # so the seeded keys are not flushed by terminal-mode setup.
+        if not _wait_for_pane_ready(new_pane):
+            log.warn("conductor: pane %s not ready after %.1fs; seeding anyway", new_pane, _READY_TIMEOUT)
+        time.sleep(_READY_GRACE)
+        sent = tmux._run_tmux(["send-keys", "-t", new_pane, "-l", prompt])
+        entered = tmux._run_tmux(["send-keys", "-t", new_pane, "Enter"])
+        if sent is None or entered is None:
+            sys.stderr.write(
+                f"cc-tmux conductor: window opened ({new_pane}) but seeding "
+                "the prompt failed; paste it manually.\n"
+            )
+            return 1
     return 0
 
 
 def _dispatch_spawn_task(target: Optional[str], prompt: Optional[str]) -> int:
-    cwd = _resolve_dir(target)
+    cwd, err = _resolve_dir(target)
     if cwd is None:
-        sys.stderr.write(
-            "cc-tmux conductor: spawn-task needs --target <project dir> "
-            "(or a resolvable current pane directory).\n"
-        )
+        sys.stderr.write(f"cc-tmux conductor: spawn-task: {err}.\n")
         return 2
     return _open_window(cwd, prompt)
 
@@ -399,13 +513,34 @@ def _git(cwd: str, args: List[str]) -> Optional[str]:
     return proc.stdout.strip()
 
 
+def _worktree_slot(
+    toplevel: str,
+    stamp: str,
+    exists: Callable[[str], bool] = os.path.exists,
+) -> Tuple[str, str]:
+    """``(branch, path)`` for a fresh conductor worktree.
+
+    The stamp has second resolution, so a same-second double dispatch would
+    collide; suffix ``-2``, ``-3``, … until the path is free. Pure via the
+    injected ``exists``. Falls back to a pid suffix after 99 tries (paranoia
+    bound — never expected).
+    """
+    for n in range(1, 100):
+        suffix = "" if n == 1 else f"-{n}"
+        path = os.path.join(toplevel, ".worktrees", f"conductor-{stamp}{suffix}")
+        if not exists(path):
+            return f"conductor/{stamp}{suffix}", path
+    pid_suffix = f"-{os.getpid()}"
+    return (
+        f"conductor/{stamp}{pid_suffix}",
+        os.path.join(toplevel, ".worktrees", f"conductor-{stamp}{pid_suffix}"),
+    )
+
+
 def _dispatch_spawn_worktree(target: Optional[str], prompt: Optional[str]) -> int:
-    repo = _resolve_dir(target)
+    repo, err = _resolve_dir(target)
     if repo is None:
-        sys.stderr.write(
-            "cc-tmux conductor: spawn-worktree needs --target <git repo dir> "
-            "(or a resolvable current pane directory).\n"
-        )
+        sys.stderr.write(f"cc-tmux conductor: spawn-worktree: {err}.\n")
         return 2
     toplevel = _git(repo, ["rev-parse", "--show-toplevel"])
     if not toplevel:
@@ -413,8 +548,7 @@ def _dispatch_spawn_worktree(target: Optional[str], prompt: Optional[str]) -> in
         return 1
 
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    branch = f"conductor/{stamp}"
-    wt_path = os.path.join(toplevel, ".worktrees", f"conductor-{stamp}")
+    branch, wt_path = _worktree_slot(toplevel, stamp)
     added = _git(toplevel, ["worktree", "add", "-b", branch, wt_path])
     if added is None:
         sys.stderr.write("cc-tmux conductor: git worktree add failed.\n")

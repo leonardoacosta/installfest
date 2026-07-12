@@ -17,7 +17,7 @@ Ledger rule: when a row moves to DONE/BLOCKED/REJECTED, append a
 | 004 | [git dirty/ahead via session-context.json (cross-repo nx write + cc-tmux read)](004-session-context-git-status.md) | P2 | M | DONE | 003 | if-vnrv |
 | 005 | [render consolidation: one spawn per tick + trace-write gating](005-cc-tmux-render-consolidation.md) | P2 | M | DONE | 001, 003 | if-pw0g |
 | 006 | [beads/roadmap row staleness marker](006-cc-tmux-beads-row-staleness.md) | P3 | S | DONE | — | if-mx9w |
-| 007 | [conductor dispatch hardening (disabled-by-default feature)](007-cc-tmux-conductor-hardening.md) | P3 | M | OPEN | — | if-x0qg |
+| 007 | [conductor dispatch hardening (disabled-by-default feature)](007-cc-tmux-conductor-hardening.md) | P3 | M | DONE | — | if-x0qg |
 
 ## Wave 1 — 2026-07-11 `/improve:code deep apps/cc-tmux/` (HEAD 60a1441)
 

@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
-from . import cli, paths, priority, registry, render, tmux, usage
+from . import cli, conductor, paths, priority, registry, render, tmux, usage
 
 
 # ---------------------------------------------------------------------------
@@ -1141,6 +1141,100 @@ def _test_cli_read_session_context() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_conductor_attach_command() -> None:
+    import shlex as _shlex
+
+    _check(
+        conductor._attach_command("conductor") == "tmux attach-session -t conductor",
+        "plain name must pass through unquoted-equivalent",
+    )
+    hostile = "bad name; rm -rf /"
+    _check(
+        _shlex.split(conductor._attach_command(hostile))
+        == ["tmux", "attach-session", "-t", hostile],
+        "hostile name must survive shell splitting as ONE argv token",
+    )
+
+
+def _test_conductor_send_prompt_refusal() -> None:
+    _check(conductor._send_prompt_refusal("idle", False) is None, "idle must be sendable")
+    _check(conductor._send_prompt_refusal("waiting", False) is None, "waiting must be sendable")
+    active = conductor._send_prompt_refusal("active", False)
+    _check(active is not None and "active" in active, "active must refuse with busy reason")
+    untracked = conductor._send_prompt_refusal(None, False)
+    _check(untracked is not None and "not a tracked" in untracked, "None state must refuse")
+    _check(conductor._send_prompt_refusal(None, True) is None, "--force overrides untracked")
+    _check(conductor._send_prompt_refusal("active", True) is None, "--force overrides busy")
+
+
+def _test_conductor_resolve_dir() -> None:
+    saved = os.environ.get("CC_TMUX_CONDUCTOR")
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-conductor-test-")
+    try:
+        os.environ.pop("CC_TMUX_CONDUCTOR", None)
+
+        # Explicit valid target -> resolved, no error.
+        got, err = conductor._resolve_dir(tmpdir)
+        _check(got == os.path.abspath(tmpdir) and err == "", "valid explicit target must resolve")
+
+        # Explicit invalid target -> (None, reason); NEVER a silent fallback.
+        got, err = conductor._resolve_dir(os.path.join(tmpdir, "nope"))
+        _check(got is None and "not a directory" in err, "invalid explicit target must refuse")
+
+        # Conductor context without a target -> (None, reason requiring --target).
+        os.environ["CC_TMUX_CONDUCTOR"] = "1"
+        got, err = conductor._resolve_dir(None)
+        _check(got is None and "explicit --target" in err, "conductor context must require --target")
+    finally:
+        if saved is None:
+            os.environ.pop("CC_TMUX_CONDUCTOR", None)
+        else:
+            os.environ["CC_TMUX_CONDUCTOR"] = saved
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_conductor_worktree_slot() -> None:
+    top = "/repo"
+    # Free slot -> bare stamp, no suffix.
+    branch, path = conductor._worktree_slot(top, "20260711-120000", exists=lambda _p: False)
+    _check(branch == "conductor/20260711-120000", f"bare branch wrong: {branch}")
+    _check(path == "/repo/.worktrees/conductor-20260711-120000", f"bare path wrong: {path}")
+
+    # First two taken -> -3 suffix on BOTH branch and path.
+    taken = {
+        "/repo/.worktrees/conductor-20260711-120000",
+        "/repo/.worktrees/conductor-20260711-120000-2",
+    }
+    branch, path = conductor._worktree_slot(top, "20260711-120000", exists=lambda p: p in taken)
+    _check(branch == "conductor/20260711-120000-3", f"suffixed branch wrong: {branch}")
+    _check(path == "/repo/.worktrees/conductor-20260711-120000-3", f"suffixed path wrong: {path}")
+
+
+def _test_conductor_pane_ready() -> None:
+    _check(conductor._pane_ready(None) is False, "None capture -> not ready")
+    _check(conductor._pane_ready("") is False, "empty capture -> not ready")
+    _check(conductor._pane_ready("   \n\n  ") is False, "whitespace capture -> not ready")
+    _check(conductor._pane_ready("Welcome to Claude Code") is True, "painted -> ready")
+
+
+def _test_conductor_wait_for_pane_ready() -> None:
+    # Ready on the first capture: no sleeps consumed.
+    sleeps: List[float] = []
+    ok = conductor._wait_for_pane_ready(
+        "%1", timeout=5.0, interval=0.25,
+        capture=lambda: "hello", sleep=sleeps.append, clock=lambda: 0.0,
+    )
+    _check(ok is True and sleeps == [], "immediately-ready pane must not sleep")
+
+    # Never ready: fake clock advances past the deadline -> False, bounded.
+    ticks = iter([0.0, 1.0, 2.0, 3.0])
+    ok = conductor._wait_for_pane_ready(
+        "%1", timeout=2.5, interval=0.25,
+        capture=lambda: "", sleep=lambda _s: None, clock=lambda: next(ticks),
+    )
+    _check(ok is False, "never-ready pane must time out False")
+
+
 def _test_cli_evaluate_plugin_listing() -> None:
     raw = ('[{"id": "cc-tmux@cc-tmux", "version": "0.1.1", '
            '"enabled": true, "installPath": "/snap/0.1.1"}]')
@@ -1265,6 +1359,12 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.evaluate_hook_liveness_ages", _test_cli_evaluate_hook_liveness_ages),
     ("cli.trace_needs_trim", _test_cli_trace_needs_trim),
     ("cli.hook_freshness", _test_cli_hook_freshness),
+    ("conductor.attach_command", _test_conductor_attach_command),
+    ("conductor.send_prompt_refusal", _test_conductor_send_prompt_refusal),
+    ("conductor.resolve_dir", _test_conductor_resolve_dir),
+    ("conductor.worktree_slot", _test_conductor_worktree_slot),
+    ("conductor.pane_ready", _test_conductor_pane_ready),
+    ("conductor.wait_for_pane_ready", _test_conductor_wait_for_pane_ready),
 ]
 
 

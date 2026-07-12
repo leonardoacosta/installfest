@@ -32,8 +32,8 @@ cc-tmux conductor dispatch --mode <mode> --target <target> [--prompt <text>] [--
 | ---- | ---------- | ----------- | ------ |
 | `switch` | pane id | — | Move focus to that pane. Sends nothing. Use when the user only wants to look. |
 | `send-prompt` | pane id | `--prompt` (required), `--force` | Type `--prompt` into the pane and submit it. **Refused when the pane is `active` (busy)** unless `--force`. |
-| `spawn-task` | project directory | `--prompt` (optional) | Open a NEW window running `claude` in that project root, then seed `--prompt`. Falls back to the current pane's directory if `--target` is omitted. |
-| `spawn-worktree` | git repo directory | `--prompt` (optional) | Create a fresh git worktree (`.worktrees/conductor-<ts>` on a new `conductor/<ts>` branch), open a `claude` window there, then seed `--prompt`. Keeps the main checkout untouched. |
+| `spawn-task` | project directory | `--prompt` (optional) | Open a NEW window running `claude` in that project root, then seed `--prompt`. Falls back to the current pane's directory if `--target` is omitted (refused inside the conductor session — pass an explicit `--target` there; an explicit `--target` that is not a directory is a misuse error, never a fallback). |
+| `spawn-worktree` | git repo directory | `--prompt` (optional) | Create a fresh git worktree (`.worktrees/conductor-<ts>` on a new `conductor/<ts>` branch), open a `claude` window there, then seed `--prompt`. Keeps the main checkout untouched. Falls back to the current pane's directory if `--target` is omitted (refused inside the conductor session — pass an explicit `--target` there; an explicit `--target` that is not a directory is a misuse error, never a fallback). Worktrees/branches are NOT auto-removed — clean up with `git worktree remove` + `git branch -D`, or a stale-worktree reaper such as `wt reap`. |
 
 ## Examples
 
@@ -57,9 +57,13 @@ cc-tmux conductor dispatch --mode spawn-worktree --target ~/dev/oo --prompt "ref
 ## Exit codes
 
 - `0` — dispatched (or a read succeeded).
-- `1` — refused: target pane is `active` without `--force`, no `claude` binary for a
-  spawn, git worktree failure, or the conductor is disabled for `--popup`.
-- `2` — misuse: missing `--mode`, `--target`, or a required `--prompt`.
+- `1` — refused or failed: target pane is `active` without `--force`, the target pane is
+  not a tracked Claude pane (unknown/stale — see `--force`), no `claude` binary for a
+  spawn, git worktree failure, the tmux dispatch action itself failed, or the conductor
+  is disabled for `--popup`.
+- `2` — misuse: missing `--mode`, `--target`, or a required `--prompt`; an explicit
+  spawn `--target` that is not a directory; or a spawn from the conductor session
+  without an explicit `--target`.
 
 ## Choosing a mode
 
