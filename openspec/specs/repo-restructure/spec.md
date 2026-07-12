@@ -1,7 +1,8 @@
-# Spec: Repo Restructure
+# repo-restructure Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change restructure-repo-with-chezmoiroot. Update Purpose after archive.
+## Requirements
 ### Requirement: .chezmoiroot pointer file
 A file `.chezmoiroot` MUST exist at repo root containing the single line `home`, redirecting chezmoi's source resolution.
 
@@ -23,8 +24,6 @@ Non-deployed, platform-specific directories MUST be consolidated under `platform
 - Given: restructure is applied
 - Then: `platform/homebrew/`, `platform/windows/`, `platform/raycast-scripts/` exist
 - And: `homebrew/`, `windows/`, `raycast-scripts/` no longer exist at root
-
-## MODIFIED Requirements
 
 ### Requirement: chezmoi scripts use workingTree
 `run_once_*` and `run_onchange_*` templates SHALL use `{{ .chezmoi.workingTree }}` instead of `{{ .chezmoi.sourceDir }}` for repo root references.
