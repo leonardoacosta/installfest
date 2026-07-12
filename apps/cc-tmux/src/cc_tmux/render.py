@@ -196,25 +196,12 @@ def inbox_rows(
 # row 2 itself was a live-testing regression, reverted here.
 # ---------------------------------------------------------------------------
 
-# Branch-name colour (purple), distinct from usage.py's util palette. Session
-# glyph, model letter, project, and gauge labels reuse DIM/CYAN from usage.py.
+# Branch-name colour (purple), distinct from usage.py's util palette. Model
+# letter, project, and gauge labels reuse DIM/CYAN from usage.py.
 BRANCH = "#B267E6"
-
-# Session-count indicator: hollow when no tracked pane, filled at one, filled +
-# count at two or more (design.md Testing: 0/1/2+ -> ``◌``/``◉``/``◉ N``).
-SESSION_GLYPH_FILLED = "◉"
-SESSION_GLYPH_HOLLOW = "◌"
-
-
-def _session_glyph(session_count: int) -> str:
-    """Session-count glyph: ``◌`` (0), ``◉`` (1), ``◉ N`` (2+)."""
-    if session_count <= 1:
-        return SESSION_GLYPH_HOLLOW if session_count <= 0 else SESSION_GLYPH_FILLED
-    return f"{SESSION_GLYPH_FILLED} {session_count}"
 
 
 def render_session_bar(
-    session_count: int,
     model_letter: str,
     project: str,
     branch: str,
@@ -226,23 +213,22 @@ def render_session_bar(
     dirty: bool = False,
     ahead: int = 0,
 ) -> str:
-    """Row-2 status-format string: session/model/git on the left, usage on the right.
+    """Row-2 status-format string: model/project/git on the left, usage on the right.
 
-    Left side: session-count glyph + model letter (sourced from
-    session-context.<pane>.json, tracks mid-session /model switches) + project +
-    git branch. When ``branch`` is non-empty, a YELLOW ``*`` marks a dirty
-    worktree and a YELLOW ``^N`` marks N commits ahead of upstream — both
-    dropped (fail-open) when no branch renders, so a marker never appears
-    without the branch it describes. Right side: account label + SES:/5H:/7D:
-    gauges, each coloured via color_for and formatted via pct_for. The two
-    sides are joined with a #[align=right] directive so tmux fills the gap
-    between them. ses_pct / five_h_pct / seven_d_pct are utilization ratios in
-    0..1 (or None when unpolled -> '--' in DIM).
+    Left side: model letter + project + git branch. When ``branch`` is
+    non-empty, a YELLOW ``*`` marks a dirty worktree and a YELLOW ``^N`` marks
+    N commits ahead of upstream — both dropped (fail-open) when no branch
+    renders, so a marker never appears without the branch it describes. Right
+    side: account label + SES:/5H:/7D: gauges, each coloured via color_for and
+    formatted via pct_for. The two sides are joined with a #[align=right]
+    directive so tmux fills the gap between them. ses_pct / five_h_pct /
+    seven_d_pct are utilization ratios in 0..1 (or None when unpolled -> '--'
+    in DIM).
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
     """
-    left_parts = [f"#[fg={DIM}]{_session_glyph(session_count)}"]
+    left_parts: List[str] = []
     if model_letter:
         left_parts.append(f"#[fg={CYAN}]{model_letter}")
     if project:
