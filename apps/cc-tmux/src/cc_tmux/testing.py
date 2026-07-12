@@ -682,16 +682,6 @@ def _test_usage_active_usage_ttl() -> None:
 # Session / beads status-row tests (cc-tmux-session-usage-bars, task 4.1)
 # ---------------------------------------------------------------------------
 
-def _test_render_session_glyph() -> None:
-    # The raw count -> glyph mapping cc-tmux's session bar composes from
-    # (design.md Testing: 0/1/2+ -> '◌'/'◉'/'◉ N').
-    _check(render._session_glyph(0) == render.SESSION_GLYPH_HOLLOW, "0 -> hollow")
-    _check(render._session_glyph(1) == render.SESSION_GLYPH_FILLED, "1 -> filled")
-    _check(render._session_glyph(2) == f"{render.SESSION_GLYPH_FILLED} 2", "2 -> filled + count")
-    _check(render._session_glyph(7) == f"{render.SESSION_GLYPH_FILLED} 7", "7 -> filled + count")
-    _check(render._session_glyph(-1) == render.SESSION_GLYPH_HOLLOW, "negative floors to hollow")
-
-
 def _test_tmux_get_window_top_pane() -> None:
     # Pane-id analogue of get_window_top_state — mirror that test's fixture shape.
     saved = tmux._run_tmux
@@ -771,11 +761,11 @@ def _test_tmux_get_window_tabs() -> None:
 
 
 def _test_render_session_bar() -> None:
-    # Full render: 2+ sessions, model + project + branch on the left, usage
-    # gauges (account label + SES/5H/7D) on the right (restored post
+    # Full render: model + project + branch on the left (no leading
+    # session-count glyph — cc-tmux-active-pane-resolution), usage gauges
+    # (account label + SES/5H/7D) on the right (restored post
     # cc-tmux-bar-cleanup regression).
-    out = render.render_session_bar(2, "O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
-    _check("◉ 2" in out, "2+ sessions -> filled + count glyph")
+    out = render.render_session_bar("O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
     _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
     _check("if" in out, "project present on the left")
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
@@ -785,39 +775,35 @@ def _test_render_session_bar() -> None:
     _check(out.endswith("#[default]"), "resets colour at end")
 
     # None percentages -> '--' rendered in DIM for every gauge.
-    out_none = render.render_session_bar(1, "", "if", "main", "leo@x.dev", None, None, None)
+    out_none = render.render_session_bar("", "if", "main", "leo@x.dev", None, None, None)
     _check(out_none.count("--") == 3, "unpolled gauges all render '--'")
 
-    # Single session -> bare filled glyph (not the 2+ '◉ N' form).
-    out2 = render.render_session_bar(1, "S", "oo", "dev", "", None, None, None)
-    _check("◉" in out2 and "◉ 1" not in out2, "1 session -> bare filled glyph")
-
-    # 0 sessions + no model/project/branch -> hollow glyph only; fields fail-open.
-    out3 = render.render_session_bar(0, "", "", "", "", None, None, None)
-    _check("◌" in out3 and "◉" not in out3, "0 sessions -> hollow glyph only")
+    # No model/project/branch -> fields fail-open, no leading glyph token either.
+    out3 = render.render_session_bar("", "", "", "", None, None, None)
+    _check("◉" not in out3 and "◌" not in out3, "no leading session-count glyph (removed)")
     _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
     # dirty=True, ahead>0 -> both YELLOW markers render alongside the branch.
-    out_dirty = render.render_session_bar(1, "F", "if", "main", "", None, None, None, dirty=True, ahead=2)
+    out_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=True, ahead=2)
     _check(f"#[fg={render.BRANCH}]main" in out_dirty, "branch still renders with markers present")
     _check(f"#[fg={render.YELLOW}]*" in out_dirty, "dirty=True -> YELLOW '*' marker")
     _check(f"#[fg={render.YELLOW}]^2" in out_dirty, "ahead=2 -> YELLOW '^2' marker")
 
     # dirty=False, ahead=0 -> no markers at all.
-    out_clean = render.render_session_bar(1, "F", "if", "main", "", None, None, None, dirty=False, ahead=0)
+    out_clean = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=False, ahead=0)
     _check("*" not in out_clean, "dirty=False -> no '*' marker")
     _check("^" not in out_clean, "ahead=0 -> no '^N' marker")
 
     # Empty branch + dirty=True, ahead=5 -> markers gated on branch, neither appears.
-    out_nobranch = render.render_session_bar(1, "F", "if", "", "", None, None, None, dirty=True, ahead=5)
+    out_nobranch = render.render_session_bar("F", "if", "", "", None, None, None, dirty=True, ahead=5)
     _check("*" not in out_nobranch, "no branch -> dirty marker suppressed (gated on branch)")
     _check("^" not in out_nobranch, "no branch -> ahead marker suppressed (gated on branch)")
 
     # No-kwargs call -> byte-identical to explicit dirty=False, ahead=0 (backward compat).
-    out_default = render.render_session_bar(1, "F", "if", "main", "", None, None, None)
+    out_default = render.render_session_bar("F", "if", "main", "", None, None, None)
     out_explicit_default = render.render_session_bar(
-        1, "F", "if", "main", "", None, None, None, dirty=False, ahead=0
+        "F", "if", "main", "", None, None, None, dirty=False, ahead=0
     )
     _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=False, ahead=0")
 
@@ -1343,7 +1329,6 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.fail_open", _test_usage_fail_open),
     ("usage.extract_active", _test_usage_extract_active),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
-    ("render.session_glyph", _test_render_session_glyph),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),

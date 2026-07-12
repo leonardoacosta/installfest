@@ -759,9 +759,11 @@ def cmd_window_icon(args) -> int:
 # ---------------------------------------------------------------------------
 # Session + beads status rows (cc-tmux-session-usage-bars, rows 2 + 3)
 #
-# Both entrypoints resolve the window's representative pane the same way the
-# animated tab icon does (get_window_top_*), read plain values, and hand them
-# to render.py's pure composition functions. Fail-open throughout: every read
+# Row 2 resolves the window's representative pane via _resolve_session_pane
+# (tmux-active pane first, falling back to the priority pick used by the
+# animated tab icon / get_window_top_*); row 3 has its own active-pane
+# fallback (_beads_pane, BEADS-03). Both read plain values and hand them to
+# render.py's pure composition functions. Fail-open throughout: every read
 # degrades to a partial/empty render, never a raised exception.
 # ---------------------------------------------------------------------------
 
@@ -884,32 +886,51 @@ def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
         return "", None, None
 
 
+def _resolve_session_pane(window: str) -> str:
+    """The window's representative pane for row 2 — tmux-active pane first.
+
+    Prefers ``window``'s actually-focused pane (:func:`tmux.get_window_active_pane`,
+    ``#{pane_id}`` via ``display-message``) over the priority pick
+    (:func:`tmux.get_window_top_pane`, waiting > idle > active, ties broken by
+    tmux's own iteration order) whenever the focused pane is a tracked Claude
+    pane (its ``@cc-state`` is in :data:`VALID_STATES`). This is what makes row
+    2 reflect the pane the user is actually looking at instead of an arbitrary
+    tie-break winner in a multi-pane window. Falls back to
+    :func:`tmux.get_window_top_pane` when the focused pane is untracked (a
+    plain shell pane focused next to a background Claude pane) or when no
+    active pane resolves at all. Fail-open: any missing piece degrades to the
+    priority-pick fallback, never an exception.
+    """
+    active = tmux.get_window_active_pane(window)
+    if active and tmux.get_pane_option(active, tmux.OPT_STATE) in VALID_STATES:
+        return active
+    return tmux.get_window_top_pane(window)
+
+
 def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-2 session status-format string for a window (Req rows 2).
 
     Body of the former ``cmd_session_bar`` handler, extracted (plan 005) so
     :func:`cmd_render_all` can share one resolved pane across both row
     builders instead of each spawning its own process. Resolves the window's
-    representative pane (unless ``pane`` is already known), reads @cc-project
-    and the per-pane model letter / branch / dirty / ahead (from
-    ``session-context.<pane>.json`` via :func:`_read_session_context`), and
-    hands them along with the active account's usage (via
-    :func:`_active_usage`) to :func:`render.render_session_bar`. ``@cc-branch``
-    (hook-coupled, can go stale) is only a fallback for when the
-    session-context file lacks a fresh branch. Left side is session/model/git
-    identity; right side is the account label + SES:/5H:/7D: gauges.
+    representative pane (unless ``pane`` is already known) via
+    :func:`_resolve_session_pane` (tmux-active pane first, priority-pick
+    fallback), reads @cc-project and the per-pane model letter / branch /
+    dirty / ahead (from ``session-context.<pane>.json`` via
+    :func:`_read_session_context`), and hands them along with the active
+    account's usage (via :func:`_active_usage`) to
+    :func:`render.render_session_bar`. ``@cc-branch`` (hook-coupled, can go
+    stale) is only a fallback for when the session-context file lacks a fresh
+    branch. Left side is model/project/git identity; right side is the
+    account label + SES:/5H:/7D: gauges.
     Fail-open: any missing piece degrades to a partial render; no pane -> ``""``.
     """
     if pane is None:
-        pane = tmux.get_window_top_pane(window)
+        pane = _resolve_session_pane(window)
     if not pane:
         return ""
 
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
-
-    # Raw session count (an int) — render_session_bar maps it to a glyph
-    # itself (render._session_glyph), so pass the count, not a pre-mapped string.
-    session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
 
     model_letter, ses_pct, ctx_branch, dirty, ahead = _read_session_context(pane)
     # Prefer the session-context branch (refreshed per statusline render,
@@ -919,7 +940,7 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
     return render.render_session_bar(
-        session_count, model_letter, project, branch,
+        model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
         dirty=dirty, ahead=ahead,
     )
@@ -1046,7 +1067,7 @@ def cmd_render_all(args) -> int:
     blanks a row rather than freezing stale content).
     """
     window = args.window
-    pane = tmux.get_window_top_pane(window)
+    pane = _resolve_session_pane(window)
     session_row = _build_session_bar(window, pane=pane) if pane else ""
     beads_row = _build_beads_bar(window, pane=(pane or tmux.get_window_active_pane(window)))
     tmux.set_global_option(_ROW_SESSION_OPT, session_row)
