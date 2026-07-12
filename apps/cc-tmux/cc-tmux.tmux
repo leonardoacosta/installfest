@@ -117,7 +117,7 @@ fi
 # command exits, so the command pauses on a keypress (read-only info popup,
 # no per-account action — see proposal Non-Goals).
 # ---------------------------------------------------------------------------
-tmux bind-key MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
+tmux bind-key -T root MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
   "display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\"" \
   "switch-client -t ="
 
