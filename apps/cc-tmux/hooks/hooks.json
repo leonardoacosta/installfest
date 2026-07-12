@@ -53,9 +53,29 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-tmux register --state active --subagent-start",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-tmux register --state active --subagent-stop",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "hooks": [
           {

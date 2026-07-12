@@ -58,6 +58,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Target pane id (defaults to $TMUX_PANE / the current pane).",
     )
+    p_register.add_argument(
+        "--subagent-start",
+        dest="subagent_start",
+        action="store_true",
+        help="Task tool PreToolUse: a sub-agent dispatch started (increments "
+             "@cc-subagent-fg, or appends to @cc-subagent-bg for a background dispatch).",
+    )
+    p_register.add_argument(
+        "--subagent-stop",
+        dest="subagent_stop",
+        action="store_true",
+        help="Task tool PostToolUse: a sub-agent dispatch returned (decrements "
+             "@cc-subagent-fg, floored at 0).",
+    )
 
     # -- cycle: advance to the next attention-priority pane -------------------
     p_cycle = sub.add_parser("cycle", help="Hop to the next pending pane (priority order).")

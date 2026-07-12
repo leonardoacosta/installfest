@@ -10,6 +10,7 @@ Run via ``cc-tmux self-test`` (exit 0 = pass, non-zero = failure count).
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -912,13 +913,20 @@ def _test_tmux_get_window_active_pane() -> None:
 def _test_tmux_get_window_tabs() -> None:
     # Mirrors _test_tmux_get_window_top_pane's mocking convention: fake
     # tmux._run_tmux, branching on the leading args (list-windows vs list-panes).
+    # The list-panes -s format now carries 4 fields (cc-tmux-subagent-tab-icon
+    # task 1.2 added @cc-subagent-fg/@cc-subagent-bg columns) — pane_id/state
+    # are followed by an fg count and a JSON bg-entries list per pane.
     saved = tmux._run_tmux
     try:
         def fake_two_windows(args, *, check_available: bool = True):
             if args[:1] == ["list-windows"]:
                 return "@1\x1f1\x1feditor\n@2\x1f2\x1fshell"
             if args[:2] == ["list-panes", "-s"]:
-                return "@1\x1fidle\n@2\x1fwaiting\n@2\x1factive"
+                return (
+                    "@1\x1fidle\x1f2\x1f[]\n"
+                    "@2\x1fwaiting\x1f\x1f[10.0]\n"
+                    "@2\x1factive\x1f1\x1f[20.0, 30.0]"
+                )
             return None
         tmux._run_tmux = fake_two_windows  # type: ignore[assignment]
         windows = tmux.get_window_tabs()
@@ -926,8 +934,14 @@ def _test_tmux_get_window_tabs() -> None:
         by_id = {w.id: w for w in windows}
         _check(by_id["@1"].index == "1" and by_id["@1"].name == "editor", "window @1 id/index/name")
         _check(by_id["@1"].state == "idle", "window @1 top state (single pane)")
+        _check(by_id["@1"].fg == 2, "window @1 fg count from its single pane")
+        _check(by_id["@1"].bg == [], "window @1 bg entries empty")
         _check(by_id["@2"].name == "shell", "window @2 name")
         _check(by_id["@2"].state == "waiting", "window @2 top state (waiting beats active)")
+        # fg SUMS across both of @2's panes (0 from the unparsable '' + 1 from
+        # the active pane); bg UNIONS both panes' lists.
+        _check(by_id["@2"].fg == 1, "window @2 fg summed across its panes")
+        _check(by_id["@2"].bg == [10.0, 20.0, 30.0], "window @2 bg unioned across its panes")
 
         def fake_no_windows(args, *, check_available: bool = True):
             return None
@@ -941,6 +955,7 @@ def _test_tmux_get_window_tabs() -> None:
         tmux._run_tmux = fake_windows_no_panes  # type: ignore[assignment]
         windows2 = tmux.get_window_tabs()
         _check(len(windows2) == 1 and windows2[0].state == "", "no pane data -> window state ''")
+        _check(windows2[0].fg == 0 and windows2[0].bg == [], "no pane data -> fg/bg default to 0/[]")
     finally:
         tmux._run_tmux = saved  # type: ignore[assignment]
 
@@ -1710,6 +1725,187 @@ def _test_cli_hook_freshness() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sub-agent tab-icon overlay tests (cc-tmux-subagent-tab-icon, task 4.1)
+# ---------------------------------------------------------------------------
+
+def _test_tmux_subagent_fg_increment_decrement() -> None:
+    """@cc-subagent-fg increment/decrement pair, including the floored-at-0
+    stray-stop case (a stop with no matching start must not go negative)."""
+    state = {"fg": ""}
+
+    def fake_run(args, *, check_available: bool = True):
+        if args and args[0] == "show-options" and tmux.OPT_SUBAGENT_FG in args:
+            return state["fg"]
+        if args and args[0] == "set-option" and tmux.OPT_SUBAGENT_FG in args:
+            state["fg"] = args[-1]
+            return ""
+        return ""
+
+    saved = tmux._run_tmux
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    try:
+        _check(tmux.get_subagent_fg("%1") == 0, "unset @cc-subagent-fg reads as 0")
+        _check(tmux.increment_subagent_fg("%1") == 1, "first increment -> 1")
+        _check(tmux.increment_subagent_fg("%1") == 2, "second concurrent increment -> 2")
+        _check(tmux.decrement_subagent_fg("%1") == 1, "decrement -> 1")
+        _check(tmux.decrement_subagent_fg("%1") == 0, "decrement to 0")
+        # Stray stop with no matching start (hook-ordering race): must not go negative.
+        _check(tmux.decrement_subagent_fg("%1") == 0, "floored-at-0 stray-stop stays 0")
+        _check(tmux.decrement_subagent_fg("%1") == 0, "repeated stray-stop still stays 0")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
+def _test_tmux_subagent_bg_append() -> None:
+    """@cc-subagent-bg read-modify-write append (task 2.2)."""
+    state = {"bg": ""}
+
+    def fake_run(args, *, check_available: bool = True):
+        if args and args[0] == "show-options" and tmux.OPT_SUBAGENT_BG in args:
+            return state["bg"]
+        if args and args[0] == "set-option" and tmux.OPT_SUBAGENT_BG in args:
+            state["bg"] = args[-1]
+            return ""
+        return ""
+
+    saved = tmux._run_tmux
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    try:
+        _check(tmux.get_subagent_bg("%1") == [], "unset @cc-subagent-bg reads as []")
+        tmux.append_subagent_bg("%1", 100.0)
+        _check(tmux.get_subagent_bg("%1") == [100.0], "first append")
+        tmux.append_subagent_bg("%1", 200.0)
+        _check(tmux.get_subagent_bg("%1") == [100.0, 200.0], "second append preserves the first")
+        # Corrupt/garbage option value -> fail-open to [].
+        state["bg"] = "not json"
+        _check(tmux.get_subagent_bg("%1") == [], "corrupt JSON -> [] (fail-open)")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+
+def _test_cli_prune_background_entries() -> None:
+    """prune_background_entries: fresh kept, stale pruned, mixed, and empty input."""
+    now = 1000.0
+    timeout = 300.0
+    _check(cli.prune_background_entries([], now, timeout) == [], "empty input -> empty output")
+    _check(cli.prune_background_entries([now - 1], now, timeout) == [now - 1], "fresh entry kept")
+    _check(cli.prune_background_entries([now - 300], now, timeout) == [now - 300], "exactly-at-timeout kept")
+    _check(cli.prune_background_entries([now - 301], now, timeout) == [], "just-past-timeout pruned")
+    _check(cli.prune_background_entries([now - 1000], now, timeout) == [], "far-stale entry pruned")
+    mixed = [now - 10, now - 299, now - 300, now - 301, now - 1000]
+    _check(
+        cli.prune_background_entries(mixed, now, timeout) == [now - 10, now - 299, now - 300],
+        "mixed fresh+stale -> only fresh survive",
+    )
+
+
+def _test_render_resolve_tab_icon() -> None:
+    """Resolved glyph mapping (tasks.md task 1.1): fg=1 -> hollow ring
+    regardless of bg; fg=2+ -> filled circle regardless of bg; fg=0 with
+    bg=1/2+ -> hollow/filled diamond; fg=0 and bg=0 (or fully pruned) falls
+    through to the existing state-based animated_icon result."""
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 0) == render.SUBAGENT_FG_1, "fg=1 -> hollow ring")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 0) == render.SUBAGENT_FG_2PLUS, "fg=2 -> filled circle")
+    _check(render.resolve_tab_icon("idle", 0.0, 5, 0) == render.SUBAGENT_FG_2PLUS, "fg=5 -> filled circle")
+    # Foreground takes precedence over background whenever fg is nonzero.
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 9) == render.SUBAGENT_FG_1, "fg=1 wins over any bg count")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 9) == render.SUBAGENT_FG_2PLUS, "fg=2+ wins over any bg count")
+    # fg=0 falls through to the background heuristic.
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 1) == render.SUBAGENT_BG_1, "fg=0,bg=1 -> hollow diamond")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 2) == render.SUBAGENT_BG_2PLUS, "fg=0,bg=2 -> filled diamond")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 7) == render.SUBAGENT_BG_2PLUS, "fg=0,bg=7 -> filled diamond")
+    # Neither active (or bg fully pruned by the caller before this call) -> falls
+    # through to the plain state-based animated_icon result, not a subagent glyph.
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 0) == render.IDLE_GLYPH, "fg=0,bg=0 -> idle glyph (fallthrough)")
+    _check(
+        render.resolve_tab_icon("waiting", 0.0, 0, 0) == render.SHADE_FRAMES[0],
+        "fg=0,bg=0 -> waiting animation frame preserved",
+    )
+    _check(
+        render.resolve_tab_icon("active", 2.0, 0, 0) == render.BLOCK_FRAMES[2],
+        "fg=0,bg=0 -> active animation frame preserved",
+    )
+    _check(render.resolve_tab_icon("", 0.0, 0, 0) == "", "no tracked pane, no subagents -> ''")
+
+
+def _test_cli_register_subagent_start_stop_branching() -> None:
+    """cmd_register --subagent-start/--subagent-stop wiring (task 2.1/2.2): a
+    foreground start increments @cc-subagent-fg; a background start
+    (tool_input.run_in_background: true) appends to @cc-subagent-bg instead;
+    any stop unconditionally decrements @cc-subagent-fg (floored at 0) since
+    only a foreground start ever incremented it in the first place — see
+    cmd_register's own docstring note on the resolved stop-side ambiguity."""
+    calls: List[str] = []
+
+    def fake_increment(pane_id):
+        calls.append(f"inc:{pane_id}")
+        return 1
+
+    def fake_decrement(pane_id):
+        calls.append(f"dec:{pane_id}")
+        return 0
+
+    def fake_append(pane_id, ts):
+        calls.append(f"append:{pane_id}")
+
+    saved_inc = tmux.increment_subagent_fg
+    saved_dec = tmux.decrement_subagent_fg
+    saved_append = tmux.append_subagent_bg
+    saved_set_pane_state = tmux.set_pane_state
+    saved_notify_react = cli.notify.react
+    saved_maybe_rename = cli._maybe_rename_window
+    saved_trace = cli._trace_register
+    saved_read_stdin = cli._read_hook_stdin
+    tmux.increment_subagent_fg = fake_increment  # type: ignore[assignment]
+    tmux.decrement_subagent_fg = fake_decrement  # type: ignore[assignment]
+    tmux.append_subagent_bg = fake_append  # type: ignore[assignment]
+    tmux.set_pane_state = lambda *a, **k: False  # type: ignore[assignment]
+    cli.notify.react = lambda *a, **k: None  # type: ignore[assignment]
+    cli._maybe_rename_window = lambda pane: False  # type: ignore[assignment]
+    cli._trace_register = lambda *a, **k: None  # type: ignore[assignment]
+    try:
+        args_start = argparse.Namespace(
+            state="active", task=None, reason=None, pane="%1",
+            subagent_start=True, subagent_stop=False,
+        )
+
+        cli._read_hook_stdin = lambda: {  # type: ignore[assignment]
+            "hook_event_name": "PreToolUse", "tool_input": {},
+        }
+        cli.cmd_register(args_start)
+        _check("inc:%1" in calls, "foreground start must increment fg")
+        _check(not any(c.startswith("append:") for c in calls), "foreground start must not touch bg")
+
+        calls.clear()
+        cli._read_hook_stdin = lambda: {  # type: ignore[assignment]
+            "hook_event_name": "PreToolUse",
+            "tool_input": {"run_in_background": True},
+        }
+        cli.cmd_register(args_start)
+        _check("append:%1" in calls, "background start must append to bg")
+        _check(not any(c.startswith("inc:") for c in calls), "background start must not increment fg")
+
+        calls.clear()
+        args_stop = argparse.Namespace(
+            state="active", task=None, reason=None, pane="%1",
+            subagent_start=False, subagent_stop=True,
+        )
+        cli._read_hook_stdin = lambda: {"hook_event_name": "PostToolUse"}  # type: ignore[assignment]
+        cli.cmd_register(args_stop)
+        _check("dec:%1" in calls, "stop must unconditionally decrement fg")
+        _check(not any(c.startswith("append:") for c in calls), "stop must never append to bg")
+    finally:
+        tmux.increment_subagent_fg = saved_inc  # type: ignore[assignment]
+        tmux.decrement_subagent_fg = saved_dec  # type: ignore[assignment]
+        tmux.append_subagent_bg = saved_append  # type: ignore[assignment]
+        tmux.set_pane_state = saved_set_pane_state  # type: ignore[assignment]
+        cli.notify.react = saved_notify_react  # type: ignore[assignment]
+        cli._maybe_rename_window = saved_maybe_rename  # type: ignore[assignment]
+        cli._trace_register = saved_trace  # type: ignore[assignment]
+        cli._read_hook_stdin = saved_read_stdin  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -1782,6 +1978,11 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("conductor.worktree_slot", _test_conductor_worktree_slot),
     ("conductor.pane_ready", _test_conductor_pane_ready),
     ("conductor.wait_for_pane_ready", _test_conductor_wait_for_pane_ready),
+    ("tmux.subagent_fg_increment_decrement", _test_tmux_subagent_fg_increment_decrement),
+    ("tmux.subagent_bg_append", _test_tmux_subagent_bg_append),
+    ("cli.prune_background_entries", _test_cli_prune_background_entries),
+    ("render.resolve_tab_icon", _test_render_resolve_tab_icon),
+    ("cli.register_subagent_start_stop_branching", _test_cli_register_subagent_start_stop_branching),
 ]
 
 

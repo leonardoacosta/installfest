@@ -81,6 +81,51 @@ def animated_icon(state: str, now: float) -> str:
     return DEFAULT_ICONS.get(state, "")
 
 
+# ---------------------------------------------------------------------------
+# Sub-agent tab-icon overlay (cc-tmux-subagent-tab-icon)
+#
+# Resolved 6-way glyph mapping (Leo, 2026-07-12, tasks.md task 1.1): foreground
+# (exact, hook-verified via the Task tool's own PreToolUse/PostToolUse pair)
+# and background (heuristic, timeout-aged) sub-agent activity get DISTINCT
+# shape families — circle for foreground, diamond for background — so the two
+# are visually distinguishable at a glance rather than colliding on the same
+# two marks. Within each family, hollow=1 / filled=2+ mirrors the "hollow=one,
+# filled=multiple" language DEFAULT_ICONS already uses elsewhere in this
+# module. Foreground always takes precedence over background when both are
+# nonzero (foreground is the exact signal; background is only a heuristic
+# fallback) — see :func:`resolve_tab_icon`.
+# ---------------------------------------------------------------------------
+
+SUBAGENT_FG_1 = "◎"       # 1 foreground sub-agent running
+SUBAGENT_FG_2PLUS = "◉"   # 2+ foreground sub-agents running
+SUBAGENT_BG_1 = "◇"       # 0 foreground, 1 unexpired background sub-agent
+SUBAGENT_BG_2PLUS = "◆"   # 0 foreground, 2+ unexpired background sub-agents
+
+
+def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> str:
+    """The tab-icon glyph, sub-agent-aware (cc-tmux-subagent-tab-icon overlay).
+
+    Pure function of its inputs — ``bg_count`` MUST already be the caller's
+    PRUNED count (:func:`cc_tmux.cli.prune_background_entries`); this function
+    has no clock-aging logic of its own, it only branches on counts. Foreground
+    takes precedence over background whenever ``fg_count`` is nonzero (it is
+    the exact signal; background is only a time-boxed heuristic). Falls
+    through to the plain :func:`animated_icon` state-based glyph
+    (waiting/active/idle) when neither is active — this is an ADDITIVE overlay
+    on top of the existing ``@cc-state`` animation, not a replacement for it
+    (proposal.md Non-Goals).
+    """
+    if fg_count >= 2:
+        return SUBAGENT_FG_2PLUS
+    if fg_count == 1:
+        return SUBAGENT_FG_1
+    if bg_count >= 2:
+        return SUBAGENT_BG_2PLUS
+    if bg_count == 1:
+        return SUBAGENT_BG_1
+    return animated_icon(state, now)
+
+
 def resolve_icons(get_option: Callable[[str], str]) -> Dict[str, str]:
     """Icon map with per-state ``@cc-icon-<state>`` overrides applied.
 
@@ -356,9 +401,14 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     :func:`cmd_window_icon`'s existing "untracked window -> no icon" contract),
     just its bare ``index:name``. ``now`` is the caller-supplied wall-clock
     time (``time.time()`` in production) handed straight to
-    :func:`animated_icon` for the animation frame — same invocation pattern
-    :func:`cc_tmux.cli.cmd_window_icon` already uses, reused here per window
-    rather than re-deriving the state->glyph mapping.
+    :func:`resolve_tab_icon` (which falls through to :func:`animated_icon` for
+    the animation frame when no sub-agent is active — cc-tmux-subagent-tab-icon)
+    — same invocation pattern :func:`cc_tmux.cli.cmd_window_icon` already uses,
+    reused here per window rather than re-deriving the state->glyph mapping.
+    ``fg``/``bg`` (duck-typed via ``getattr``, defaulting to ``0``/``[]``) are
+    the window's sub-agent counts; ``bg`` MUST already be pruned by the caller
+    (:func:`cc_tmux.cli._build_tabs_row`) before this is called — same
+    contract :func:`resolve_tab_icon` documents.
 
     The active window (``id == active_window_id``) renders bold CYAN; every
     other window renders DIM — the same semantic colour pair
@@ -380,7 +430,9 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     segments: List[str] = []
     for w in windows:
         state = getattr(w, "state", "") or ""
-        icon = animated_icon(state, now)
+        fg_count = getattr(w, "fg", 0) or 0
+        bg_count = len(getattr(w, "bg", None) or [])
+        icon = resolve_tab_icon(state, now, fg_count, bg_count)
         icon_part = f"{icon} " if icon else ""
         index = getattr(w, "index", "")
         name = getattr(w, "name", "")

@@ -40,11 +40,12 @@ hook can never block Claude.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 from . import log
@@ -63,6 +64,15 @@ OPT_WAIT_REASON = "@cc-wait-reason"
 OPT_PROJECT = "@cc-project"
 OPT_BRANCH = "@cc-branch"
 OPT_TITLE = "@cc-title"
+# Sub-agent dispatch tracking (cc-tmux-subagent-tab-icon): @cc-subagent-fg is an
+# int-as-string count of live FOREGROUND (blocking) Task dispatches, exact —
+# incremented/decremented off the Task tool's own PreToolUse/PostToolUse pair
+# (see cli.cmd_register; SubagentStop never fires on this Claude Code version).
+# @cc-subagent-bg is a JSON-encoded list of BACKGROUND (run_in_background=true)
+# dispatch launch epoch timestamps — heuristic, since no hook signals a
+# background agent's completion; aged out on read via a timeout (cli.py).
+OPT_SUBAGENT_FG = "@cc-subagent-fg"
+OPT_SUBAGENT_BG = "@cc-subagent-bg"
 
 _ALL_OPTS = (
     OPT_STATE,
@@ -73,6 +83,8 @@ _ALL_OPTS = (
     OPT_PROJECT,
     OPT_BRANCH,
     OPT_TITLE,
+    OPT_SUBAGENT_FG,
+    OPT_SUBAGENT_BG,
 )
 
 # Global (server) options for the daemon-free reconcile rate limit (design.md
@@ -107,12 +119,22 @@ class WindowInfo:
     panes (same :data:`~cc_tmux.priority.STATE_PRIORITY` ordering
     :func:`get_window_top_state` uses for a single window), or ``""`` when the
     window has no tracked Claude pane. Source: :func:`get_window_tabs`.
+
+    ``fg`` is the SUM of ``@cc-subagent-fg`` across every tracked pane in the
+    window (cc-tmux-subagent-tab-icon) — any pane's foreground sub-agent
+    activity makes the whole tab show it. ``bg`` is the UNION of every tracked
+    pane's ``@cc-subagent-bg`` launch-timestamp list, raw/unpruned — the caller
+    (``cli._build_tabs_row``) prunes it with ``cli.prune_background_entries``
+    before handing windows to :func:`cc_tmux.render.render_tabs_row`, since
+    aging policy (the timeout value) lives in cli.py, not here.
     """
 
     id: str
     index: str
     name: str
     state: str = ""
+    fg: int = 0
+    bg: List[float] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -321,20 +343,29 @@ def get_window_tabs() -> List[WindowInfo]:
     if not windows:
         return []
 
-    fmt_p = _FS.join(["#{window_id}", "#{@cc-state}"])
+    fmt_p = _FS.join(["#{window_id}", "#{@cc-state}", "#{@cc-subagent-fg}", "#{@cc-subagent-bg}"])
     panes_out = _run_tmux(["list-panes", "-s", "-F", fmt_p])
     top_state: Dict[str, str] = {}
+    fg_by_window: Dict[str, int] = {}
+    bg_by_window: Dict[str, List[float]] = {}
     if panes_out:
         by_window: Dict[str, List[str]] = {}
         for line in panes_out.split("\n"):
             if not line:
                 continue
             parts = line.split(_FS)
-            if len(parts) != 2:
+            if len(parts) != 4:
                 continue
-            window_id, state = parts
+            window_id, state, fg_raw, bg_raw = parts
             if state in VALID_STATES:
                 by_window.setdefault(window_id, []).append(state)
+            if fg_raw:
+                try:
+                    fg_by_window[window_id] = fg_by_window.get(window_id, 0) + int(fg_raw)
+                except ValueError:
+                    pass
+            if bg_raw:
+                bg_by_window.setdefault(window_id, []).extend(_parse_subagent_bg(bg_raw))
         for window_id, states in by_window.items():
             top_state[window_id] = min(
                 states, key=lambda s: STATE_PRIORITY.get(s, len(STATE_PRIORITY))
@@ -342,6 +373,8 @@ def get_window_tabs() -> List[WindowInfo]:
 
     for w in windows:
         w.state = top_state.get(w.id, "")
+        w.fg = fg_by_window.get(w.id, 0)
+        w.bg = bg_by_window.get(w.id, [])
     return windows
 
 
@@ -349,6 +382,68 @@ def get_pane_option(pane_id: str, option: str) -> str:
     """Read a single pane option value ('' if unset). Fail-open -> ''."""
     out = _run_tmux(["show-options", "-p", "-v", "-t", pane_id, option])
     return out or ""
+
+
+def _parse_subagent_bg(raw: str) -> List[float]:
+    """Parse a ``@cc-subagent-bg`` JSON-list string into floats. Fail-open -> []."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [float(x) for x in data if isinstance(x, (int, float)) and not isinstance(x, bool)]
+
+
+def get_subagent_fg(pane_id: str) -> int:
+    """Current ``@cc-subagent-fg`` count for a pane ('' / garbage -> 0). Fail-open."""
+    raw = get_pane_option(pane_id, OPT_SUBAGENT_FG)
+    try:
+        return int(raw) if raw else 0
+    except ValueError:
+        return 0
+
+
+def set_subagent_fg(pane_id: str, count: int) -> None:
+    """Write ``@cc-subagent-fg``, floored at 0 (never a negative count)."""
+    _set_opt(pane_id, OPT_SUBAGENT_FG, str(max(0, count)))
+
+
+def increment_subagent_fg(pane_id: str) -> int:
+    """Increment ``@cc-subagent-fg`` by 1 (a foreground Task dispatch started); returns the new count."""
+    new_count = get_subagent_fg(pane_id) + 1
+    set_subagent_fg(pane_id, new_count)
+    return new_count
+
+
+def decrement_subagent_fg(pane_id: str) -> int:
+    """Decrement ``@cc-subagent-fg`` by 1, floored at 0; returns the new count.
+
+    A stray stop with no matching start (hook-ordering race, or a stop that
+    followed a background start — see cli.cmd_register) must not go negative.
+    """
+    new_count = max(0, get_subagent_fg(pane_id) - 1)
+    set_subagent_fg(pane_id, new_count)
+    return new_count
+
+
+def get_subagent_bg(pane_id: str) -> List[float]:
+    """Current ``@cc-subagent-bg`` launch-timestamp list for a pane. Fail-open -> []."""
+    return _parse_subagent_bg(get_pane_option(pane_id, OPT_SUBAGENT_BG))
+
+
+def set_subagent_bg(pane_id: str, entries: List[float]) -> None:
+    """Write ``@cc-subagent-bg`` as a JSON-encoded list of epoch floats."""
+    _set_opt(pane_id, OPT_SUBAGENT_BG, json.dumps(entries))
+
+
+def append_subagent_bg(pane_id: str, timestamp: float) -> None:
+    """Append one background-dispatch launch epoch to ``@cc-subagent-bg`` (read-modify-write)."""
+    entries = get_subagent_bg(pane_id)
+    entries.append(timestamp)
+    set_subagent_bg(pane_id, entries)
 
 
 def get_global_option(option: str) -> str:

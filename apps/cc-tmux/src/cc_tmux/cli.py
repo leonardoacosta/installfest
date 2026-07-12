@@ -47,6 +47,15 @@ _WINDOW_RENAME_FORMAT_OPT = "@cc-window-rename-format"  # "state" (default) | "t
 _TAB_NAME_MAX = 20                             # project-code + session-title combined budget
 _STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
 
+# Sub-agent tab-icon overlay (cc-tmux-subagent-tab-icon): how long a background
+# (run_in_background=true) Task dispatch counts as "active" after launch, since
+# no hook signals its completion (see proposal.md's mechanism finding). "a few
+# minutes" per tasks.md task 2.2 -> 300s (5 min), overridable per the
+# `_TRACK_FOCUS_OPT`-style global-option-with-default idiom used throughout
+# this module.
+_SUBAGENT_BG_TIMEOUT_OPT = "@cc-subagent-bg-timeout"
+_DEFAULT_SUBAGENT_BG_TIMEOUT = 300.0
+
 # No remaining stub subcommands: every registered command has a handler below.
 _STUB_OWNERS: Dict[str, str] = {}
 
@@ -87,6 +96,39 @@ def cmd_register(args) -> int:
         title = hook_payload.get("session_title")
         if title:
             tmux.set_pane_title(pane, title)
+
+    # Sub-agent dispatch tracking (cc-tmux-subagent-tab-icon): the mechanism is
+    # the Task tool's own PreToolUse/PostToolUse pair (hooks.json), NOT
+    # SubagentStart/Stop — SubagentStop never fires on this Claude Code version
+    # (see proposal.md "Critical mechanism finding"). A foreground (blocking)
+    # dispatch is exact: --subagent-start increments @cc-subagent-fg,
+    # --subagent-stop decrements it. A background dispatch
+    # (tool_input.run_in_background: true) has no reliable completion signal —
+    # its own PostToolUse fires almost immediately once launched, not when it
+    # finishes — so a background start is appended to the time-boxed
+    # @cc-subagent-bg heuristic instead of the fg counter, and aged out lazily
+    # on every read via prune_background_entries (below), never via an
+    # explicit stop.
+    if getattr(args, "subagent_start", False):
+        tool_input = hook_payload.get("tool_input")
+        run_in_background = bool(
+            isinstance(tool_input, dict) and tool_input.get("run_in_background")
+        )
+        if run_in_background:
+            tmux.append_subagent_bg(pane, time.time())
+        else:
+            tmux.increment_subagent_fg(pane)
+    if getattr(args, "subagent_stop", False):
+        # A PostToolUse Task return has no reliable way to know whether the
+        # ENDING dispatch was foreground or background (the payload shape
+        # doesn't carry that info cleanly at stop time, and either kind can
+        # return here) — but only a FOREGROUND start ever increments
+        # @cc-subagent-fg in the first place, so unconditionally decrementing
+        # (floored at 0 via tmux.decrement_subagent_fg) is correct: a
+        # background dispatch's stop is a harmless no-op against a counter it
+        # never touched, and background activity ages out of @cc-subagent-bg
+        # via the timeout instead, never via this stop signal.
+        tmux.decrement_subagent_fg(pane)
 
     # Opt-in window auto-rename tracks the highest-priority state in the window (Req-7).
     # _maybe_rename_window now reports actual tmux success/failure (not just
@@ -668,6 +710,56 @@ def _truthy(value: str) -> bool:
     return value.strip().lower() in ("1", "on", "true", "yes")
 
 
+# ---------------------------------------------------------------------------
+# Sub-agent tab-icon overlay helpers (cc-tmux-subagent-tab-icon)
+# ---------------------------------------------------------------------------
+
+def prune_background_entries(entries: List[float], now: float, timeout: float) -> List[float]:
+    """Pure: drop background-dispatch launch epochs older than ``timeout`` seconds.
+
+    Called on every READ of ``@cc-subagent-bg`` (never only on write) so aging
+    is lazy and correct even with zero further hook activity — a background
+    agent that silently dies leaves no stop signal, so this timeout is the
+    ONLY cleanup mechanism (proposal.md). Pure and unit-testable (no tmux).
+    """
+    return [t for t in entries if (now - t) <= timeout]
+
+
+def _subagent_bg_timeout() -> float:
+    """``@cc-subagent-bg-timeout`` override, or the default (see the option's
+    docstring above ``_SUBAGENT_BG_TIMEOUT_OPT``). Mirrors tmux.py's
+    ``_reconcile_interval`` global-option-with-default idiom."""
+    raw = tmux.get_global_option(_SUBAGENT_BG_TIMEOUT_OPT)
+    try:
+        val = float(raw) if raw else _DEFAULT_SUBAGENT_BG_TIMEOUT
+    except ValueError:
+        val = _DEFAULT_SUBAGENT_BG_TIMEOUT
+    return val if val > 0 else _DEFAULT_SUBAGENT_BG_TIMEOUT
+
+
+def _window_subagent_counts(window_target: str) -> Tuple[int, int]:
+    """``(fg_count, pruned_bg_count)`` for ``window_target``'s representative pane.
+
+    Legacy call site (:func:`cmd_window_icon` — kept for confs that haven't
+    migrated to the ``render-all``/tabs-row job, see that function's
+    docstring). Uses the SAME representative-pane choice
+    (:func:`tmux.get_window_top_pane`) that :func:`cmd_window_icon` already
+    scopes its state lookup to, unlike the live tabs-row path
+    (:func:`_build_tabs_row`) which sums/unions across every tracked pane in
+    the window via :func:`tmux.get_window_tabs` — single-pane here vs
+    multi-pane there is intentional: this is the narrower, single-pane legacy
+    surface. Fail-open: no representative pane -> ``(0, 0)``.
+    """
+    pane = tmux.get_window_top_pane(window_target)
+    if not pane:
+        return 0, 0
+    fg = tmux.get_subagent_fg(pane)
+    bg_entries = prune_background_entries(
+        tmux.get_subagent_bg(pane), time.time(), _subagent_bg_timeout()
+    )
+    return fg, len(bg_entries)
+
+
 def _maybe_rename_window(pane_id: str) -> bool:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
@@ -767,7 +859,8 @@ def cmd_window_icon(args) -> int:
     state = tmux.get_window_top_state(args.window)
     if not state:
         return 0
-    icon = render.animated_icon(state, time.time())
+    fg, bg = _window_subagent_counts(args.window)
+    icon = render.resolve_tab_icon(state, time.time(), fg, bg)
     if icon:
         sys.stdout.write(f"{icon} ")
     return 0
@@ -1161,7 +1254,15 @@ def _build_tabs_row(active_window_id: str) -> str:
     windows = tmux.get_window_tabs()
     if not windows:
         return ""
-    return render.render_tabs_row(windows, active_window_id, time.time())
+    # Sub-agent overlay (cc-tmux-subagent-tab-icon): prune each window's raw
+    # (unpruned) @cc-subagent-bg union in place before handing windows to
+    # render_tabs_row — aging policy (the timeout value) is a cli.py concern,
+    # kept out of render.py so that module stays a pure function of counts.
+    now = time.time()
+    timeout = _subagent_bg_timeout()
+    for w in windows:
+        w.bg = prune_background_entries(w.bg, now, timeout)
+    return render.render_tabs_row(windows, active_window_id, now)
 
 
 def cmd_tabs_row(args) -> int:
