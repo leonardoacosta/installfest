@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import Callable, List, Tuple
 
@@ -571,16 +572,79 @@ def _test_usage_fail_open() -> None:
     _check(f"#[fg={usage.DIM}]5H:#[fg={usage.DIM}]--" in out, "missing 5H window -> DIM")
 
 
+def _test_usage_extract_active() -> None:
+    _check(usage.extract_active({}) == ("", None, None), "empty payload -> empty triple")
+    _check(usage.extract_active({"credentials": "x"}) == ("", None, None), "non-list -> empty")
+    _check(
+        usage.extract_active({"credentials": [{"isActive": False}]}) == ("", None, None),
+        "no active credential -> empty",
+    )
+    label, u5, u7 = usage.extract_active(
+        {"credentials": [
+            {"isActive": False, "accountName": "other"},
+            {"isActive": True, "accountName": "leo",
+             "usage5hUsed": 1.0, "usage5hLimit": 4.0,
+             "usage7dUsed": None, "usage7dLimit": None},
+        ]}
+    )
+    _check(label == "leo", f"label from active credential: {label!r}")
+    _check(u5 == 0.25, f"5h util extracted: {u5!r}")
+    _check(u7 is None, "unpolled 7d -> None")
+
+
+def _test_usage_active_usage_ttl() -> None:
+    # Cache round-trip + TTL + negative caching, with _query monkeypatched to count.
+    calls = {"n": 0}
+    saved_query = usage._query
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-usage-cache-test-")
+    path = os.path.join(tmpdir, "cache.json")
+    payload = {"credentials": [{"isActive": True, "accountName": "leo",
+                                "usage5hUsed": 2.0, "usage5hLimit": 4.0,
+                                "usage7dUsed": 1.0, "usage7dLimit": 10.0}]}
+    try:
+        def counting_query(url=usage.CREDENTIALS_URL, timeout=usage.TIMEOUT_SECS):
+            calls["n"] += 1
+            return payload
+        usage._query = counting_query  # type: ignore[assignment]
+
+        first = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(first == ("leo", 0.5, 0.1), f"miss fetches + extracts: {first!r}")
+        _check(calls["n"] == 1, "first call hit the network once")
+        _check(os.path.exists(path), "cache file written")
+
+        second = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(second == first, "fresh cache returns same triple")
+        _check(calls["n"] == 1, "fresh cache -> NO second fetch")
+
+        os.utime(path, (time.time() - 3600, time.time() - 3600))
+        third = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(third == first and calls["n"] == 2, "stale mtime -> refetch")
+
+        # Corrupt cache fails open to a fetch.
+        with open(path, "w") as f:
+            f.write("not json")
+        os.utime(path, None)
+        fourth = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(fourth == first and calls["n"] == 3, "corrupt cache -> refetch")
+
+        # Negative caching: failed fetch writes the empty triple; next call
+        # within TTL serves it without re-querying.
+        os.unlink(path)
+        usage._query = lambda url=None, timeout=None: None  # type: ignore[assignment]
+        down = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(down == ("", None, None), "fetch failure -> empty triple")
+        usage._query = counting_query  # type: ignore[assignment]
+        down2 = usage.active_usage(ttl=45.0, cache_path=path)
+        _check(down2 == ("", None, None) and calls["n"] == 3,
+               "negative cache served without refetch")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Session / beads status-row tests (cc-tmux-session-usage-bars, task 4.1)
 # ---------------------------------------------------------------------------
-
-@dataclass
-class _FakeProjectPane:
-    """Minimal stand-in for a hop pane — session_count logic reads only .project."""
-
-    project: str
-
 
 def _test_render_session_glyph() -> None:
     # The raw count -> glyph mapping cc-tmux's session bar composes from
@@ -590,29 +654,6 @@ def _test_render_session_glyph() -> None:
     _check(render._session_glyph(2) == f"{render.SESSION_GLYPH_FILLED} 2", "2 -> filled + count")
     _check(render._session_glyph(7) == f"{render.SESSION_GLYPH_FILLED} 7", "7 -> filled + count")
     _check(render._session_glyph(-1) == render.SESSION_GLYPH_HOLLOW, "negative floors to hollow")
-
-
-def _test_tmux_session_count_glyph() -> None:
-    # tmux.session_count_glyph does both the count (over get_hop_panes) AND the
-    # glyph mapping — mock get_hop_panes to drive 0/1/2+ deterministically.
-    saved = tmux.get_hop_panes
-    try:
-        tmux.get_hop_panes = lambda: []  # type: ignore[assignment]
-        _check(tmux.session_count_glyph("if") == "◌", "no panes -> hollow")
-
-        tmux.get_hop_panes = lambda: [_FakeProjectPane("if")]  # type: ignore[assignment]
-        _check(tmux.session_count_glyph("if") == "◉", "one matching pane -> filled")
-        _check(tmux.session_count_glyph("oo") == "◌", "non-matching project -> hollow")
-
-        tmux.get_hop_panes = lambda: [  # type: ignore[assignment]
-            _FakeProjectPane("if"),
-            _FakeProjectPane("if"),
-            _FakeProjectPane("oo"),
-        ]
-        _check(tmux.session_count_glyph("if") == "◉ 2", "two matching panes -> filled + count")
-        _check(tmux.session_count_glyph("oo") == "◉", "unrelated project counted independently")
-    finally:
-        tmux.get_hop_panes = saved  # type: ignore[assignment]
 
 
 def _test_tmux_get_window_top_pane() -> None:
@@ -879,7 +920,7 @@ def _test_cli_read_session_context() -> None:
 
         fixture = os.path.join(state_dir, "session-context.%9.json")
         with open(fixture, "w") as f:
-            f.write('{"context_used_pct": 42, "model": "F", "ts": 123}')
+            f.write(f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}}}')
 
         letter, pct = cli._read_session_context("%9")
         _check(letter == "F", f"model letter not read from fixture: {letter!r}")
@@ -893,6 +934,28 @@ def _test_cli_read_session_context() -> None:
         with open(fixture, "w") as f:
             f.write("not json")
         _check(cli._read_session_context("%9") == ("", None), "malformed JSON -> ('', None)")
+
+        # Stale ts (older than the freshness cutoff) -> fail-open ('', None).
+        with open(fixture, "w") as f:
+            f.write(f'{{"context_used_pct": 42, "model": "F", "ts": {time.time() - 3600}}}')
+        _check(cli._read_session_context("%9") == ("", None), "stale ts -> ('', None)")
+
+        # Missing ts -> unverifiable, treated as stale -> ('', None).
+        with open(fixture, "w") as f:
+            f.write('{"context_used_pct": 42, "model": "F"}')
+        _check(cli._read_session_context("%9") == ("", None), "missing ts -> ('', None)")
+
+        # Boolean ts -> non-numeric, treated as stale -> ('', None).
+        with open(fixture, "w") as f:
+            f.write('{"context_used_pct": 42, "model": "F", "ts": true}')
+        _check(cli._read_session_context("%9") == ("", None), "boolean ts -> ('', None)")
+
+        # Fresh ts + multi-char model -> letter clamps to one char.
+        with open(fixture, "w") as f:
+            f.write(f'{{"context_used_pct": 42, "model": "Fable", "ts": {time.time()}}}')
+        letter, pct = cli._read_session_context("%9")
+        _check(letter == "F", f"multi-char model should clamp to one letter: {letter!r}")
+        _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
     finally:
         if saved_cfg is None:
             os.environ.pop("CLAUDE_CONFIG_DIR", None)
@@ -990,8 +1053,9 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.account_label", _test_usage_account_label),
     ("usage.render_segment", _test_usage_render_segment),
     ("usage.fail_open", _test_usage_fail_open),
+    ("usage.extract_active", _test_usage_extract_active),
+    ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("render.session_glyph", _test_render_session_glyph),
-    ("tmux.session_count_glyph", _test_tmux_session_count_glyph),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
     ("render.session_bar", _test_render_session_bar),

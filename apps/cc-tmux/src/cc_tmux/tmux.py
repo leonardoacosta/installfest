@@ -333,24 +333,6 @@ def get_window_tabs() -> List[WindowInfo]:
     return windows
 
 
-def session_count_glyph(project: str) -> str:
-    """Session-count glyph for ``project`` — ``◌`` / ``◉`` / ``◉ N`` for 0 / 1 / 2+.
-
-    Counts :func:`get_hop_panes` rows whose ``@cc-project`` equals ``project``
-    and maps the count to the same glyph semantics ``nexus-statusline`` uses in
-    ``renderStatusline`` (``apps/nexus-statusline/src/index.ts``): a single
-    tracked session shows a filled ``◉``, none shows a hollow ``◌``, and 2+
-    append the count (``◉ N``). Returns the bare glyph string — tmux styling is
-    applied by the render/config layer, not here. Fail-open: no tmux -> ``◌``.
-    """
-    count = sum(1 for pane in get_hop_panes() if pane.project == project)
-    if count > 1:
-        return f"◉ {count}"
-    if count == 1:
-        return "◉"
-    return "◌"
-
-
 def get_pane_option(pane_id: str, option: str) -> str:
     """Read a single pane option value ('' if unset). Fail-open -> ''."""
     out = _run_tmux(["show-options", "-p", "-v", "-t", pane_id, option])

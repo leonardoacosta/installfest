@@ -47,6 +47,23 @@ user then wants to jump or dispatch (see the `cc-dispatch` skill).
 | idle    | Finished its turn, awaiting the next prompt.                    |
 | active  | Currently working. Shown for overview; never a cycle/hop target. |
 
+## Status-bar session glyph
+
+Row 2 of the tmux status bar (the cc-tmux session-bar) leads with a
+session-count glyph for the active window's project:
+
+| Glyph | Meaning |
+| ----- | ------- |
+| ◌     | No tracked Claude pane in this project |
+| ◉     | Exactly one tracked Claude pane in this project |
+| ◉ N   | N tracked Claude panes in this project (2+) |
+
+"This project" = panes whose `@cc-project` (the git-toplevel directory
+basename) matches the active window's pane. Known limitation: a pane inside a
+linked git worktree (e.g. `.worktrees/<session-id>/`) resolves to the
+worktree directory's own basename, so it is NOT counted toward the parent
+project's ◉ N.
+
 ## How to report
 
 Lead with what needs attention: list `waiting` panes first (with their wait reason),

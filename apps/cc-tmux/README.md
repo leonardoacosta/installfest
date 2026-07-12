@@ -44,6 +44,15 @@ the built-in pure-function test suite.
   10s, overridable via `@cc-reconcile-interval` (seconds). No background process — the
   status bar acts as the de-facto heartbeat.
 
+### Status-bar session glyph
+
+The session-bar row (status row 2) leads with a per-project session-count
+glyph: `◌` no tracked Claude pane in the active window's project, `◉` one,
+`◉ N` for N (2+). Counting keys on `@cc-project` (git-toplevel basename), so
+panes inside linked git worktrees (`.worktrees/<id>/`) resolve to the
+worktree's own basename and are not counted toward the parent project —
+a known limitation.
+
 ### fzf preview
 
 The inbox and picker popups render the highlighted pane's live tail (`tmux capture-pane

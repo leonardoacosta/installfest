@@ -43,9 +43,12 @@ No external dependencies (no ``curl`` / ``jq`` / ``bc`` subprocess): urllib + js
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
+import time
 import urllib.request
-from typing import Optional
+from typing import Optional, Tuple
 
 # tmux colour codes — identical to the retired tmux-nexus-creds sh script.
 DIM = "#454D54"
@@ -195,6 +198,114 @@ def _query(url: str = CREDENTIALS_URL, timeout: float = TIMEOUT_SECS) -> Optiona
     except Exception:  # noqa: BLE001 - fail open on any error, like `curl -sf || exit 0`
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+# ---------------------------------------------------------------------------
+# Cached active-usage (installfest plan 003)
+#
+# The session-bar row calls this at 1Hz per window (status-interval 1), but the
+# /credentials payload is ~4MB and changes on a minutes scale. A short-TTL
+# on-disk cache of the EXTRACTED (label, 5h, 7d) triple bounds the fetch to
+# once per TTL instead of once per tick. This caches EXTERNAL HTTP data, not
+# pane state — tmux pane options remain the only pane-state store (invariant 1;
+# precedent: the roadmap-pulse / session-context cache files cli.py reads).
+# Fail open everywhere: any cache error falls through to a live fetch; any
+# write error is swallowed.
+# ---------------------------------------------------------------------------
+
+USAGE_CACHE_TTL_SECS = 45.0
+
+
+def _cache_path() -> str:
+    """Per-user cache file in the system temp dir (uid-suffixed, multi-user safe)."""
+    uid = os.getuid() if hasattr(os, "getuid") else 0
+    return os.path.join(tempfile.gettempdir(), f"cc-tmux-usage-cache.{uid}.json")
+
+
+def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]]:
+    """``(label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``."""
+    if not isinstance(payload, dict):
+        return "", None, None
+    credentials = payload.get("credentials")
+    if not isinstance(credentials, list):
+        return "", None, None
+    active = next(
+        (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
+        None,
+    )
+    if active is None:
+        return "", None, None
+    return (
+        _account_label(active),
+        _extract_util(active, "usage5hUsed", "usage5hLimit"),
+        _extract_util(active, "usage7dUsed", "usage7dLimit"),
+    )
+
+
+def _read_usage_cache(path: str, now: float, ttl: float):
+    """Cached triple if ``path`` is fresh (|now - mtime| < ttl) and well-formed, else None."""
+    try:
+        age = now - os.stat(path).st_mtime
+        if not (-ttl < age < ttl):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        label = data.get("label")
+        if not isinstance(label, str):
+            return None
+        utils = []
+        for key in ("u5", "u7"):
+            value = data.get(key)
+            if value is None:
+                utils.append(None)
+            elif isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            else:
+                utils.append(float(value))
+        return label, utils[0], utils[1]
+    except Exception:  # noqa: BLE001 - fail open: unreadable cache -> live fetch
+        return None
+
+
+def _write_usage_cache(
+    path: str, label: str, u5: Optional[float], u7: Optional[float]
+) -> None:
+    """Atomic (.tmp + os.replace) best-effort cache write; never raises."""
+    tmp = f"{path}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"label": label, "u5": u5, "u7": u7}))
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001 - fail open: cache write is best-effort
+        try:
+            os.unlink(tmp)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def active_usage(
+    ttl: float = USAGE_CACHE_TTL_SECS,
+    cache_path: Optional[str] = None,
+    now: Optional[float] = None,
+) -> Tuple[str, Optional[float], Optional[float]]:
+    """Cached ``(label, 5H, 7D)`` for the active credential.
+
+    Cache hit (fresh + well-formed) -> no HTTP. Miss/stale/corrupt -> live
+    ``_query()`` fetch, extract, rewrite cache (INCLUDING the empty result on
+    fetch failure — negative caching, so a down nexus-agent is probed once per
+    TTL, not per tick). ``cache_path`` / ``now`` are injectable for self-test.
+    """
+    path = cache_path or _cache_path()
+    t = time.time() if now is None else now
+    cached = _read_usage_cache(path, t, ttl)
+    if cached is not None:
+        return cached
+    payload = _query()
+    result = extract_active(payload) if payload else ("", None, None)
+    _write_usage_cache(path, *result)
+    return result
 
 
 def build_segment() -> str:

@@ -749,6 +749,14 @@ def _read_roadmap_pulse(pane_id: str) -> str:
         return ""
 
 
+# session-context.<pane>.json freshness cutoff (plan 003): the writer
+# (nexus-statusline) refreshes ts on every statusline render, i.e. every turn.
+# A file older than this is a dead session or a recycled pane id — render it
+# as absent rather than confidently wrong. Writer-side GC (>6h prune) is inert
+# exactly when the writer stalls, so the reader enforces its own cutoff.
+SESSION_CONTEXT_MAX_AGE_SECS = 900.0
+
+
 def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
     """``(model_letter, context_used_pct)`` from ``session-context.<pane>.json``.
 
@@ -758,8 +766,10 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
     SessionStart-hook path this replaces (see ``cmd_register``'s note), it also
     tracks mid-session ``/model`` switches. ``context_used_pct`` is 0-100;
     divided by 100 here to keep the 0..1 ratio convention used elsewhere in this
-    module. Fail-open: missing pane id / file / bad shape / non-numeric ->
-    ``("", None)`` for the piece that failed.
+    module. A ``ts`` older than the freshness cutoff (defined just above) is
+    treated as stale and rendered as absent (plan 003). Fail-open: missing
+    pane id / file / bad shape / non-numeric -> ``("", None)`` for the piece
+    that failed.
     """
     if not pane_id:
         return "", None
@@ -768,9 +778,16 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
     except Exception:
         return "", None
 
+    ts = data.get("ts")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        return "", None
+    if time.time() - float(ts) > SESSION_CONTEXT_MAX_AGE_SECS:
+        return "", None
+
     letter = data.get("model")
     if not isinstance(letter, str):
         letter = ""
+    letter = letter[:1]
 
     pct = data.get("context_used_pct")
     if isinstance(pct, bool) or not isinstance(pct, (int, float)):
@@ -784,27 +801,12 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float]]:
 def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
     """``(account_label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
 
-    Reuses ``usage.py``'s query + active-credential-finding + field-extraction
-    logic (same package) rather than re-deriving it. Fail-open on every branch.
+    Delegates to :func:`usage.active_usage` — a short-TTL on-disk cache over
+    the ~4MB /credentials fetch, so the 1Hz session-bar tick does not re-fetch
+    and re-parse the full payload every second (plan 003). Fail-open.
     """
     try:
-        payload = usage._query()
-        if not payload:
-            return "", None, None
-        credentials = payload.get("credentials")
-        if not isinstance(credentials, list):
-            return "", None, None
-        active = next(
-            (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
-            None,
-        )
-        if active is None:
-            return "", None, None
-        return (
-            usage._account_label(active),
-            usage._extract_util(active, "usage5hUsed", "usage5hLimit"),
-            usage._extract_util(active, "usage7dUsed", "usage7dLimit"),
-        )
+        return usage.active_usage()
     except Exception:
         return "", None, None
 
@@ -830,8 +832,8 @@ def cmd_session_bar(args) -> int:
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
     branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
 
-    # Raw session count (an int) — render_session_bar maps it to a glyph itself,
-    # so pass the count, not tmux.session_count_glyph()'s already-mapped string.
+    # Raw session count (an int) — render_session_bar maps it to a glyph
+    # itself (render._session_glyph), so pass the count, not a pre-mapped string.
     session_count = sum(1 for p in tmux.get_hop_panes() if p.project == project) if project else 0
 
     model_letter, ses_pct = _read_session_context(pane)
