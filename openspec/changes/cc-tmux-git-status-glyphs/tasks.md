@@ -73,7 +73,7 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `tmux._git_status()` [beads:if-5pyy]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `tmux._git_status()` [beads:if-5pyy]
   against a real fixture git repo (subprocess-created, matching this file's existing fixture-repo
   convention from the prior spec's `tmux.git_dirty_ahead_fixture` case): clean tree -> all-zero
   `GitStatusCounts`; one staged-modified + one unstaged-deleted + one untracked file -> correct
