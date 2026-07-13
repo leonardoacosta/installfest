@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-07-12T17:16:33.422669",
+  "generated_by": "wave-state init",
+  "spec_names": [
+    "view-command",
+    "restructure-repo-with-chezmoiroot"
+  ],
+  "status": "completed",
+  "current_wave": 2,
+  "current_phase": null,
+  "completed_waves": [
+    1,
+    1
+  ],
+  "completed_specs": [
+    "view-command",
+    "restructure-repo-with-chezmoiroot"
+  ],
+  "failed_specs": [],
+  "decisions": [],
+  "runtime": {},
+  "waves": [
+    {
+      "wave": 1,
+      "specs": [
+        {
+          "name": "view-command",
+          "status": "merged",
+          "dispatched_at": "2026-07-12T17:16:40.652234",
+          "merged_at": "2026-07-12T17:19:04.570993"
+        },
+        {
+          "name": "restructure-repo-with-chezmoiroot",
+          "status": "merged",
+          "dispatched_at": "2026-07-12T17:16:40.680347",
+          "merged_at": "2026-07-12T17:19:04.602776"
+        }
+      ]
+    }
+  ],
+  "run_id": "apply-2026-07-12-001",
+  "mode": "consolidated",
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [
+      "e2e"
+    ],
+    "task_results": {
+      "view-command": {
+        "db": null,
+        "api": null,
+        "ui": null,
+        "e2e": "completed",
+        "doc": null
+      },
+      "restructure-repo-with-chezmoiroot": {
+        "db": null,
+        "api": null,
+        "ui": null,
+        "e2e": "completed",
+        "doc": null
+      }
+    },
+    "phase_started_at": {
+      "e2e": "2026-07-12T17:16:45.855019"
+    },
+    "phase_completed_at": {
+      "e2e": "2026-07-12T17:18:37.295562"
+    }
+  },
+  "completed_at": "2026-07-12T17:22:14.726367"
+}

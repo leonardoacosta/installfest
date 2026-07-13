@@ -69,3 +69,6 @@ packages/workspace/profiles/*/claude/*
 .worktrees/
 .worktrees-index.json
 .worktrees-index.json.lock
+
+# /apply:all run state (locks, events.jsonl, active/last pointers — runtime, never committed)
+docs/apply/
