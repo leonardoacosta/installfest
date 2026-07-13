@@ -2456,70 +2456,80 @@ def _test_cli_register_captures_session_id() -> None:
         cli._read_hook_stdin = saved_read_stdin  # type: ignore[assignment]
 
 
-def _test_cli_build_session_bar_dual_source() -> None:
-    """_build_session_bar composes row 2 from two sources (task 2.1): nx-agent
-    for context_used_pct/branch/dirty when reachable, local pane options as the
-    fallback; `ahead` is ALWAYS local; `model_letter` is untouched by either.
+def _test_cli_resolve_git_status_dual_source() -> None:
+    """_resolve_git_status (task 2.1) resolves branch + all six GitStatusCounts
+    fields INDEPENDENTLY: nx's value wins per-field only when nx's response
+    actually carries that key (presence-gated via _nx_field's _MISSING
+    sentinel, not truthiness), else the corresponding field falls back to the
+    local ``@cc-git-status`` JSON blob (decoded by _local_git_status).
 
-    Local fallback values are set DIFFERENT from the nx values so a wrong-source
-    bug is visible in the rendered output. The pane is passed explicitly so
-    _resolve_session_pane is bypassed; get_pane_option is a fake per-option
-    store; nx_agent.session_context / project_git_status are monkeypatched at the
-    module level (project_git_status is the one _resolve_branch_dirty consults)."""
+    Local fallback values are set DIFFERENT from the nx values throughout so a
+    wrong-source bug is visible in the resolved counts (mirrors the retired
+    cli.build_session_bar_dual_source test's technique). get_pane_option is a
+    fake per-option store; tmux._run_tmux / registry.resolve_project_code /
+    nx_agent.project_git_status are monkeypatched at the module level
+    (project_git_status is the one _resolve_git_status consults)."""
+    local_status_json = json.dumps({
+        "modified": 99, "untracked": 98, "deleted": 2,
+        "renamed": 1, "ahead": 4, "behind": 1,
+    })
     store = {
-        tmux.OPT_PROJECT: "if",
-        tmux.OPT_SESSION_ID: "sid-1",
-        tmux.OPT_BRANCH: "local-branch",   # nx value differs -> proves source
-        tmux.OPT_DIRTY: "[7, 8]",          # local dirty pair -> renders *7+8
-        tmux.OPT_AHEAD: "4",               # ahead is always local -> ^4
+        tmux.OPT_BRANCH: "local-branch",       # nx value differs -> proves source
+        tmux.OPT_GIT_STATUS: local_status_json,
     }
+    local_expected = tmux.GitStatusCounts(modified=99, untracked=98, deleted=2, renamed=1, ahead=4, behind=1)
 
-    saved_session_context = nx_agent.session_context
     saved_project_git_status = nx_agent.project_git_status
     saved_get_pane_option = tmux.get_pane_option
     saved_run_tmux = tmux._run_tmux
     saved_resolve_code = registry.resolve_project_code
-    saved_read_ctx = cli._read_session_context
-    saved_active_usage = cli._active_usage
     tmux.get_pane_option = lambda pane, opt: store.get(opt, "")  # type: ignore[assignment]
     tmux._run_tmux = lambda args, *, check_available=True: "/some/cwd"  # type: ignore[assignment]
     registry.resolve_project_code = lambda cwd: "if"  # type: ignore[assignment]
-    cli._read_session_context = lambda pane: ("O", None, "", False, 0)  # type: ignore[assignment]
-    cli._active_usage = lambda: ("", None, None)  # type: ignore[assignment]
     try:
-        # --- nx REACHABLE: nx branch/dirty/SES win over the local pane options ---
-        nx_agent.session_context = lambda *a, **k: {"usedPercentage": 55.0}  # type: ignore[assignment]
+        # --- nx carries ONLY modified/untracked (nested under `dirty`) ---
+        # deleted/renamed/ahead/behind have no nx source -> fall back to local.
         nx_agent.project_git_status = lambda *a, **k: {  # type: ignore[assignment]
             "branch": "nx-branch", "dirty": {"modified": 3, "untracked": 1},
         }
-        out_nx = cli._build_session_bar("@1", pane="%1")
-        _check("nx-branch" in out_nx, f"nx reachable -> nx branch used: {out_nx!r}")
-        _check("local-branch" not in out_nx, f"nx reachable -> local branch NOT used: {out_nx!r}")
-        _check(f"#[fg={render.YELLOW}]*3+1" in out_nx, f"nx reachable -> nx dirty counts (*3+1): {out_nx!r}")
-        _check("*7+8" not in out_nx, f"nx reachable -> local dirty pair NOT used: {out_nx!r}")
-        _check("SES:" in out_nx and "55%" in out_nx, f"nx reachable -> nx SES% (55%): {out_nx!r}")
-        _check(f"#[fg={render.YELLOW}]^4" in out_nx, f"ahead always local (^4) even when nx reachable: {out_nx!r}")
-        _check(f"#[fg={render.CYAN}]O" in out_nx, f"model_letter from _read_session_context (O): {out_nx!r}")
+        branch, counts = cli._resolve_git_status("%1")
+        _check(branch == "nx-branch", f"partial nx -> nx branch used: {branch!r}")
+        expected_partial = tmux.GitStatusCounts(modified=3, untracked=1, deleted=2, renamed=1, ahead=4, behind=1)
+        _check(counts == expected_partial, f"partial nx -> modified/untracked from nx, rest from local: {counts!r}")
 
-        # --- nx UNREACHABLE: both return None -> local branch/dirty fallback ---
-        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
+        # --- nx UNREACHABLE (returns None) -> branch + all six fields fall to local ---
         nx_agent.project_git_status = lambda *a, **k: None  # type: ignore[assignment]
-        out_local = cli._build_session_bar("@1", pane="%1")
-        _check("local-branch" in out_local, f"nx unreachable -> local branch used: {out_local!r}")
-        _check("nx-branch" not in out_local, f"nx unreachable -> nx branch NOT used: {out_local!r}")
-        _check(f"#[fg={render.YELLOW}]*7+8" in out_local, f"nx unreachable -> local dirty pair (*7+8): {out_local!r}")
-        _check("*3+1" not in out_local, f"nx unreachable -> nx dirty counts NOT used: {out_local!r}")
-        _check("SES:#[fg=" in out_local and "--" in out_local, f"nx unreachable -> SES blank ('--'): {out_local!r}")
-        _check(f"#[fg={render.YELLOW}]^4" in out_local, f"ahead always local (^4) when nx unreachable too: {out_local!r}")
-        _check(f"#[fg={render.CYAN}]O" in out_local, f"model_letter unaffected by nx reachability (O): {out_local!r}")
+        branch, counts = cli._resolve_git_status("%1")
+        _check(branch == "local-branch", f"nx unreachable -> local branch used: {branch!r}")
+        _check(counts == local_expected, f"nx unreachable -> all six fields from local: {counts!r}")
+
+        # --- SIMULATED future nx response carrying all six keys (branch +
+        # dirty.{modified,untracked} + top-level deleted/renamed/ahead/behind)
+        # -> all six prefer nx, proving the forward-compatible per-field rule
+        # needs no future code change. ---
+        nx_agent.project_git_status = lambda *a, **k: {  # type: ignore[assignment]
+            "branch": "nx-branch-full",
+            "dirty": {"modified": 10, "untracked": 11},
+            "deleted": 12, "renamed": 13, "ahead": 14, "behind": 15,
+        }
+        branch, counts = cli._resolve_git_status("%1")
+        _check(branch == "nx-branch-full", f"full nx -> nx branch used: {branch!r}")
+        expected_full = tmux.GitStatusCounts(modified=10, untracked=11, deleted=12, renamed=13, ahead=14, behind=15)
+        _check(counts == expected_full, f"full nx -> all six fields from nx: {counts!r}")
+
+        # --- A legitimate nx `0` still wins over a nonzero local value
+        # (presence-check, not truthiness — the _MISSING sentinel's job). ---
+        nx_agent.project_git_status = lambda *a, **k: {  # type: ignore[assignment]
+            "branch": "nx-branch-zero", "dirty": {"modified": 0, "untracked": 1},
+        }
+        branch, counts = cli._resolve_git_status("%1")
+        _check(counts.modified == 0, f"nx modified=0 wins over local modified=99 (presence, not truthiness): {counts!r}")
+        _check(counts.untracked == 1, f"nx untracked=1 still used alongside the 0 field: {counts!r}")
     finally:
-        nx_agent.session_context = saved_session_context  # type: ignore[assignment]
         nx_agent.project_git_status = saved_project_git_status  # type: ignore[assignment]
         tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
         tmux._run_tmux = saved_run_tmux  # type: ignore[assignment]
         registry.resolve_project_code = saved_resolve_code  # type: ignore[assignment]
-        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
-        cli._active_usage = saved_active_usage  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -2611,7 +2621,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.git_status_behind", _test_tmux_git_status_behind),
     ("tmux.git_status_failure", _test_tmux_git_status_failure),
     ("cli.register_captures_session_id", _test_cli_register_captures_session_id),
-    ("cli.build_session_bar_dual_source", _test_cli_build_session_bar_dual_source),
+    ("cli.resolve_git_status_dual_source", _test_cli_resolve_git_status_dual_source),
 ]
 
 
