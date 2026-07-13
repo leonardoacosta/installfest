@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import log, notify, registry, render, tmux, usage
+from . import log, notify, nx_agent, registry, render, tmux, usage
 from .conductor import cmd_conductor
 from .parser import build_parser
 from .usage import cmd_usage
@@ -1049,6 +1049,60 @@ def _resolve_session_pane(window: str) -> str:
     return tmux.get_window_top_pane(window)
 
 
+def _resolve_branch_dirty(pane: str) -> Tuple[str, Optional[Tuple[int, int]]]:
+    """``(branch, dirty)`` for row 2 — nx primary, local pane options fallback.
+
+    Prefers nx-agent's ``GET /projects/:id/status`` ``git`` object (keyed by the
+    pane's resolved registry project code, resolved via the same
+    ``display-message #{pane_current_path}`` -> :func:`registry.resolve_project_code`
+    pattern :func:`_read_roadmap_pulse` uses). When nx returns a ``git`` dict:
+    ``branch`` is its ``branch`` (``None``/missing -> ``""``); ``dirty`` is
+    ``(modified, untracked)`` from its ``dirty`` sub-object, or ``None`` if that
+    sub-object is missing / not a dict / either count non-int (fail open).
+
+    When :func:`nx_agent.project_git_status` returns ``None`` (unreachable / 404 /
+    not-yet-observed), falls back to the local ``@cc-branch`` pane option for
+    ``branch`` and the JSON-decoded ``@cc-dirty`` option (a ``[modified, untracked]``
+    list written by :func:`tmux.set_pane_git_identity`) for ``dirty`` — an empty /
+    missing / malformed value yields ``None`` (never raises on a bad ``json.loads``).
+    """
+    cwd = tmux._run_tmux(["display-message", "-p", "-t", pane, "#{pane_current_path}"])
+    code = registry.resolve_project_code(cwd) if cwd else ""
+    git = nx_agent.project_git_status(code) if code else None
+
+    if isinstance(git, dict):
+        nx_branch = git.get("branch")
+        branch = nx_branch if isinstance(nx_branch, str) else ""
+        return branch, _parse_dirty_counts(git.get("dirty"))
+
+    branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
+    try:
+        decoded = json.loads(tmux.get_pane_option(pane, tmux.OPT_DIRTY))
+    except (ValueError, TypeError):
+        decoded = None
+    return branch, _parse_dirty_counts(decoded)
+
+
+def _parse_dirty_counts(raw: object) -> Optional[Tuple[int, int]]:
+    """``(modified, untracked)`` from an nx ``dirty`` dict or a ``[m, u]`` list.
+
+    Accepts nx's ``{"modified": int, "untracked": int}`` shape or the local
+    ``@cc-dirty`` list shape ``[modified, untracked]``. Returns ``None`` (fail open)
+    when the value is the wrong type, missing a count, or carries a non-int
+    (``bool`` excluded — it is an ``int`` subclass but never a valid count).
+    """
+    if isinstance(raw, dict):
+        modified, untracked = raw.get("modified"), raw.get("untracked")
+    elif isinstance(raw, list) and len(raw) == 2:
+        modified, untracked = raw[0], raw[1]
+    else:
+        return None
+    for val in (modified, untracked):
+        if isinstance(val, bool) or not isinstance(val, int):
+            return None
+    return modified, untracked
+
+
 def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-2 session status-format string for a window (Req rows 2).
 
@@ -1057,14 +1111,30 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     builders instead of each spawning its own process. Resolves the window's
     representative pane (unless ``pane`` is already known) via
     :func:`_resolve_session_pane` (tmux-active pane first, priority-pick
-    fallback), reads @cc-project and the per-pane model letter / branch /
-    dirty / ahead (from ``session-context.<pane>.json`` via
-    :func:`_read_session_context`), and hands them along with the active
-    account's usage (via :func:`_active_usage`) to
-    :func:`render.render_session_bar`. ``@cc-branch`` (hook-coupled, can go
-    stale) is only a fallback for when the session-context file lacks a fresh
-    branch. Left side is model/project/git identity; right side is the
-    account label + SES:/5H:/7D: gauges.
+    fallback), then sources each row-2 field from its post-migration owner
+    (cc-tmux-adopt-nx-context-and-git-status):
+
+    * ``project`` — ``@cc-project`` pane option (unchanged, cc-tmux's own registry).
+    * ``model_letter`` — UNCHANGED: still the legacy per-pane
+      ``session-context.<pane>.json`` read via :func:`_read_session_context`
+      (only its letter is used now; nx carries no model tag, so this field
+      degrades to blank once nx stops writing that file — expected, disclosed).
+    * ``context_used_pct`` — nx-agent ``GET /sessions/:id/context`` via
+      :func:`nx_agent.session_context`, keyed by the ``@cc-session-id`` pane
+      option; ``usedPercentage`` / 100 (0..1 ratio), else ``None``.
+    * ``branch`` / ``dirty`` — nx-agent ``GET /projects/:id/status``'s ``git``
+      object via :func:`nx_agent.project_git_status` (keyed by the pane's
+      resolved registry code) when reachable; falls back to the local
+      ``@cc-branch`` / ``@cc-dirty`` pane options (set by
+      :func:`tmux.set_pane_git_identity`) when nx is unreachable / 404 / has no
+      ``git`` yet. ``dirty`` is now an ``Optional[Tuple[int, int]]`` (modified,
+      untracked), not a bool.
+    * ``ahead`` — ALWAYS the local ``@cc-ahead`` pane option; nx has no
+      ahead/behind field, so there is no nx value to prefer.
+
+    Usage (account label + 5H / 7D) comes from :func:`_active_usage`. Left side
+    is model/project/git identity; right side is the account label +
+    SES:/5H:/7D: gauges.
     Fail-open: any missing piece degrades to a partial render; no pane -> ``""``.
     """
     if pane is None:
@@ -1074,11 +1144,28 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
 
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
 
-    model_letter, ses_pct, ctx_branch, dirty, ahead = _read_session_context(pane)
-    # Prefer the session-context branch (refreshed per statusline render,
-    # hook-independent) over @cc-branch (hook-coupled, can go stale) whenever
-    # the context file is fresh (003's ts gate) and carries a branch.
-    branch = ctx_branch or tmux.get_pane_option(pane, tmux.OPT_BRANCH)
+    # model_letter: UNCHANGED — still the legacy per-pane file's letter (the
+    # other fields _read_session_context returns are no longer consumed here).
+    model_letter = _read_session_context(pane)[0]
+
+    # context_used_pct: nx session-context, keyed by @cc-session-id. An empty
+    # session-id -> nx_agent.session_context returns None (its own guard).
+    ses_pct: Optional[float] = None
+    ctx = nx_agent.session_context(tmux.get_pane_option(pane, tmux.OPT_SESSION_ID))
+    if isinstance(ctx, dict):
+        pct_raw = ctx.get("usedPercentage")
+        if not isinstance(pct_raw, bool) and isinstance(pct_raw, (int, float)):
+            ses_pct = float(pct_raw) / 100.0
+
+    # branch/dirty: nx project-git-status primary, local pane options fallback.
+    branch, dirty = _resolve_branch_dirty(pane)
+
+    # ahead: always local (@cc-ahead), never nx — no nx ahead/behind field exists.
+    try:
+        ahead = int(tmux.get_pane_option(pane, tmux.OPT_AHEAD))
+    except (TypeError, ValueError):
+        ahead = 0
+
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
     return render.render_session_bar(
