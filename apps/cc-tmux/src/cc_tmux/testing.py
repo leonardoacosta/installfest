@@ -749,6 +749,30 @@ def _test_usage_dedupe_credentials() -> None:
     out4 = usage.dedupe_credentials(creds_no_email)
     _check(len(out4) == 2, "distinct accountName fallback identities stay distinct")
 
+    # Orphaned junk rows — no accountEmail AND status:refresh_failed — are
+    # DROPPED outright, not grouped. Confirmed live 2026-07-13: 20 of 107 real
+    # nexus-agent rows match this exact shape (auto-generated acct-XXXXXXXX
+    # name, isActive:False, a distinct per-row duplicateGroupId that does NOT
+    # merge them with each other), leaking through the popup as fake
+    # "accounts" (if-lp8v/if-m5q6) because each row's own generated name is
+    # its own fallback grouping key, so nothing ever collapsed them before.
+    creds_junk = [
+        {"name": "acct-aaa111", "status": "refresh_failed", "isActive": False},
+        {"name": "acct-bbb222", "status": "refresh_failed", "isActive": False},
+        {"accountEmail": "real@x.dev", "orgUuid": "1", "isActive": True},
+    ]
+    out8 = usage.dedupe_credentials(creds_junk)
+    _check(len(out8) == 1, f"orphaned refresh_failed junk dropped, real account kept: {len(out8)}")
+    _check(out8[0]["accountEmail"] == "real@x.dev", "surviving row is the real account")
+
+    # A row WITH an accountEmail is NEVER dropped by the junk filter, even if
+    # transiently refresh_failed — only genuinely identity-less rows qualify.
+    creds_email_refresh_failed = [
+        {"accountEmail": "flaky@x.dev", "orgUuid": "1", "status": "refresh_failed", "isActive": False},
+    ]
+    out9 = usage.dedupe_credentials(creds_email_refresh_failed)
+    _check(len(out9) == 1, "refresh_failed row WITH an email is kept, not dropped")
+
     # Malformed rows (non-dict) are skipped, fail-open.
     out5 = usage.dedupe_credentials([1, "x", None, {"accountEmail": "b@x.dev"}])
     _check(out5 == [{"accountEmail": "b@x.dev"}], "non-dict rows skipped")

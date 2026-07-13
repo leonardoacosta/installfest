@@ -263,6 +263,23 @@ def dedupe_credentials(credentials: object) -> List[dict]:
     distinct email-less accounts do not collapse into one bucket just because
     they both lack an email).
 
+    Before grouping, drops orphaned junk rows outright: no ``accountEmail``
+    AND ``status == "refresh_failed"``. Confirmed live (2026-07-13, GET
+    localhost:7400/credentials) that this exact shape — 20 of 107 rows,
+    each with a distinct auto-generated ``acct-XXXXXXXX`` name and its own
+    unique ``duplicateGroupId`` (nx's per-row fingerprint, NOT a shared
+    dedupe key — verified none of the 20 collapse against each other) —
+    are dead OAuth attempts that never linked to a real account, not
+    duplicates of a live one. The email-less grouping fallback above
+    cannot merge these away since each row's own generated name IS its
+    fallback key, so without this pre-filter every one of them survives
+    as a distinct fake "account" in the popup (if-lp8v/if-m5q6's
+    nexus-agent-side bloat leaking straight through the client-side
+    stopgap). This is still a view-layer drop, not a fix to nx's own
+    accumulation — the real prune belongs server-side per those beads.
+    A row WITH an email is never dropped by this check, even if transiently
+    ``refresh_failed`` — only genuinely identity-less junk qualifies.
+
     Within a group, an ``isActive: True`` row ALWAYS wins over an
     ``isActive: False`` row, regardless of timestamps — confirmed live
     (2026-07-12) that a group can contain rows with genuinely DIFFERENT
@@ -296,6 +313,8 @@ def dedupe_credentials(credentials: object) -> List[dict]:
         if not isinstance(candidate, dict):
             continue
         email = candidate.get("accountEmail")
+        if not (isinstance(email, str) and email) and candidate.get("status") == "refresh_failed":
+            continue  # orphaned junk row, never linked to a real account — drop, don't group
         org = candidate.get("orgUuid")
         org_key = org if isinstance(org, str) else None
         key = (
