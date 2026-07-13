@@ -956,6 +956,51 @@ def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
         cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
 
 
+def _test_cli_resolve_model_letter() -> None:
+    """nx-yn6c2: ``_resolve_model_letter`` sources the row-2 model letter from
+    nx-agent's ``GET /sessions/:id/context`` ``model`` field, keyed by the
+    pane's ``@cc-session-id`` option — NOT the retired legacy per-pane
+    ``session-context.<pane>.json`` file (:func:`cli._read_session_context`),
+    mirroring the if-hrbd fix's technique for SES.
+    """
+    saved_get_pane_option = tmux.get_pane_option
+    saved_session_context = nx_agent.session_context
+    saved_read_ctx = cli._read_session_context
+
+    tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
+    # OLD path: if this were still read, the letter would render as "Z" (wrong).
+    cli._read_session_context = lambda pane: ("Z", 0.99, "", False, 0)  # type: ignore[assignment]
+    try:
+        # NEW path: nx-agent's real value.
+        nx_agent.session_context = lambda *a, **k: {"model": "O"}  # type: ignore[assignment]
+        _check(
+            cli._resolve_model_letter("%1") == "O",
+            f"model letter comes from nx-agent: {cli._resolve_model_letter('%1')!r}",
+        )
+
+        # nx returns model: null (no model recorded) -> blank, not the legacy value.
+        nx_agent.session_context = lambda *a, **k: {"model": None}  # type: ignore[assignment]
+        _check(
+            cli._resolve_model_letter("%1") == "",
+            "model: null degrades to blank",
+        )
+
+        # nx-agent unreachable -> blank, NOT a silent fall-back to the legacy file.
+        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
+        _check(
+            cli._resolve_model_letter("%1") == "",
+            "nx-agent unreachable -> blank, no legacy fallback",
+        )
+
+        # Malformed non-string model -> blank (fail-open on a wrong-shaped field).
+        nx_agent.session_context = lambda *a, **k: {"model": 7}  # type: ignore[assignment]
+        _check(cli._resolve_model_letter("%1") == "", "non-string model -> blank")
+    finally:
+        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
+        nx_agent.session_context = saved_session_context  # type: ignore[assignment]
+        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
+
+
 def _test_usage_active_usage_ttl() -> None:
     # Cache round-trip + TTL + negative caching, with _query monkeypatched to count.
     calls = {"n": 0}
@@ -2669,6 +2714,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.git_status_failure", _test_tmux_git_status_failure),
     ("cli.register_captures_session_id", _test_cli_register_captures_session_id),
     ("cli.resolve_git_status_dual_source", _test_cli_resolve_git_status_dual_source),
+    ("cli.resolve_model_letter", _test_cli_resolve_model_letter),
 ]
 
 

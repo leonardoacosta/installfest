@@ -954,13 +954,15 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
 # A file older than this is a dead session or a recycled pane id — render it
 # as absent rather than confidently wrong. Writer-side GC (>6h prune) is inert
 # exactly when the writer stalls, so the reader enforces its own cutoff.
-# Post-migration (cc-tmux-adopt-nx-context-and-git-status, then if-hrbd) this
-# gate governs only the ``model_letter`` (index 0) return of
-# ``_read_session_context`` — the only field any caller still reads from this
-# legacy file. ``context_used_pct`` (index 1) and the branch/dirty/ahead
-# fields it also carries are no longer consumed by any caller; SES is now
-# sourced exclusively via :func:`_resolve_ses_pct` (nx-agent), for both row 2
-# and the accounts popup.
+# Post-migration (cc-tmux-adopt-nx-context-and-git-status, if-hrbd, then
+# nx-yn6c2) NO production caller reads this file anymore: ``model_letter``
+# (index 0), the last field still consumed, moved onto nx-agent via
+# :func:`_resolve_model_letter` once nx confirmed the file no longer exists
+# on disk at all. ``_read_session_context`` and this cutoff are kept only for
+# their self-test coverage of the (now legacy-only) parsing contract; SES and
+# model_letter are both sourced exclusively via nx-agent
+# (:func:`_resolve_ses_pct` / :func:`_resolve_model_letter`) for row 2 and the
+# accounts popup.
 SESSION_CONTEXT_MAX_AGE_SECS = 900.0
 
 
@@ -983,19 +985,15 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float], str, bool
     cutoff logic of their own. Fail-open: missing pane id / file / bad shape /
     non-numeric -> ``("", None, "", False, 0)`` for the piece that failed.
 
-    Consumption note (as of if-hrbd): although this function still returns the
-    full 5-tuple, only ONE element is read by any caller — ``model_letter``
-    (index 0) by :func:`_build_session_bar`. ``context_used_pct`` (index 1)
-    used to also be read by :func:`cmd_accounts_popup`, but that was the
-    if-hrbd gap: cc-tmux-adopt-nx-context-and-git-status migrated row 2's SES
-    off this legacy file onto nx-agent while leaving the popup on this stale
-    path, and confirmed live (2026-07-13) that this file no longer exists on
-    disk at all, so the popup's SES was unconditionally blank. Both surfaces
-    now share :func:`_resolve_ses_pct` (nx-agent) for SES — ``context_used_pct``
-    and ``branch``/``dirty``/``ahead`` (indices 1-4) are no longer consumed by
-    anything; they remain in the return tuple purely for backward-compatible
-    parsing of the legacy file's shape and MUST NOT be assumed live by new
-    callers.
+    Consumption note (as of nx-yn6c2): ZERO production callers read this
+    function anymore. ``context_used_pct`` (index 1) moved to nx-agent first
+    (if-hrbd, :func:`_resolve_ses_pct`); ``model_letter`` (index 0), the last
+    field :func:`_build_session_bar` still read from here, moved to nx-agent
+    too (:func:`_resolve_model_letter`) once nx confirmed
+    ``session-context.<pane>.json`` no longer exists on disk at all. This
+    function and its 5-tuple parsing are retained only for
+    :mod:`testing`'s existing coverage of the legacy file shape — no new
+    caller should be added; MUST NOT be assumed live.
     """
     if not pane_id:
         return "", None, "", False, 0
@@ -1211,6 +1209,33 @@ def _resolve_ses_pct(pane: str) -> Optional[float]:
     return float(pct_raw) / 100.0
 
 
+def _resolve_model_letter(pane: str) -> str:
+    """Live model-family letter (F/O/H/S) for ``pane`` via nx-agent (nx-yn6c2).
+
+    Same ``GET /sessions/:id/context`` call :func:`_resolve_ses_pct` makes
+    (cached — see :mod:`nx_agent`), read here for its ``model`` field instead
+    of ``usedPercentage``. Replaces the retired legacy-file read
+    (:func:`_read_session_context`'s index-0 return): nx confirmed 2026-07-13
+    that ``session-context.<pane>.json`` no longer exists on disk at all
+    (cc-tmux-adopt-nx-context-and-git-status migrated ``context_used_pct`` off
+    it via :func:`_resolve_ses_pct` but left ``model_letter`` on the dead
+    file), and nx's endpoint has carried a single-letter family tag derived
+    fresh from the session row on every call since nx commit 4463a48c — the
+    same shape the legacy file used to carry, so this is a drop-in
+    replacement, not a new contract.
+
+    Fail-open: empty session-id, unreachable nx-agent, non-2xx, or a
+    non-string ``model`` (including the documented ``null`` for "no model
+    recorded") all degrade to ``""`` — same convention as
+    :func:`_resolve_ses_pct`.
+    """
+    ctx = nx_agent.session_context(tmux.get_pane_option(pane, tmux.OPT_SESSION_ID))
+    if not isinstance(ctx, dict):
+        return ""
+    letter = ctx.get("model")
+    return letter if isinstance(letter, str) else ""
+
+
 def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-2 session status-format string for a window (Req rows 2).
 
@@ -1223,10 +1248,13 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     (cc-tmux-git-status-glyphs, superseding cc-tmux-adopt-nx-context-and-git-status):
 
     * ``project`` — ``@cc-project`` pane option (unchanged, cc-tmux's own registry).
-    * ``model_letter`` — UNCHANGED: still the legacy per-pane
-      ``session-context.<pane>.json`` read via :func:`_read_session_context`
-      (only its letter is used now; nx carries no model tag, so this field
-      degrades to blank once nx stops writing that file — expected, disclosed).
+    * ``model_letter`` — :func:`_resolve_model_letter` (nx-agent
+      ``GET /sessions/:id/context``'s ``model`` field, keyed by the
+      ``@cc-session-id`` pane option; nx-yn6c2). Replaces the former legacy-file
+      read (``session-context.<pane>.json``, via :func:`_read_session_context`)
+      now that nx confirmed that file no longer exists on disk at all — the
+      same migration :func:`_resolve_ses_pct` already made for
+      ``context_used_pct``.
     * ``context_used_pct`` — :func:`_resolve_ses_pct` (nx-agent
       ``GET /sessions/:id/context``, keyed by the ``@cc-session-id`` pane
       option), else ``None``. Shared with :func:`cmd_accounts_popup` (if-hrbd)
@@ -1258,9 +1286,10 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
 
     project = tmux.get_pane_option(pane, tmux.OPT_PROJECT)
 
-    # model_letter: UNCHANGED — still the legacy per-pane file's letter (the
-    # other fields _read_session_context returns are no longer consumed here).
-    model_letter = _read_session_context(pane)[0]
+    # model_letter: nx-agent resolution (nx-yn6c2 — see _resolve_model_letter),
+    # replacing the now-dead legacy-file read (session-context.<pane>.json no
+    # longer exists on disk at all — confirmed 2026-07-13).
+    model_letter = _resolve_model_letter(pane)
 
     # context_used_pct: shared nx-agent resolution (if-hrbd — see _resolve_ses_pct).
     ses_pct = _resolve_ses_pct(pane)
