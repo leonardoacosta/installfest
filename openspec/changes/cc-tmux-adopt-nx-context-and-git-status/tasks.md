@@ -114,8 +114,11 @@
   self-test, independently re-run and confirmed 78/78 passing. What remains genuinely unverified:
   the actual on-screen row-2 render, and the branch/dirty local-fallback path with nx truly killed
   — needs Leo to do a real click after this spec deploys.
-- [ ] [4.5] [P-3] File two nx-side beads in nx's own tracker (not `if-*`): (1) add an [beads:if-2qyc]
+- [x] [4.5] [P-3] File two nx-side beads in nx's own tracker (not `if-*`): (1) add an [beads:if-2qyc]
   ahead/behind-vs-upstream field to `git-observer`'s payload, referencing this proposal's Non-Goals
   and nx bead `nx-yn6c2`'s sibling scope; (2) add a `model` field to `/sessions/:id/context`,
   referencing this proposal's Why item 3. Paste the created bead IDs.
   [owner:general-purpose] [type:docs]
+  Filed in nx's own tracker (2026-07-13): `nx-mbnqj` (ahead/behind field) and `nx-da20s` (model
+  field). First attempt landed in the wrong tracker (`if-yoiw`, this repo's) — closed with a
+  "wrong tracker" reason before recreating correctly in `~/dev/personal/nexus`'s own `.beads/`.
