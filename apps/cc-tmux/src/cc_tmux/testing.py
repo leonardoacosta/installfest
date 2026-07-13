@@ -2120,6 +2120,146 @@ def _test_tmux_git_dirty_ahead_fixture() -> None:
 
 
 # ---------------------------------------------------------------------------
+# cmd_register session_id capture + _build_session_bar dual-source composition
+# (cc-tmux-adopt-nx-context-and-git-status task 4.2). Mirrors
+# _test_cli_register_subagent_start_stop_branching's monkeypatch style for the
+# cmd_register path, and the module-level nx_agent monkeypatch + fake
+# get_pane_option store the row-2 tests already use for the session-bar path.
+# ---------------------------------------------------------------------------
+
+def _test_cli_register_captures_session_id() -> None:
+    """cmd_register captures session_id -> @cc-session-id on SessionStart only
+    (task 1.4). A non-SessionStart event with a session_id leaves the option
+    untouched; a SessionStart with no session_id writes nothing for it. Mirrors
+    the SessionStart-scoped session_title capture on the same code path."""
+    set_opts: List[Tuple[str, str]] = []
+
+    saved_set_pane_state = tmux.set_pane_state
+    saved_set_opt = tmux._set_opt
+    saved_set_pane_title = tmux.set_pane_title
+    saved_notify_react = cli.notify.react
+    saved_maybe_rename = cli._maybe_rename_window
+    saved_trace = cli._trace_register
+    saved_read_stdin = cli._read_hook_stdin
+    tmux.set_pane_state = lambda *a, **k: False  # type: ignore[assignment]
+    tmux._set_opt = lambda pane, opt, val: set_opts.append((opt, val))  # type: ignore[assignment]
+    tmux.set_pane_title = lambda *a, **k: None  # type: ignore[assignment]
+    cli.notify.react = lambda *a, **k: None  # type: ignore[assignment]
+    cli._maybe_rename_window = lambda pane: False  # type: ignore[assignment]
+    cli._trace_register = lambda *a, **k: None  # type: ignore[assignment]
+    try:
+        args = argparse.Namespace(
+            state="idle", task=None, reason=None, pane="%1",
+            subagent_start=False, subagent_stop=False,
+        )
+
+        # SessionStart + session_id -> @cc-session-id set to that value.
+        cli._read_hook_stdin = lambda: {  # type: ignore[assignment]
+            "hook_event_name": "SessionStart", "session_id": "abc123",
+        }
+        set_opts.clear()
+        cli.cmd_register(args)
+        _check(
+            (tmux.OPT_SESSION_ID, "abc123") in set_opts,
+            f"SessionStart session_id must set @cc-session-id: {set_opts!r}",
+        )
+
+        # Non-SessionStart event carrying a session_id -> @cc-session-id untouched.
+        cli._read_hook_stdin = lambda: {  # type: ignore[assignment]
+            "hook_event_name": "UserPromptSubmit", "session_id": "abc123",
+        }
+        set_opts.clear()
+        cli.cmd_register(args)
+        _check(
+            not any(opt == tmux.OPT_SESSION_ID for opt, _ in set_opts),
+            f"non-SessionStart event must NOT set @cc-session-id: {set_opts!r}",
+        )
+
+        # SessionStart with session_id absent -> no @cc-session-id write, no crash.
+        cli._read_hook_stdin = lambda: {"hook_event_name": "SessionStart"}  # type: ignore[assignment]
+        set_opts.clear()
+        cli.cmd_register(args)
+        _check(
+            not any(opt == tmux.OPT_SESSION_ID for opt, _ in set_opts),
+            f"SessionStart without session_id must not write @cc-session-id: {set_opts!r}",
+        )
+    finally:
+        tmux.set_pane_state = saved_set_pane_state  # type: ignore[assignment]
+        tmux._set_opt = saved_set_opt  # type: ignore[assignment]
+        tmux.set_pane_title = saved_set_pane_title  # type: ignore[assignment]
+        cli.notify.react = saved_notify_react  # type: ignore[assignment]
+        cli._maybe_rename_window = saved_maybe_rename  # type: ignore[assignment]
+        cli._trace_register = saved_trace  # type: ignore[assignment]
+        cli._read_hook_stdin = saved_read_stdin  # type: ignore[assignment]
+
+
+def _test_cli_build_session_bar_dual_source() -> None:
+    """_build_session_bar composes row 2 from two sources (task 2.1): nx-agent
+    for context_used_pct/branch/dirty when reachable, local pane options as the
+    fallback; `ahead` is ALWAYS local; `model_letter` is untouched by either.
+
+    Local fallback values are set DIFFERENT from the nx values so a wrong-source
+    bug is visible in the rendered output. The pane is passed explicitly so
+    _resolve_session_pane is bypassed; get_pane_option is a fake per-option
+    store; nx_agent.session_context / project_git_status are monkeypatched at the
+    module level (project_git_status is the one _resolve_branch_dirty consults)."""
+    store = {
+        tmux.OPT_PROJECT: "if",
+        tmux.OPT_SESSION_ID: "sid-1",
+        tmux.OPT_BRANCH: "local-branch",   # nx value differs -> proves source
+        tmux.OPT_DIRTY: "[7, 8]",          # local dirty pair -> renders *7+8
+        tmux.OPT_AHEAD: "4",               # ahead is always local -> ^4
+    }
+
+    saved_session_context = nx_agent.session_context
+    saved_project_git_status = nx_agent.project_git_status
+    saved_get_pane_option = tmux.get_pane_option
+    saved_run_tmux = tmux._run_tmux
+    saved_resolve_code = registry.resolve_project_code
+    saved_read_ctx = cli._read_session_context
+    saved_active_usage = cli._active_usage
+    tmux.get_pane_option = lambda pane, opt: store.get(opt, "")  # type: ignore[assignment]
+    tmux._run_tmux = lambda args, *, check_available=True: "/some/cwd"  # type: ignore[assignment]
+    registry.resolve_project_code = lambda cwd: "if"  # type: ignore[assignment]
+    cli._read_session_context = lambda pane: ("O", None, "", False, 0)  # type: ignore[assignment]
+    cli._active_usage = lambda: ("", None, None)  # type: ignore[assignment]
+    try:
+        # --- nx REACHABLE: nx branch/dirty/SES win over the local pane options ---
+        nx_agent.session_context = lambda *a, **k: {"usedPercentage": 55.0}  # type: ignore[assignment]
+        nx_agent.project_git_status = lambda *a, **k: {  # type: ignore[assignment]
+            "branch": "nx-branch", "dirty": {"modified": 3, "untracked": 1},
+        }
+        out_nx = cli._build_session_bar("@1", pane="%1")
+        _check("nx-branch" in out_nx, f"nx reachable -> nx branch used: {out_nx!r}")
+        _check("local-branch" not in out_nx, f"nx reachable -> local branch NOT used: {out_nx!r}")
+        _check(f"#[fg={render.YELLOW}]*3+1" in out_nx, f"nx reachable -> nx dirty counts (*3+1): {out_nx!r}")
+        _check("*7+8" not in out_nx, f"nx reachable -> local dirty pair NOT used: {out_nx!r}")
+        _check("SES:" in out_nx and "55%" in out_nx, f"nx reachable -> nx SES% (55%): {out_nx!r}")
+        _check(f"#[fg={render.YELLOW}]^4" in out_nx, f"ahead always local (^4) even when nx reachable: {out_nx!r}")
+        _check(f"#[fg={render.CYAN}]O" in out_nx, f"model_letter from _read_session_context (O): {out_nx!r}")
+
+        # --- nx UNREACHABLE: both return None -> local branch/dirty fallback ---
+        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
+        nx_agent.project_git_status = lambda *a, **k: None  # type: ignore[assignment]
+        out_local = cli._build_session_bar("@1", pane="%1")
+        _check("local-branch" in out_local, f"nx unreachable -> local branch used: {out_local!r}")
+        _check("nx-branch" not in out_local, f"nx unreachable -> nx branch NOT used: {out_local!r}")
+        _check(f"#[fg={render.YELLOW}]*7+8" in out_local, f"nx unreachable -> local dirty pair (*7+8): {out_local!r}")
+        _check("*3+1" not in out_local, f"nx unreachable -> nx dirty counts NOT used: {out_local!r}")
+        _check("SES:#[fg=" in out_local and "--" in out_local, f"nx unreachable -> SES blank ('--'): {out_local!r}")
+        _check(f"#[fg={render.YELLOW}]^4" in out_local, f"ahead always local (^4) when nx unreachable too: {out_local!r}")
+        _check(f"#[fg={render.CYAN}]O" in out_local, f"model_letter unaffected by nx reachability (O): {out_local!r}")
+    finally:
+        nx_agent.session_context = saved_session_context  # type: ignore[assignment]
+        nx_agent.project_git_status = saved_project_git_status  # type: ignore[assignment]
+        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
+        tmux._run_tmux = saved_run_tmux  # type: ignore[assignment]
+        registry.resolve_project_code = saved_resolve_code  # type: ignore[assignment]
+        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
+        cli._active_usage = saved_active_usage  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -2200,6 +2340,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("nx_agent.session_context_cache", _test_nx_agent_session_context_cache),
     ("nx_agent.project_git_status_cache", _test_nx_agent_project_git_status_cache),
     ("tmux.git_dirty_ahead_fixture", _test_tmux_git_dirty_ahead_fixture),
+    ("cli.register_captures_session_id", _test_cli_register_captures_session_id),
+    ("cli.build_session_bar_dual_source", _test_cli_build_session_bar_dual_source),
 ]
 
 
