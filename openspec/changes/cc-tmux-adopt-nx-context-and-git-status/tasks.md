@@ -11,7 +11,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/nx_agent.py` (new module): `session_context(session_id: str, [beads:if-rovv]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/nx_agent.py` (new module): `session_context(session_id: str, [beads:if-rovv]
   ttl=5.0, cache_path=None, now=None) -> Optional[dict]` querying `GET
   http://localhost:7400/sessions/{id}/context`, and `project_git_status(code: str, ttl=5.0,
   cache_path=None, now=None) -> Optional[dict]` querying `GET
