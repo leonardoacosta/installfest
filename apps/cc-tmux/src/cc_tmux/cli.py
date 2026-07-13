@@ -954,6 +954,10 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
 # A file older than this is a dead session or a recycled pane id — render it
 # as absent rather than confidently wrong. Writer-side GC (>6h prune) is inert
 # exactly when the writer stalls, so the reader enforces its own cutoff.
+# Post-migration (cc-tmux-adopt-nx-context-and-git-status) this gate governs
+# only the two fields still read from this file — the ``model_letter`` (index 0)
+# and ``context_used_pct`` (index 1) returns of ``_read_session_context``; the
+# branch/dirty/ahead fields it also carries are no longer consumed by any caller.
 SESSION_CONTEXT_MAX_AGE_SECS = 900.0
 
 
@@ -975,6 +979,16 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float], str, bool
     (plan 003) — the git fields share that same freshness gate, they have no
     cutoff logic of their own. Fail-open: missing pane id / file / bad shape /
     non-numeric -> ``("", None, "", False, 0)`` for the piece that failed.
+
+    Consumption note (as of cc-tmux-adopt-nx-context-and-git-status): although
+    this function still returns the full 5-tuple, only two elements are read by
+    any caller — ``model_letter`` (index 0) by :func:`_build_session_bar` and
+    ``context_used_pct`` (index 1) by :func:`cmd_accounts_popup`. The dual-source
+    migration moved ``_build_session_bar``'s context_used_pct/branch/dirty/ahead
+    to nx-agent + local pane options, so ``branch``/``dirty``/``ahead``
+    (indices 2-4) are no longer consumed by anything; they remain in the return
+    tuple purely for backward-compatible parsing of the legacy file and MUST NOT
+    be assumed live by new callers.
     """
     if not pane_id:
         return "", None, "", False, 0
