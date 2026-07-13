@@ -1096,42 +1096,59 @@ def _test_render_session_bar() -> None:
     _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
-    # dirty=(modified, untracked) with a nonzero count, ahead>0 -> both YELLOW
-    # markers render alongside the branch (task 3.1: dirty is a count pair now).
-    out_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(1, 0), ahead=2)
-    _check(f"#[fg={render.BRANCH}]main" in out_dirty, "branch still renders with markers present")
-    _check(f"#[fg={render.YELLOW}]*" in out_dirty, "nonzero dirty -> YELLOW '*' marker")
-    _check(f"#[fg={render.YELLOW}]^2" in out_dirty, "ahead=2 -> YELLOW '^2' marker")
-
-    # dirty=None, ahead=0 -> no markers at all.
-    out_clean = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=None, ahead=0)
-    _check("*" not in out_clean, "dirty=None -> no '*' marker")
-    _check("^" not in out_clean, "ahead=0 -> no '^N' marker")
-
-    # Empty branch + nonzero dirty, ahead=5 -> markers gated on branch, neither appears.
-    out_nobranch = render.render_session_bar("F", "if", "", "", None, None, None, dirty=(1, 0), ahead=5)
-    _check("*" not in out_nobranch, "no branch -> dirty marker suppressed (gated on branch)")
-    _check("^" not in out_nobranch, "no branch -> ahead marker suppressed (gated on branch)")
-
-    # No-kwargs call -> byte-identical to explicit dirty=None, ahead=0 (backward compat).
-    out_default = render.render_session_bar("F", "if", "main", "", None, None, None)
-    out_explicit_default = render.render_session_bar(
-        "F", "if", "main", "", None, None, None, dirty=None, ahead=0
+    # cc-tmux-git-status-glyphs task 4.3: git_status= six-field glyph format —
+    # each field at a representative nonzero count renders its exact glyph
+    # string, in the fixed left-to-right order, with the spec-mandated color.
+    gs_all = tmux.GitStatusCounts(modified=3, untracked=1, deleted=2, renamed=1, ahead=4, behind=1)
+    out_all = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=gs_all)
+    _check(f"#[fg={render.BRANCH}]main" in out_all, "branch still renders with indicators present")
+    expected_run = (
+        f"#[fg={render.GREEN}]3M "
+        f"#[fg={render.YELLOW}]1U "
+        f"#[fg={render.RED}]2D "
+        f"#[fg={render.BLUE}]1R "
+        f"#[fg={render.DIM}]⇡4 "
+        f"#[fg={render.DIM}]⇣1"
     )
-    _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=None, ahead=0")
+    _check(expected_run in out_all, f"all-six-nonzero -> exact glyph run in fixed order: {out_all!r}")
 
-    # cc-tmux-adopt-nx-context-and-git-status task 4.3: dedicated dirty-counts
-    # format coverage — exact `*<modified>+<untracked>` string, both empty
-    # shapes render nothing, and the `^N` ahead marker is unaffected.
-    out_counts = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(3, 2), ahead=2)
-    _check(f"#[fg={render.YELLOW}]*3+2" in out_counts, "dirty=(3, 2) -> exact '*3+2' YELLOW marker")
-    _check(f"#[fg={render.YELLOW}]^2" in out_counts, "ahead=2 -> '^2' marker (unchanged by task 3.1 signature)")
+    # Zero count for an individual field renders nothing for that field
+    # specifically — proven by a partial case (only modified nonzero) so the
+    # other five are confirmed cleanly omitted, not just the all-zero case.
+    gs_partial = tmux.GitStatusCounts(modified=1)
+    out_partial = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=gs_partial)
+    _check(f"#[fg={render.GREEN}]1M" in out_partial, "modified=1 -> GREEN '1M' marker")
+    # Anchored on colour codes (not bare letters) since "7D:" from the usage
+    # gauges always contains a literal 'D' regardless of git status —
+    # RED/YELLOW/BLUE are otherwise unused when ses/5h/7d are all None
+    # (color_for only returns DIM/RED/YELLOW/CYAN for gauges, never GREEN/BLUE,
+    # and here all three are None so gauges render DIM only).
+    _check(f"#[fg={render.YELLOW}]" not in out_partial, "untracked=0 -> no YELLOW 'U' marker")
+    _check(f"#[fg={render.RED}]" not in out_partial, "deleted=0 -> no RED 'D' marker")
+    _check(f"#[fg={render.BLUE}]" not in out_partial, "renamed=0 -> no BLUE 'R' marker")
+    _check("⇡" not in out_partial, "ahead=0 -> no '⇡N' glyph")
+    _check("⇣" not in out_partial, "behind=0 -> no '⇣N' glyph")
 
-    out_zero = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(0, 0), ahead=0)
-    _check("*" not in out_zero, "dirty=(0, 0) -> no '*' marker (empty-count shape renders nothing)")
+    # All-six-zero (explicit GitStatusCounts()) -> no working-tree-indicator
+    # segment at all; branch renders alone with nothing appended after it.
+    out_zero = render.render_session_bar(
+        "F", "if", "main", "", None, None, None, git_status=tmux.GitStatusCounts()
+    )
+    _check(f"#[fg={render.BRANCH}]main#[default]" in out_zero, "all-zero -> branch renders with no indicator segment")
+    _check(f"#[fg={render.GREEN}]" not in out_zero, "all-zero -> no GREEN 'M' marker")
+    _check(f"#[fg={render.YELLOW}]" not in out_zero, "all-zero -> no YELLOW 'U' marker")
+    _check(f"#[fg={render.RED}]" not in out_zero, "all-zero -> no RED 'D' marker")
+    _check(f"#[fg={render.BLUE}]" not in out_zero, "all-zero -> no BLUE 'R' marker")
+    _check("⇡" not in out_zero, "all-zero -> no '⇡N' glyph")
+    _check("⇣" not in out_zero, "all-zero -> no '⇣N' glyph")
 
-    out_none_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=None, ahead=0)
-    _check("*" not in out_none_dirty, "dirty=None -> no '*' marker")
+    # git_status=None renders identically to an explicit all-zero instance.
+    out_none = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=None)
+    _check(out_none == out_zero, "git_status=None must match explicit GitStatusCounts() byte-for-byte")
+
+    # No-kwargs call (git_status omitted entirely) -> same as explicit None.
+    out_default = render.render_session_bar("F", "if", "main", "", None, None, None)
+    _check(out_default == out_zero, "no-kwargs call must match explicit git_status=GitStatusCounts()")
 
 
 def _test_render_beads_bar() -> None:
