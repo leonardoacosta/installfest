@@ -806,6 +806,35 @@ def _test_usage_dedupe_credentials() -> None:
     out7 = usage.dedupe_credentials(list(reversed(creds_active_vs_stale)))
     _check(out7[0]["isActive"] is True, "isActive:True wins regardless of list order")
 
+    # Regression (2026-07-13, real-payload-shaped): a real polled row (both
+    # isActive:False) must NOT be overwritten by a LATER refresh_failed
+    # duplicate that has no usagePolledAt. Confirmed live: nexus-agent's
+    # actual payload interleaves genuinely-polled rows with all-null
+    # refresh_failed junk for the SAME identity in no guaranteed order — the
+    # prior tie-break's "either side missing a timestamp -> last one wins"
+    # let a later null row silently erase real 5H/7D data, which is exactly
+    # what the accounts popup showed for two real non-active accounts.
+    creds_real_then_junk = [
+        {
+            "accountEmail": "d@x.dev", "orgUuid": "1", "isActive": False,
+            "usage5hUsed": 25.0, "usage5hLimit": 100.0,
+            "usagePolledAt": "2026-07-13T14:56:30.968Z",
+        },
+        {
+            "accountEmail": "d@x.dev", "orgUuid": "1", "isActive": False,
+            "usage5hUsed": None, "usage5hLimit": None, "usagePolledAt": None,
+            "status": "refresh_failed",
+        },
+    ]
+    out10 = usage.dedupe_credentials(creds_real_then_junk)
+    _check(len(out10) == 1, "still collapses to one row")
+    _check(out10[0]["usage5hUsed"] == 25.0, f"real polled data survives a later null junk dup: {out10[0]!r}")
+
+    # Same scenario, junk seen FIRST then real data -> real data still wins
+    # (the existing new-timestamp-vs-no-timestamp branch, not the bug).
+    out11 = usage.dedupe_credentials(list(reversed(creds_real_then_junk)))
+    _check(out11[0]["usage5hUsed"] == 25.0, f"real polled data wins regardless of list order: {out11[0]!r}")
+
 
 def _test_render_accounts_popup() -> None:
     accounts = [

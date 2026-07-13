@@ -296,12 +296,21 @@ def dedupe_credentials(credentials: object) -> List[dict]:
     letting recency alone decide would silently drop the one row this
     feature actually needs (the credential the accounts-popup marks SES on).
     Only when both candidates share the same ``isActive`` value does the
-    recency tie-break apply: prefers whichever has the more recent
-    ``usagePolledAt`` (an ISO-8601 string, lexically comparable) when BOTH
-    carry one; otherwise "last one wins" — the payload's own list order is
-    presumed oldest-to-newest, matching an accumulating-log shape, and
-    ``usagePolledAt`` is frequently ``null`` on this machine (nexus-agent
-    has never polled most accounts), so that fallback is the common path.
+    recency tie-break apply, and it is data-presence-first, not
+    list-position-first (fixed 2026-07-13): whichever side actually HAS a
+    usable ``usagePolledAt`` wins over a side that doesn't, before falling
+    back to comparing two real timestamps or, only when NEITHER side has
+    one, "last one wins" (payload's own list order presumed oldest-to-newest).
+    The prior version treated "either side missing a timestamp" as one
+    undifferentiated case and always took the newer list entry regardless of
+    which side actually had data — since the real payload interleaves
+    genuinely-polled rows (real usage figures) with
+    ``status: "refresh_failed"`` junk duplicates (all-null, no timestamp) for
+    the SAME ``(accountEmail, orgUuid)`` in no guaranteed order, that bug let
+    a later junk row silently erase an earlier row's real 5H/7D data —
+    confirmed live (2026-07-13): the accounts popup showed blank usage for
+    two real, non-active accounts that DO have real polled data in the raw
+    payload, exactly this shape.
 
     Pure function, no HTTP — operates on the ``credentials`` list a caller
     already fetched via :func:`_query`. Non-list input -> ``[]``; non-dict
@@ -344,14 +353,23 @@ def dedupe_credentials(credentials: object) -> List[dict]:
 
         new_polled = candidate.get("usagePolledAt")
         old_polled = existing.get("usagePolledAt")
-        if (
-            isinstance(new_polled, str) and new_polled
-            and isinstance(old_polled, str) and old_polled
-        ):
+        new_has_ts = isinstance(new_polled, str) and bool(new_polled)
+        old_has_ts = isinstance(old_polled, str) and bool(old_polled)
+
+        if new_has_ts and old_has_ts:
             if new_polled >= old_polled:
                 groups[key] = candidate
+        elif new_has_ts and not old_has_ts:
+            # Candidate carries real polled data, existing doesn't -- prefer data.
+            groups[key] = candidate
+        elif old_has_ts and not new_has_ts:
+            # Existing already carries real polled data; candidate is an
+            # unpolled/refresh_failed duplicate -- keep it, don't let a later
+            # junk row erase real usage data (this was the bug).
+            pass
         else:
-            # No dependable timestamp on one/both sides -> last one wins.
+            # Neither side has a usable timestamp -> no basis to prefer
+            # either; last one wins (list order presumed oldest-to-newest).
             groups[key] = candidate
 
     return [groups[key] for key in order]
