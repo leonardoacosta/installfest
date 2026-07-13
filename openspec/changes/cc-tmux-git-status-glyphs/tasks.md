@@ -90,7 +90,7 @@
   six back to local; a SIMULATED nx response carrying all six keys results in all six preferring
   nx (proves the forward-compatible per-field rule with no future code change needed). Run
   `cc-tmux self-test` and paste the passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-57i6]
+- [x] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-57i6]
   `render_session_bar`'s new glyph format — each of the six fields at a representative nonzero
   count renders its exact glyph string in the correct color and position (e.g. modified=3 ->
   `#[fg=<GREEN>]3M`); a zero count for any field renders nothing for that field (no stray glyph,
