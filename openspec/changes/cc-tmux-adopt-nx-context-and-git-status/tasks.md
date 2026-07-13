@@ -39,7 +39,7 @@
   `clear_pane_state` retires them on `SessionEnd` like every other tracked option. Update the
   module docstring's tracked-options table to list the three new options.
   [owner:general-purpose] [type:api]
-- [ ] [1.4] `apps/cc-tmux/src/cc_tmux/cli.py`: in `cmd_register`'s existing `SessionStart` branch [beads:if-mro6]
+- [x] [1.4] `apps/cc-tmux/src/cc_tmux/cli.py`: in `cmd_register`'s existing `SessionStart` branch [beads:if-mro6]
   (the block that already reads `hook_payload.get("session_title")`), also read
   `hook_payload.get("session_id")` and, when present, call `tmux._set_opt(pane,
   tmux.OPT_SESSION_ID, session_id)`. [owner:general-purpose] [type:api]
