@@ -14,7 +14,8 @@ from __future__ import annotations
 import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from .usage import CYAN, DIM, RED, YELLOW, color_for, pct_for
+from . import tmux
+from .usage import BLUE, CYAN, DIM, GREEN, RED, YELLOW, color_for, pct_for
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -255,19 +256,23 @@ def render_session_bar(
     five_h_pct: Optional[float],
     seven_d_pct: Optional[float],
     *,
-    dirty: Optional[Tuple[int, int]] = None,
-    ahead: int = 0,
+    git_status: Optional["tmux.GitStatusCounts"] = None,
 ) -> str:
     """Row-2 status-format string: model/project/git on the left, usage on the right.
 
-    Left side: model letter + project + git branch. When ``branch`` is
-    non-empty, a YELLOW ``*<modified>+<untracked>`` marks a dirty worktree and a
-    YELLOW ``^N`` marks N commits ahead of upstream — both dropped (fail-open)
-    when no branch renders, so a marker never appears without the branch it
-    describes. ``dirty`` is a ``(modified, untracked)`` count pair (or ``None``);
-    the marker renders only when ``modified + untracked > 0`` (e.g. ``(3, 2)`` ->
-    ``*3+2``, ``(1, 0)`` -> ``*1+0``), and renders nothing for ``None`` or
-    ``(0, 0)``. Right
+    Left side: model letter + project + git branch, followed by up to six
+    working-tree indicator segments (cc-tmux-git-status-glyphs task 3.1),
+    each entirely omitted — no glyph, no stray separator — when its count is
+    0. ``git_status`` is a :class:`cc_tmux.tmux.GitStatusCounts` (or ``None``,
+    treated identically to an all-zero instance). In this fixed left-to-right
+    order, space-separated: ``<N>M`` (GREEN) if ``modified > 0``, ``<N>U``
+    (YELLOW) if ``untracked > 0``, ``<N>D`` (RED) if ``deleted > 0``, ``<N>R``
+    (BLUE) if ``renamed > 0``, ``⇡<N>`` if ``ahead > 0``, ``⇣<N>`` if
+    ``behind > 0`` — the ahead/behind glyphs are unstyled/DIM, matching the
+    branch segment's own styling rather than getting a distinct colour. The
+    whole indicator run is dropped (fail-open) when ``branch`` is empty, so a
+    marker never appears without the branch it describes — same fail-open
+    contract the prior ``dirty``/``ahead`` params had. Right
     side: account label + SES:/5H:/7D: gauges, each coloured via color_for and
     formatted via pct_for. The two sides are joined with a #[align=right]
     directive so tmux fills the gap between them. ses_pct / five_h_pct /
@@ -296,10 +301,22 @@ def render_session_bar(
     if branch:
         left_parts.append(f"#[fg={DIM}]>")
         seg = f"#[fg={BRANCH}]{branch}"
-        if dirty is not None and dirty[0] + dirty[1] > 0:
-            seg += f"#[fg={YELLOW}]*{dirty[0]}+{dirty[1]}"
-        if ahead > 0:
-            seg += f"#[fg={YELLOW}]^{ahead}"
+        gs = git_status or tmux.GitStatusCounts()
+        indicators: List[str] = []
+        if gs.modified > 0:
+            indicators.append(f"#[fg={GREEN}]{gs.modified}M")
+        if gs.untracked > 0:
+            indicators.append(f"#[fg={YELLOW}]{gs.untracked}U")
+        if gs.deleted > 0:
+            indicators.append(f"#[fg={RED}]{gs.deleted}D")
+        if gs.renamed > 0:
+            indicators.append(f"#[fg={BLUE}]{gs.renamed}R")
+        if gs.ahead > 0:
+            indicators.append(f"#[fg={DIM}]⇡{gs.ahead}")
+        if gs.behind > 0:
+            indicators.append(f"#[fg={DIM}]⇣{gs.behind}")
+        if indicators:
+            seg += " " + " ".join(indicators)
         left_parts.append(seg)
     left = " ".join(left_parts) + "#[default]"
 
