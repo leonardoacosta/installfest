@@ -896,6 +896,7 @@ def _test_accounts_popup_click_dismiss_wiring() -> None:
     _check("accounts-popup | fzf" in content, "accounts-popup piped through fzf (supports_popup branch)")
     _check("click-header:abort" in content, "click-header:abort real click-to-close bind present")
     _check("--no-input" in content, "--no-input present (popup cannot be typed into)")
+    _check("--header-border" in content, "--header-border present ([x] visually attached to the frame)")
     _check("read -n 1 -s" in content, "static any-keystroke fallback retained for no-fzf/old-tmux case")
 
 

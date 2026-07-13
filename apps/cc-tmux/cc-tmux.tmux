@@ -135,9 +135,19 @@ fi
 # `POST /credentials/swap` endpoint to switch to regardless — confirmed 404
 # live). Falls back to the pre-existing static `read -n 1 -s` popup
 # (any-keystroke dismiss) when fzf/tmux-3.2+ isn't available.
+#
+# `--header-border` (2026-07-13, Leo's request): draws a separator line
+# between the `[x]` header and the account list so the close affordance
+# reads as attached to the popup frame rather than a floating content line.
+# Considered `--border-label` instead (renders literally ON the border) but
+# fzf has NO click-bind event for a border label at all — only `click-header`/
+# `click-footer` (content-area rows) support clicks. Moving `[x]` there would
+# have made it look better but stop being clickable, which defeats the
+# feature; Leo confirmed keeping the real click target over the cosmetic
+# border placement.
 # ---------------------------------------------------------------------------
 if supports_popup; then
-  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup | fzf --no-input --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
+  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup | fzf --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
 else
   accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\""
 fi
