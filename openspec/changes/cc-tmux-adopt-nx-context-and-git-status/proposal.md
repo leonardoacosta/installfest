@@ -122,9 +122,7 @@ fallback — rather than assuming the join always succeeds.
   entirely in this repo — this proposal is that work.
 - Related: `project_repo_relocation_if_to_installfest` memory (prior fleet-registry path-drift
   incident) — motivates the fail-open join-risk guard in Why.
-- touches: `apps/cc-tmux/src/cc_tmux/nx_agent.py`, `apps/cc-tmux/src/cc_tmux/tmux.py`,
-  `apps/cc-tmux/src/cc_tmux/cli.py`, `apps/cc-tmux/src/cc_tmux/render.py`,
-  `apps/cc-tmux/src/cc_tmux/testing.py`, `openspec/specs/cc-tmux/spec.md`
+- touches: `apps/cc-tmux/src/cc_tmux/nx_agent.py`, `apps/cc-tmux/src/cc_tmux/tmux.py`, `apps/cc-tmux/src/cc_tmux/cli.py`, `apps/cc-tmux/src/cc_tmux/render.py`, `apps/cc-tmux/src/cc_tmux/testing.py`, `openspec/specs/cc-tmux/spec.md`
 
 ## Testing
 
