@@ -46,7 +46,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import log
 from .priority import PENDING_STATES, STATE_PRIORITY, VALID_STATES
@@ -790,3 +790,44 @@ def _git_branch(cwd: str) -> str:
     if not branch or branch == "HEAD":
         return ""
     return branch
+
+
+def _git_dirty(cwd: str) -> Optional[Tuple[int, int]]:
+    """Parse ``git status --porcelain`` into ``(modified, untracked)`` counts.
+
+    Each non-empty output line is one changed path: a ``??`` line increments
+    ``untracked``, any other non-empty line increments ``modified``. Fail-open:
+    a clean tree, a git failure, or (defensively) a zero/zero parse all return
+    ``None`` — never raises.
+    """
+    out = _run_git(cwd, ["status", "--porcelain"])
+    if not out:
+        return None
+    modified = 0
+    untracked = 0
+    for line in out.split("\n"):
+        if not line:
+            continue
+        if line.startswith("??"):
+            untracked += 1
+        else:
+            modified += 1
+    if modified == 0 and untracked == 0:
+        return None
+    return (modified, untracked)
+
+
+def _git_ahead(cwd: str) -> int:
+    """Parse ``git rev-list --count @{upstream}..HEAD`` into an int commit count.
+
+    Fail-open: no upstream configured, detached HEAD, git failure, or non-numeric
+    / negative output all return ``0`` — never raises.
+    """
+    out = _run_git(cwd, ["rev-list", "--count", "@{upstream}..HEAD"])
+    if not out:
+        return 0
+    try:
+        count = int(out)
+    except ValueError:
+        return 0
+    return count if count > 0 else 0

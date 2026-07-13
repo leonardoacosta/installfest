@@ -25,7 +25,7 @@
   a cross-cutting refactor of an already-shipped module. `cache_path`/`now` injectable for
   self-test, matching `usage.active_usage`'s existing convention.
   [owner:general-purpose] [type:api]
-- [ ] [1.2] `apps/cc-tmux/src/cc_tmux/tmux.py`: add `_git_dirty(cwd: str) -> Optional[Tuple[int, [beads:if-vjqc]
+- [x] [1.2] `apps/cc-tmux/src/cc_tmux/tmux.py`: add `_git_dirty(cwd: str) -> Optional[Tuple[int, [beads:if-vjqc]
   int]]` (parse `git status --porcelain` output into `(modified, untracked)` counts — lines
   starting `??` are untracked, everything else non-blank is modified; `None` on a clean tree or
   git failure) and `_git_ahead(cwd: str) -> int` (parse `git rev-list --count @{upstream}..HEAD`;
