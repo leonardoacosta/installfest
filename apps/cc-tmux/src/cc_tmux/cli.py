@@ -954,10 +954,13 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
 # A file older than this is a dead session or a recycled pane id — render it
 # as absent rather than confidently wrong. Writer-side GC (>6h prune) is inert
 # exactly when the writer stalls, so the reader enforces its own cutoff.
-# Post-migration (cc-tmux-adopt-nx-context-and-git-status) this gate governs
-# only the two fields still read from this file — the ``model_letter`` (index 0)
-# and ``context_used_pct`` (index 1) returns of ``_read_session_context``; the
-# branch/dirty/ahead fields it also carries are no longer consumed by any caller.
+# Post-migration (cc-tmux-adopt-nx-context-and-git-status, then if-hrbd) this
+# gate governs only the ``model_letter`` (index 0) return of
+# ``_read_session_context`` — the only field any caller still reads from this
+# legacy file. ``context_used_pct`` (index 1) and the branch/dirty/ahead
+# fields it also carries are no longer consumed by any caller; SES is now
+# sourced exclusively via :func:`_resolve_ses_pct` (nx-agent), for both row 2
+# and the accounts popup.
 SESSION_CONTEXT_MAX_AGE_SECS = 900.0
 
 
@@ -980,15 +983,19 @@ def _read_session_context(pane_id: str) -> Tuple[str, Optional[float], str, bool
     cutoff logic of their own. Fail-open: missing pane id / file / bad shape /
     non-numeric -> ``("", None, "", False, 0)`` for the piece that failed.
 
-    Consumption note (as of cc-tmux-adopt-nx-context-and-git-status): although
-    this function still returns the full 5-tuple, only two elements are read by
-    any caller — ``model_letter`` (index 0) by :func:`_build_session_bar` and
-    ``context_used_pct`` (index 1) by :func:`cmd_accounts_popup`. The dual-source
-    migration moved ``_build_session_bar``'s context_used_pct/branch/dirty/ahead
-    to nx-agent + local pane options, so ``branch``/``dirty``/``ahead``
-    (indices 2-4) are no longer consumed by anything; they remain in the return
-    tuple purely for backward-compatible parsing of the legacy file and MUST NOT
-    be assumed live by new callers.
+    Consumption note (as of if-hrbd): although this function still returns the
+    full 5-tuple, only ONE element is read by any caller — ``model_letter``
+    (index 0) by :func:`_build_session_bar`. ``context_used_pct`` (index 1)
+    used to also be read by :func:`cmd_accounts_popup`, but that was the
+    if-hrbd gap: cc-tmux-adopt-nx-context-and-git-status migrated row 2's SES
+    off this legacy file onto nx-agent while leaving the popup on this stale
+    path, and confirmed live (2026-07-13) that this file no longer exists on
+    disk at all, so the popup's SES was unconditionally blank. Both surfaces
+    now share :func:`_resolve_ses_pct` (nx-agent) for SES — ``context_used_pct``
+    and ``branch``/``dirty``/``ahead`` (indices 1-4) are no longer consumed by
+    anything; they remain in the return tuple purely for backward-compatible
+    parsing of the legacy file's shape and MUST NOT be assumed live by new
+    callers.
     """
     if not pane_id:
         return "", None, "", False, 0
@@ -1117,6 +1124,30 @@ def _parse_dirty_counts(raw: object) -> Optional[Tuple[int, int]]:
     return modified, untracked
 
 
+def _resolve_ses_pct(pane: str) -> Optional[float]:
+    """Live SES (context-window-used %, 0..1 ratio) for ``pane`` via nx-agent.
+
+    Single source of truth for SES resolution — ``GET /sessions/:id/context``
+    via :func:`nx_agent.session_context`, keyed by the pane's ``@cc-session-id``
+    option. An empty session-id, unreachable nx-agent, non-2xx response, or a
+    malformed/non-numeric ``usedPercentage`` all degrade to ``None`` (fail-open,
+    mirroring :func:`nx_agent.session_context`'s own guard).
+
+    Shared by :func:`_build_session_bar` (row 2) and :func:`cmd_accounts_popup`
+    (if-hrbd fix) so the two surfaces cannot drift onto two different SES
+    sources again — that drift is exactly how if-hrbd happened: row 2 migrated
+    here first while the popup was left reading the legacy per-pane file,
+    which turned out to no longer exist on disk at all.
+    """
+    ctx = nx_agent.session_context(tmux.get_pane_option(pane, tmux.OPT_SESSION_ID))
+    if not isinstance(ctx, dict):
+        return None
+    pct_raw = ctx.get("usedPercentage")
+    if isinstance(pct_raw, bool) or not isinstance(pct_raw, (int, float)):
+        return None
+    return float(pct_raw) / 100.0
+
+
 def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-2 session status-format string for a window (Req rows 2).
 
@@ -1133,9 +1164,9 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
       ``session-context.<pane>.json`` read via :func:`_read_session_context`
       (only its letter is used now; nx carries no model tag, so this field
       degrades to blank once nx stops writing that file — expected, disclosed).
-    * ``context_used_pct`` — nx-agent ``GET /sessions/:id/context`` via
-      :func:`nx_agent.session_context`, keyed by the ``@cc-session-id`` pane
-      option; ``usedPercentage`` / 100 (0..1 ratio), else ``None``.
+    * ``context_used_pct`` — :func:`_resolve_ses_pct` (nx-agent
+      ``GET /sessions/:id/context``, keyed by the ``@cc-session-id`` pane
+      option), else ``None``. Shared with :func:`cmd_accounts_popup` (if-hrbd).
     * ``branch`` / ``dirty`` — nx-agent ``GET /projects/:id/status``'s ``git``
       object via :func:`nx_agent.project_git_status` (keyed by the pane's
       resolved registry code) when reachable; falls back to the local
@@ -1162,14 +1193,8 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # other fields _read_session_context returns are no longer consumed here).
     model_letter = _read_session_context(pane)[0]
 
-    # context_used_pct: nx session-context, keyed by @cc-session-id. An empty
-    # session-id -> nx_agent.session_context returns None (its own guard).
-    ses_pct: Optional[float] = None
-    ctx = nx_agent.session_context(tmux.get_pane_option(pane, tmux.OPT_SESSION_ID))
-    if isinstance(ctx, dict):
-        pct_raw = ctx.get("usedPercentage")
-        if not isinstance(pct_raw, bool) and isinstance(pct_raw, (int, float)):
-            ses_pct = float(pct_raw) / 100.0
+    # context_used_pct: shared nx-agent resolution (if-hrbd — see _resolve_ses_pct).
+    ses_pct = _resolve_ses_pct(pane)
 
     # branch/dirty: nx project-git-status primary, local pane options fallback.
     branch, dirty = _resolve_branch_dirty(pane)
@@ -1220,10 +1245,15 @@ def cmd_accounts_popup(args) -> int:
     credential whose ``isActive`` flag is ``True`` supplies ``active_label``.
 
     SES (a property of the currently-focused pane, not any credential row —
-    see proposal's "SES is not an account-level metric") is resolved via the
-    SAME path row 2 uses: :func:`_resolve_session_pane` +
-    :func:`_read_session_context` off the current window
-    (:func:`tmux.current_window_id`), mirroring :func:`_build_session_bar`.
+    see proposal's "SES is not an account-level metric") is resolved via
+    :func:`_resolve_session_pane` + :func:`_resolve_ses_pct` off the current
+    window (:func:`tmux.current_window_id`) — the SAME nx-agent path
+    :func:`_build_session_bar` (row 2) uses. Fixed if-hrbd (2026-07-13): this
+    used to read the legacy per-pane ``session-context.<pane>.json`` file via
+    :func:`_read_session_context`, left behind when
+    cc-tmux-adopt-nx-context-and-git-status migrated row 2 off that file but
+    scoped this handler out — confirmed live that the legacy file no longer
+    exists on disk at all, so this popup's SES was unconditionally blank.
 
     Prints :func:`render.render_accounts_popup`'s plain-text body, or nothing
     on any failure (fail-open, matches this module's universal contract).
@@ -1253,7 +1283,7 @@ def cmd_accounts_popup(args) -> int:
 
     window = tmux.current_window_id()
     pane = _resolve_session_pane(window) if window else ""
-    active_ses_pct = _read_session_context(pane)[1] if pane else None
+    active_ses_pct = _resolve_ses_pct(pane) if pane else None
 
     out = render.render_accounts_popup(accounts, active_label, active_ses_pct)
     if out:

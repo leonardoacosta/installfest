@@ -11,6 +11,8 @@ Run via ``cc-tmux self-test`` (exit 0 = pass, non-zero = failure count).
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -866,6 +868,62 @@ def _test_accounts_popup_click_dismiss_wiring() -> None:
     _check("click-header:abort" in content, "click-header:abort real click-to-close bind present")
     _check("--no-input" in content, "--no-input present (popup cannot be typed into)")
     _check("read -n 1 -s" in content, "static any-keystroke fallback retained for no-fzf/old-tmux case")
+
+
+def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
+    """if-hrbd fix: ``cmd_accounts_popup``'s SES comes from nx-agent
+    (:func:`cli._resolve_ses_pct`), not the legacy per-pane
+    ``session-context.<pane>.json`` file (:func:`cli._read_session_context`).
+
+    Monkeypatches ``cli._read_session_context`` to a value that would prove
+    the OLD path if it leaked through (a distinctive, wrong percentage), and
+    ``nx_agent.session_context`` to the value the NEW path should surface —
+    a wrong-source bug is visible in the rendered output either way, same
+    technique :func:`_test_cli_build_session_bar_dual_source` uses for row 2.
+    """
+    saved_query = usage._query
+    saved_current_window = tmux.current_window_id
+    saved_resolve_pane = cli._resolve_session_pane
+    saved_get_pane_option = tmux.get_pane_option
+    saved_session_context = nx_agent.session_context
+    saved_read_ctx = cli._read_session_context
+
+    usage._query = lambda *a, **k: {  # type: ignore[assignment]
+        "credentials": [
+            {"isActive": True, "accountEmail": "leo@x.dev", "orgUuid": "org1"},
+        ]
+    }
+    tmux.current_window_id = lambda: "@1"  # type: ignore[assignment]
+    cli._resolve_session_pane = lambda window: "%1"  # type: ignore[assignment]
+    tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
+    # OLD path: if this were still read, SES would render as 99% (the wrong value).
+    cli._read_session_context = lambda pane: ("O", 0.99, "", False, 0)  # type: ignore[assignment]
+    # NEW path: nx-agent's real value.
+    nx_agent.session_context = lambda *a, **k: {"usedPercentage": 42.0}  # type: ignore[assignment]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cli.cmd_accounts_popup(None)
+        out = buf.getvalue()
+        _check("SES:42%" in out, f"SES comes from nx-agent (42%), not the legacy file: {out!r}")
+        _check("99%" not in out, f"legacy per-pane file's value must NOT leak through: {out!r}")
+
+        # nx-agent unreachable -> SES blank ('--'), NOT a silent fall-back to
+        # the legacy file (that fall-back is exactly what if-hrbd removed).
+        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            cli.cmd_accounts_popup(None)
+        out2 = buf2.getvalue()
+        _check("SES:--" in out2, f"nx-agent unreachable -> SES blank, no legacy fallback: {out2!r}")
+        _check("99%" not in out2, f"legacy per-pane file's value must NOT leak through: {out2!r}")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        tmux.current_window_id = saved_current_window  # type: ignore[assignment]
+        cli._resolve_session_pane = saved_resolve_pane  # type: ignore[assignment]
+        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
+        nx_agent.session_context = saved_session_context  # type: ignore[assignment]
+        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
 
 
 def _test_usage_active_usage_ttl() -> None:
@@ -2347,6 +2405,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
     ("render.accounts_popup", _test_render_accounts_popup),
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
+    ("accounts_popup.ses_from_nx_agent", _test_cli_accounts_popup_ses_from_nx_agent),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
