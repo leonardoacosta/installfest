@@ -1188,8 +1188,8 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     builders instead of each spawning its own process. Resolves the window's
     representative pane (unless ``pane`` is already known) via
     :func:`_resolve_session_pane` (tmux-active pane first, priority-pick
-    fallback), then sources each row-2 field from its post-migration owner
-    (cc-tmux-adopt-nx-context-and-git-status):
+    fallback), then sources each row-2 field from its current owner
+    (cc-tmux-git-status-glyphs, superseding cc-tmux-adopt-nx-context-and-git-status):
 
     * ``project`` — ``@cc-project`` pane option (unchanged, cc-tmux's own registry).
     * ``model_letter`` — UNCHANGED: still the legacy per-pane
@@ -1199,15 +1199,20 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     * ``context_used_pct`` — nx-agent ``GET /sessions/:id/context`` via
       :func:`nx_agent.session_context`, keyed by the ``@cc-session-id`` pane
       option; ``usedPercentage`` / 100 (0..1 ratio), else ``None``.
-    * ``branch`` / ``dirty`` — nx-agent ``GET /projects/:id/status``'s ``git``
-      object via :func:`nx_agent.project_git_status` (keyed by the pane's
-      resolved registry code) when reachable; falls back to the local
-      ``@cc-branch`` / ``@cc-dirty`` pane options (set by
-      :func:`tmux.set_pane_git_identity`) when nx is unreachable / 404 / has no
-      ``git`` yet. ``dirty`` is now an ``Optional[Tuple[int, int]]`` (modified,
-      untracked), not a bool.
-    * ``ahead`` — ALWAYS the local ``@cc-ahead`` pane option; nx has no
-      ahead/behind field, so there is no nx value to prefer.
+    * ``branch`` / ``git_status`` — resolved together by
+      :func:`_resolve_git_status`: ``branch`` from nx-agent
+      ``GET /projects/:id/status``'s ``git.branch`` when reachable, else the
+      local ``@cc-branch`` pane option. ``git_status`` is a
+      :class:`tmux.GitStatusCounts` whose six fields (``modified``,
+      ``untracked``, ``deleted``, ``renamed``, ``ahead``, ``behind``) are each
+      resolved INDEPENDENTLY — nx's value wins when nx's response actually
+      carries that key (presence-gated, not truthiness), else the
+      corresponding field decoded from the local ``@cc-git-status`` pane
+      option (set by :func:`tmux.set_pane_git_identity`). There is no longer a
+      single ``dirty`` tuple or a standalone ``ahead`` int — the retired
+      ``@cc-dirty`` / ``@cc-ahead`` pane options are both gone in favor of the
+      unified ``@cc-git-status`` JSON blob and this per-field dual-source
+      resolution.
 
     Usage (account label + 5H / 7D) comes from :func:`_active_usage`. Left side
     is model/project/git identity; right side is the account label +
@@ -1241,13 +1246,9 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
 
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
-    # NOTE: render.render_session_bar's signature as of this task still only
-    # accepts the OLD `dirty: Optional[Tuple[int, int]]` + `ahead: int` params —
-    # task 3.1 (UI batch) adds `git_status`. Passing the new six-field shape
-    # through anyway, same sequencing pattern as
-    # cc-tmux-adopt-nx-context-and-git-status's task 2.1: this call will raise
-    # TypeError at runtime until 3.1 lands, but that is expected/out of scope
-    # here (this task's own verification is import/syntax-only, not a live call).
+    # render.render_session_bar's `git_status` kwarg (task 3.1, UI batch) now
+    # consumes the six-field GitStatusCounts directly — the old `dirty` tuple
+    # / `ahead` int params are gone from its signature.
     return render.render_session_bar(
         model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
