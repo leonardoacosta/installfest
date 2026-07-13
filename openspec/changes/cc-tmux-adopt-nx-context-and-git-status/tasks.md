@@ -79,7 +79,7 @@
   `tmux._git_dirty`/`_git_ahead` against a real fixture git repo (clean tree, dirty tree with
   known modified+untracked counts, no-upstream branch). Run `cc-tmux self-test` and paste the
   passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `cmd_register`'s [beads:if-1l6j]
+- [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `cmd_register`'s [beads:if-1l6j]
   session_id capture (SessionStart payload sets `@cc-session-id`; non-SessionStart events leave it
   untouched) and `_build_session_bar`'s dual-source composition (nx reachable -> nx values used
   for branch/dirty/context_used_pct; nx unreachable/404 -> local `@cc-branch`/`@cc-dirty` fallback
