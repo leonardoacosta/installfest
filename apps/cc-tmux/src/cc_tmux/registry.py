@@ -49,7 +49,16 @@ def _load_path_to_code() -> Dict[str, str]:
             continue
         code, rel_path = entry.get("code"), entry.get("path")
         if code and rel_path:
-            out[os.path.normpath(os.path.join(home, rel_path))] = code
+            # realpath, not normpath: several registry entries (e.g. "cc" ->
+            # ".claude") are symlink aliases — ~/.claude -> ~/dev/cc. A pane's
+            # shell cwd reports the REAL target path (`pwd` resolves symlinks
+            # on cd), so matching on the un-resolved alias path silently
+            # failed for any pane actually sitting in ~/dev/cc, blanking
+            # row 3 (openspec/beads) for that whole project. realpath here
+            # collapses both the registry entry and (in resolve_project_code)
+            # the queried cwd to the same physical path regardless of which
+            # alias either side used.
+            out[os.path.realpath(os.path.join(home, rel_path))] = code
     return out
 
 
@@ -58,10 +67,15 @@ def resolve_project_code(cwd: str) -> str:
 
     ``cwd`` need not be the project root — any subdirectory resolves to its
     owning project's code, same as the shell consumers of this registry.
+    Resolved via ``realpath`` (matching :func:`_load_path_to_code`'s own
+    realpath-normalized keys) so a pane sitting in a symlink's real target
+    still matches a registry entry recorded under the symlink alias — see
+    that function's docstring for the concrete ``~/.claude`` -> ``~/dev/cc``
+    case this fixes.
     """
     if not cwd:
         return ""
-    norm_cwd = os.path.normpath(cwd)
+    norm_cwd = os.path.realpath(cwd)
     best_code, best_len = "", -1
     for proj_path, code in _load_path_to_code().items():
         if norm_cwd != proj_path and not norm_cwd.startswith(proj_path + os.sep):

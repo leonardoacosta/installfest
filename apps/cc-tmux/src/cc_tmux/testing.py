@@ -381,6 +381,63 @@ def _test_registry_resolve_project_code() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_registry_resolve_project_code_symlink_alias() -> None:
+    """A registry entry whose ``path`` is a symlink alias must still resolve
+    when queried by the symlink's REAL target — the exact shape of a real
+    production bug: ``home/projects.toml``'s ``cc`` entry registers
+    ``.claude`` (``~/.claude``), which is itself a symlink to ``~/dev/cc``.
+    A tmux pane's shell cwd reports the REAL target path (``pwd`` resolves
+    symlinks on ``cd``), so the un-resolved string-prefix match used to fail
+    for any pane actually sitting in ``~/dev/cc``, silently blanking row 3
+    (openspec/beads) for that entire project. Both
+    :func:`registry._load_path_to_code` and :func:`registry.resolve_project_code`
+    now resolve via ``realpath``, so either side's alias or real path
+    resolves to the same registry code.
+    """
+    if registry.tomllib is None:
+        return  # covered by the no-tomllib fail-open case in the sibling test above
+    saved = os.environ.get("DOTFILES")
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-registry-symlink-test-")
+    home = os.path.expanduser("~")
+    alias_name = "cc-tmux-test-symlink-alias-zzz"
+    real_target_dir = os.path.join(tmpdir, "real-target")
+    alias_path = os.path.join(home, alias_name)
+    os.makedirs(real_target_dir, exist_ok=True)
+    try:
+        os.symlink(real_target_dir, alias_path)
+    except OSError:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return  # no symlink permission on this filesystem -> skip, not a failure
+    try:
+        os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+        with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+            f.write(f'[[projects]]\ncode = "zz"\nname = "Test"\npath = "{alias_name}"\n')
+        os.environ["DOTFILES"] = tmpdir
+        _check(
+            registry.resolve_project_code(alias_path) == "zz",
+            "querying via the registered alias path itself still resolves",
+        )
+        _check(
+            registry.resolve_project_code(real_target_dir) == "zz",
+            "querying via the symlink's REAL target resolves too (the ~/.claude -> ~/dev/cc bug)",
+        )
+        nested_real = os.path.join(real_target_dir, "nested", "dir")
+        _check(
+            registry.resolve_project_code(nested_real) == "zz",
+            "a subdir of the real target also resolves",
+        )
+    finally:
+        if saved is None:
+            os.environ.pop("DOTFILES", None)
+        else:
+            os.environ["DOTFILES"] = saved
+        try:
+            os.unlink(alias_path)
+        except OSError:
+            pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def _test_compose_title_name() -> None:
     # 20-char budget (cc-tmux-rename-fix-and-truncate; was 10): an 11-20 char
     # combined code+title now renders in full instead of truncating.
@@ -2961,6 +3018,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.set_pane_git_identity_unsets_branch", _test_tmux_set_pane_git_identity_unsets_branch),
     ("tmux.set_pane_state_reassert_ts", _test_set_pane_state_reassert_skips_timestamp),
     ("registry.resolve_project_code", _test_registry_resolve_project_code),
+    ("registry.resolve_project_code_symlink_alias", _test_registry_resolve_project_code_symlink_alias),
     ("cli.compose_title_name", _test_compose_title_name),
     ("cli.maybe_rename_window_success_failure", _test_maybe_rename_window_success_failure),
     ("cli.trace_register_rename_succeeded_field", _test_trace_register_rename_succeeded_field),
