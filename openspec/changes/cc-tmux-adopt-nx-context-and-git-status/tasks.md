@@ -31,7 +31,7 @@
   git failure) and `_git_ahead(cwd: str) -> int` (parse `git rev-list --count @{upstream}..HEAD`;
   `0` on no upstream, detached HEAD, or git failure — mirrors `_git_branch`'s fail-open shape,
   reuse `_run_git`). [owner:general-purpose] [type:api]
-- [ ] [1.3] `apps/cc-tmux/src/cc_tmux/tmux.py`: extend `set_pane_git_identity` to call the new [beads:if-xpsb]
+- [x] [1.3] `apps/cc-tmux/src/cc_tmux/tmux.py`: extend `set_pane_git_identity` to call the new [beads:if-xpsb]
   task-1.2 helpers alongside the existing `_git_branch` call, writing `@cc-dirty` (JSON-encoded
   `[modified, untracked]`, unset when `None`/clean) and `@cc-ahead` (stringified int, unset when
   `0`) pane options. Add `OPT_DIRTY = "@cc-dirty"`, `OPT_AHEAD = "@cc-ahead"`, and
