@@ -61,7 +61,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: change `render_session_bar`'s `dirty: [beads:if-2wia]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: change `render_session_bar`'s `dirty: [beads:if-2wia]
   Optional[Tuple[int, int]]` + `ahead: int` parameters to accept the full six-field shape (either
   a `GitStatusCounts`-like object/dict or six individual keyword params — implementer's choice,
   document whichever in the docstring). Import `GREEN`, `BLUE` from `.usage` alongside the
