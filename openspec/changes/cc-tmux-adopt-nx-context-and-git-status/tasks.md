@@ -72,7 +72,7 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `nx_agent.py` — cache [beads:if-cy8g]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `nx_agent.py` — cache [beads:if-cy8g]
   hit skips the HTTP call, cache miss/expiry triggers a live fetch and rewrites the cache
   (including negative-caching the empty result on failure, mirroring `usage.active_usage`'s
   documented convention), unreachable/malformed response -> `None`. Separate cases for

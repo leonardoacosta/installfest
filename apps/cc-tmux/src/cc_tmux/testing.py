@@ -14,12 +14,13 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-from . import cli, conductor, paths, priority, registry, render, tmux, usage
+from . import cli, conductor, nx_agent, paths, priority, registry, render, tmux, usage
 
 
 # ---------------------------------------------------------------------------
@@ -1008,28 +1009,29 @@ def _test_render_session_bar() -> None:
     _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
 
-    # dirty=True, ahead>0 -> both YELLOW markers render alongside the branch.
-    out_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=True, ahead=2)
+    # dirty=(modified, untracked) with a nonzero count, ahead>0 -> both YELLOW
+    # markers render alongside the branch (task 3.1: dirty is a count pair now).
+    out_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(1, 0), ahead=2)
     _check(f"#[fg={render.BRANCH}]main" in out_dirty, "branch still renders with markers present")
-    _check(f"#[fg={render.YELLOW}]*" in out_dirty, "dirty=True -> YELLOW '*' marker")
+    _check(f"#[fg={render.YELLOW}]*" in out_dirty, "nonzero dirty -> YELLOW '*' marker")
     _check(f"#[fg={render.YELLOW}]^2" in out_dirty, "ahead=2 -> YELLOW '^2' marker")
 
-    # dirty=False, ahead=0 -> no markers at all.
-    out_clean = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=False, ahead=0)
-    _check("*" not in out_clean, "dirty=False -> no '*' marker")
+    # dirty=None, ahead=0 -> no markers at all.
+    out_clean = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=None, ahead=0)
+    _check("*" not in out_clean, "dirty=None -> no '*' marker")
     _check("^" not in out_clean, "ahead=0 -> no '^N' marker")
 
-    # Empty branch + dirty=True, ahead=5 -> markers gated on branch, neither appears.
-    out_nobranch = render.render_session_bar("F", "if", "", "", None, None, None, dirty=True, ahead=5)
+    # Empty branch + nonzero dirty, ahead=5 -> markers gated on branch, neither appears.
+    out_nobranch = render.render_session_bar("F", "if", "", "", None, None, None, dirty=(1, 0), ahead=5)
     _check("*" not in out_nobranch, "no branch -> dirty marker suppressed (gated on branch)")
     _check("^" not in out_nobranch, "no branch -> ahead marker suppressed (gated on branch)")
 
-    # No-kwargs call -> byte-identical to explicit dirty=False, ahead=0 (backward compat).
+    # No-kwargs call -> byte-identical to explicit dirty=None, ahead=0 (backward compat).
     out_default = render.render_session_bar("F", "if", "main", "", None, None, None)
     out_explicit_default = render.render_session_bar(
-        "F", "if", "main", "", None, None, None, dirty=False, ahead=0
+        "F", "if", "main", "", None, None, None, dirty=None, ahead=0
     )
-    _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=False, ahead=0")
+    _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=None, ahead=0")
 
 
 def _test_render_beads_bar() -> None:
@@ -1930,6 +1932,194 @@ def _test_cli_register_subagent_start_stop_branching() -> None:
 
 
 # ---------------------------------------------------------------------------
+# nx_agent.py caching tests (cache hit skips HTTP, miss fetches + writes,
+# failure negatively caches — cc-tmux-adopt-nx-context-and-git-status task 4.1).
+# Mirrors _test_usage_active_usage_ttl's shape: usage._query is monkeypatched to
+# count / control the fetch, cache_path + now injected so no real network or
+# filesystem clock is touched.
+# ---------------------------------------------------------------------------
+
+def _test_nx_agent_session_context_cache() -> None:
+    calls = {"n": 0}
+    saved_query = usage._query
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-nx-ctx-test-")
+    path = os.path.join(tmpdir, "ctx.json")
+    payload = {"usedPercentage": 42.0, "contextWindowSize": 200000, "sessionId": "s1"}
+    try:
+        # --- cache HIT: a fresh, well-formed cache file skips the HTTP fetch ---
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        def boom(url=None, timeout=None):
+            raise AssertionError("fetch must not run on a fresh cache hit")
+
+        usage._query = boom  # type: ignore[assignment]
+        hit = nx_agent.session_context("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(hit == payload, f"fresh cache hit returns cached dict unchanged: {hit!r}")
+
+        # --- cache MISS: live fetch, and the result is written to the cache file ---
+        os.unlink(path)
+
+        def counting_query(url=None, timeout=None):
+            calls["n"] += 1
+            return payload
+
+        usage._query = counting_query  # type: ignore[assignment]
+        miss = nx_agent.session_context("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(miss == payload, f"miss fetches the payload: {miss!r}")
+        _check(calls["n"] == 1, "miss hit the network exactly once")
+        with open(path, "r", encoding="utf-8") as f:
+            _check(json.load(f) == payload, "fetched payload written back to the cache file")
+
+        # fresh cache now suppresses a second fetch
+        second = nx_agent.session_context("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(second == payload and calls["n"] == 1, "fresh cache -> NO second fetch")
+
+        # --- fetch FAILURE: None returned AND negatively cached (no refetch in TTL) ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def failing_query(url=None, timeout=None):
+            calls["n"] += 1
+            return None
+
+        usage._query = failing_query  # type: ignore[assignment]
+        down = nx_agent.session_context("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(down is None, "fetch failure -> None")
+        _check(calls["n"] == 1, "failure fetched exactly once")
+        _check(os.path.exists(path), "negative result cached to disk")
+        down2 = nx_agent.session_context("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(down2 is None and calls["n"] == 1, "negative cache served without refetch")
+
+        # empty session_id short-circuits to None, never touches the network
+        usage._query = boom  # type: ignore[assignment]
+        _check(nx_agent.session_context("", cache_path=path) is None, "empty session_id -> None, no fetch")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_nx_agent_project_git_status_cache() -> None:
+    calls = {"n": 0}
+    saved_query = usage._query
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-nx-status-test-")
+    path = os.path.join(tmpdir, "status.json")
+    git_obj = {"branch": "main", "dirty": {"modified": 1, "untracked": 2}, "detached": False}
+    payload = {"code": "if", "git": git_obj}
+    try:
+        # --- cache HIT: fresh full-status cache -> git sub-object, no fetch ---
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        def boom(url=None, timeout=None):
+            raise AssertionError("fetch must not run on a fresh cache hit")
+
+        usage._query = boom  # type: ignore[assignment]
+        hit = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(hit == git_obj, f"fresh cache hit returns the git sub-object: {hit!r}")
+
+        # --- cache MISS: fetch full /status dict, write it, extract git ---
+        os.unlink(path)
+
+        def counting_query(url=None, timeout=None):
+            calls["n"] += 1
+            return payload
+
+        usage._query = counting_query  # type: ignore[assignment]
+        miss = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(miss == git_obj and calls["n"] == 1, f"miss fetches + extracts git: {miss!r}")
+        with open(path, "r", encoding="utf-8") as f:
+            _check(json.load(f) == payload, "FULL /status dict cached (not just the git sub-object)")
+
+        # --- response present but WITHOUT a git field -> None, full dict still cached ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def nogit_query(url=None, timeout=None):
+            calls["n"] += 1
+            return {"code": "if"}
+
+        usage._query = nogit_query  # type: ignore[assignment]
+        nogit = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(nogit is None, "response without a git field -> None")
+        _check(calls["n"] == 1, "no-git response fetched once")
+        nogit2 = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(nogit2 is None and calls["n"] == 1, "cached no-git dict served without refetch")
+
+        # --- unreachable / malformed -> None, negatively cached ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def failing_query(url=None, timeout=None):
+            calls["n"] += 1
+            return None
+
+        usage._query = failing_query  # type: ignore[assignment]
+        down = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(down is None and calls["n"] == 1, "unreachable -> None, fetched once")
+        down2 = nx_agent.project_git_status("if", ttl=45.0, cache_path=path, now=time.time())
+        _check(down2 is None and calls["n"] == 1, "negative cache served without refetch")
+
+        # empty code short-circuits to None, never touches the network
+        usage._query = boom  # type: ignore[assignment]
+        _check(nx_agent.project_git_status("", cache_path=path) is None, "empty code -> None, no fetch")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# tmux._git_dirty / _git_ahead against a real throwaway git repo
+# (cc-tmux-adopt-nx-context-and-git-status task 4.1). A real fixture repo is
+# simpler + more realistic than mocking _run_git's porcelain/rev-list stdout.
+# ---------------------------------------------------------------------------
+
+def _test_tmux_git_dirty_ahead_fixture() -> None:
+    if shutil.which("git") is None:
+        return  # no git binary -> nothing to exercise; the helpers already fail-open to None/0
+
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-git-fixture-")
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", tmpdir, *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    try:
+        git("init", "-q")
+        git("config", "user.email", "self-test@cc-tmux.local")
+        git("config", "user.name", "cc-tmux self-test")
+        git("config", "commit.gpgsign", "false")
+
+        # one committed file so HEAD exists and a clean tree is possible
+        with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("hello\n")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "initial")
+
+        # clean tree -> None
+        _check(tmux._git_dirty(tmpdir) is None, "clean tree -> None")
+
+        # 1 modified (edit the committed file) + 1 untracked (a brand-new file) -> (1, 1)
+        with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("changed\n")
+        with open(os.path.join(tmpdir, "untracked.txt"), "w", encoding="utf-8") as f:
+            f.write("new\n")
+        _check(
+            tmux._git_dirty(tmpdir) == (1, 1),
+            f"1 modified + 1 untracked -> (1, 1): {tmux._git_dirty(tmpdir)!r}",
+        )
+
+        # branch with no upstream configured -> 0 (rev-list @{upstream} fails, fail-open)
+        _check(tmux._git_ahead(tmpdir) == 0, "no-upstream branch -> ahead 0")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -2007,6 +2197,9 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.prune_background_entries", _test_cli_prune_background_entries),
     ("render.resolve_tab_icon", _test_render_resolve_tab_icon),
     ("cli.register_subagent_start_stop_branching", _test_cli_register_subagent_start_stop_branching),
+    ("nx_agent.session_context_cache", _test_nx_agent_session_context_cache),
+    ("nx_agent.project_git_status_cache", _test_nx_agent_project_git_status_cache),
+    ("tmux.git_dirty_ahead_fixture", _test_tmux_git_dirty_ahead_fixture),
 ]
 
 
