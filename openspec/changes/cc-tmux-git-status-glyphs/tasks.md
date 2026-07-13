@@ -11,7 +11,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/tmux.py`: replace `_git_dirty` and `_git_ahead` with a [beads:if-230l]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/tmux.py`: replace `_git_dirty` and `_git_ahead` with a [beads:if-230l]
   single `_git_status(cwd: str) -> Optional[GitStatusCounts]` (a `NamedTuple` or small
   `@dataclass` with `modified: int`, `untracked: int`, `deleted: int`, `renamed: int`,
   `ahead: int`, `behind: int`, all defaulting to 0) that runs ONE `git status --porcelain=v2

@@ -49,7 +49,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional
 
 from . import log
 from .priority import PENDING_STATES, STATE_PRIORITY, VALID_STATES
@@ -825,42 +825,98 @@ def _git_branch(cwd: str) -> str:
     return branch
 
 
-def _git_dirty(cwd: str) -> Optional[Tuple[int, int]]:
-    """Parse ``git status --porcelain`` into ``(modified, untracked)`` counts.
+class GitStatusCounts(NamedTuple):
+    """Six-field git working-tree status snapshot from a single porcelain=v2 parse.
 
-    Each non-empty output line is one changed path: a ``??`` line increments
-    ``untracked``, any other non-empty line increments ``modified``. Fail-open:
-    a clean tree, a git failure, or (defensively) a zero/zero parse all return
-    ``None`` — never raises.
+    All fields default to 0. See :func:`_git_status` for the parse this is
+    assembled from.
     """
-    out = _run_git(cwd, ["status", "--porcelain"])
-    if not out:
+
+    modified: int = 0
+    untracked: int = 0
+    deleted: int = 0
+    renamed: int = 0
+    ahead: int = 0
+    behind: int = 0
+
+
+def _git_status(cwd: str) -> Optional[GitStatusCounts]:
+    """Parse ``git status --porcelain=v2 --branch`` into a :class:`GitStatusCounts`.
+
+    Single-process replacement for the former ``_git_dirty`` (porcelain v1) +
+    ``_git_ahead`` (a dedicated ``git rev-list --count`` spawn) pair — see
+    ``openspec/changes/cc-tmux-git-status-glyphs/proposal.md`` § Why for the
+    one-shell-out rationale (mirrors nx's own ``git-observer.ts``, which derives
+    its whole snapshot from this same porcelain=v2 invocation).
+
+    Line-by-line parse:
+
+    - ``# branch.ab +<ahead> -<behind>`` -> ``ahead``/``behind`` (header absent,
+      i.e. no upstream configured, -> both 0). Other ``# branch.*`` headers
+      (``branch.oid``, ``branch.head``) are branch-identity info owned by
+      :func:`_git_branch` — skipped here.
+    - ``1 <XY> ...`` (ordinary changed entry): ``M`` in either position of
+      ``XY`` increments ``modified``; ``D`` in either position increments
+      ``deleted`` (independent checks, not mutually exclusive by construction).
+    - ``2 <XY> ...`` (renamed/copied entry): increments ``renamed`` regardless
+      of whether ``XY``'s leading char is ``R`` or ``C``.
+    - ``? <path>`` (untracked): increments ``untracked``.
+    - ``u ...`` (unmerged/conflict) and ``! ...`` (ignored, only appears with
+      ``--ignored``, which is not passed): not counted — this proposal names
+      exactly six fields, no "conflicted" category.
+
+    Returns ``None`` only when :func:`_run_git` itself fails (git unavailable,
+    not a repo, timeout, non-zero exit) — a clean, up-to-date repo with git
+    available returns a valid all-zero :class:`GitStatusCounts`, NOT ``None``,
+    so callers can distinguish "definitely clean" from "couldn't check".
+    """
+    out = _run_git(cwd, ["status", "--porcelain=v2", "--branch"])
+    if out is None:
         return None
+
     modified = 0
     untracked = 0
+    deleted = 0
+    renamed = 0
+    ahead = 0
+    behind = 0
+
     for line in out.split("\n"):
         if not line:
             continue
-        if line.startswith("??"):
+        if line.startswith("# branch.ab"):
+            # "# branch.ab +<ahead> -<behind>"
+            for token in line.split():
+                if token.startswith("+"):
+                    try:
+                        ahead = int(token[1:])
+                    except ValueError:
+                        ahead = 0
+                elif token.startswith("-"):
+                    try:
+                        behind = int(token[1:])
+                    except ValueError:
+                        behind = 0
+        elif line.startswith("# branch."):
+            continue  # branch.oid / branch.head — identity, owned by _git_branch
+        elif line.startswith("1 "):
+            fields = line.split(None, 2)
+            xy = fields[1] if len(fields) > 1 else ""
+            if "M" in xy:
+                modified += 1
+            if "D" in xy:
+                deleted += 1
+        elif line.startswith("2 "):
+            renamed += 1
+        elif line.startswith("? "):
             untracked += 1
-        else:
-            modified += 1
-    if modified == 0 and untracked == 0:
-        return None
-    return (modified, untracked)
+        # "u " (unmerged) lines are intentionally not counted toward any field.
 
-
-def _git_ahead(cwd: str) -> int:
-    """Parse ``git rev-list --count @{upstream}..HEAD`` into an int commit count.
-
-    Fail-open: no upstream configured, detached HEAD, git failure, or non-numeric
-    / negative output all return ``0`` — never raises.
-    """
-    out = _run_git(cwd, ["rev-list", "--count", "@{upstream}..HEAD"])
-    if not out:
-        return 0
-    try:
-        count = int(out)
-    except ValueError:
-        return 0
-    return count if count > 0 else 0
+    return GitStatusCounts(
+        modified=modified,
+        untracked=untracked,
+        deleted=deleted,
+        renamed=renamed,
+        ahead=ahead,
+        behind=behind,
+    )
