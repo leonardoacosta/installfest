@@ -838,6 +838,35 @@ def _test_render_accounts_popup() -> None:
     _check("SES:" not in out_no_match, "no active_label match -> no SES anywhere")
 
 
+def _test_accounts_popup_click_dismiss_wiring() -> None:
+    """``cc-tmux.tmux``'s accounts-popup binding uses fzf's real click-to-close
+    mechanism, not the old any-keystroke ``read -n 1 -s`` dismiss.
+
+    cc-tmux-accounts-popup-click-dismiss task 1.1's spike found tmux's
+    ``display-popup`` has NO native mouse-click dismissal (tmux(1): only
+    Escape/C-c or ``-k`` any-key) — real clickability comes from piping
+    through fzf instead (``--bind 'click-header:abort'``, verified as a real
+    bind action, not silently ignored), reusing the SAME ``supports_popup``
+    fzf-gated branch the picker/inbox popups already use rather than
+    inventing a new mechanism. ``--no-input`` hides/disables the query box
+    so the popup genuinely cannot be typed into (stronger than the old
+    single-keystroke dismiss, which still left a misleading blinking
+    cursor). This is a static content-grep of the shell file, not a live
+    tmux/fzf exercise (no tty here) — the fzf bind-syntax validity itself
+    was confirmed live at authoring time by comparing valid vs. an
+    invalid bind action name's distinct parse error.
+    """
+    plugin_file = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cc-tmux.tmux"
+    )
+    with open(plugin_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    _check("accounts-popup | fzf" in content, "accounts-popup piped through fzf (supports_popup branch)")
+    _check("click-header:abort" in content, "click-header:abort real click-to-close bind present")
+    _check("--no-input" in content, "--no-input present (popup cannot be typed into)")
+    _check("read -n 1 -s" in content, "static any-keystroke fallback retained for no-fzf/old-tmux case")
+
+
 def _test_usage_active_usage_ttl() -> None:
     # Cache round-trip + TTL + negative caching, with _query monkeypatched to count.
     calls = {"n": 0}
@@ -1974,6 +2003,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.extract_active", _test_usage_extract_active),
     ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
     ("render.accounts_popup", _test_render_accounts_popup),
+    ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),

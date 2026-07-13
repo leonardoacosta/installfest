@@ -102,23 +102,47 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Account-switcher popup click (cc-tmux-account-switcher-popup) — row 2's
-# account-label segment carries a #[range=user|accounts] marker
-# (render.render_session_bar). ALL status-bar ranges (user/session/window/
-# pane) share the single MouseDown1Status key — there is no distinct
-# per-range binding on this tmux version (3.6a, confirmed via task 1.1's
-# spike) — so the specific range is read at click time from
-# #{mouse_status_range}. Falls through to tmux's own default action
-# (switch-client -t =) for every range OTHER than "accounts", which is what
-# keeps cmd_status_inbox's existing #[range=pane|<id>] click-to-hop behavior
-# (relying on that same implicit default) working unchanged. Positioned via
-# `-y S -x M` (immediately above the status line, at the mouse's x position —
-# task 1.1's other spike confirmation); `-E` closes the popup once the shell
-# command exits, so the command pauses on a keypress (read-only info popup,
-# no per-account action — see proposal Non-Goals).
+# Account-switcher popup click (cc-tmux-account-switcher-popup, dismiss UX
+# hardened by cc-tmux-accounts-popup-click-dismiss) — row 2's account-label
+# segment carries a #[range=user|accounts] marker (render.render_session_bar).
+# ALL status-bar ranges (user/session/window/pane) share the single
+# MouseDown1Status key — there is no distinct per-range binding on this tmux
+# version (3.6a, confirmed via the original task 1.1 spike) — so the specific
+# range is read at click time from #{mouse_status_range}. Falls through to
+# tmux's own default action (switch-client -t =) for every range OTHER than
+# "accounts", which is what keeps cmd_status_inbox's existing
+# #[range=pane|<id>] click-to-hop behavior (relying on that same implicit
+# default) working unchanged. Positioned via `-y S -x M` (immediately above
+# the status line, at the mouse's x position — the original spike's other
+# confirmation).
+#
+# Dismiss mechanism (cc-tmux-accounts-popup-click-dismiss task 1.1 spike,
+# confirmed live 2026-07-13 on tmux 3.6a): `display-popup` itself has NO
+# native mouse-click dismissal — per tmux(1), only Escape/C-c or `-k` (any
+# key) close it; there is no popup-internal click-target primitive. Real
+# click-to-close comes from routing through fzf instead (same
+# supports_popup-gated pattern the picker/inbox popups above already use —
+# reuse, not a new mechanism): `--bind 'click-header:abort'` gives a genuine
+# clickable close on the rendered `[x]` header text (verified: fzf accepts
+# this bind syntax; an invalid action name is rejected with a distinct
+# parse error, confirming the syntax is real, not silently ignored).
+# `--no-input` hides and disables the query box entirely — the popup cannot
+# be typed into, not just "one keystroke closes it" as the prior
+# `read -n 1 -s` mechanism left ambiguous-looking (a blinking cursor that
+# cosmetically read as an editable field). `--bind 'enter:ignore'` and
+# `--bind 'left-click:ignore'` keep row clicks/Enter inert — read-only popup,
+# no per-account switch action (proposal Non-Goals; nexus-agent has no
+# `POST /credentials/swap` endpoint to switch to regardless — confirmed 404
+# live). Falls back to the pre-existing static `read -n 1 -s` popup
+# (any-keystroke dismiss) when fzf/tmux-3.2+ isn't available.
 # ---------------------------------------------------------------------------
+if supports_popup; then
+  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup | fzf --no-input --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
+else
+  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\""
+fi
 tmux bind-key -T root MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
-  "display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\"" \
+  "$accounts_popup_cmd" \
   "switch-client -t ="
 
 # ---------------------------------------------------------------------------
