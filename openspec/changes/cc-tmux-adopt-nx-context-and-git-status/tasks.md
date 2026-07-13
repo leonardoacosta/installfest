@@ -86,7 +86,7 @@
   used; `ahead` always local regardless of nx reachability; `model_letter` untouched/unaffected by
   any of the above). Run `cc-tmux self-test` and paste the passing stdout.
   [owner:general-purpose] [type:testing]
-- [ ] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for [beads:if-c029]
+- [x] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for [beads:if-c029]
   `render_session_bar`'s new dirty-counts format — `(3, 2)` renders `*3+2`, `(0, 0)`/`None`
   renders nothing, `ahead=2` still renders `^2` unchanged. Run `cc-tmux self-test` and paste the
   passing stdout. [owner:general-purpose] [type:testing]

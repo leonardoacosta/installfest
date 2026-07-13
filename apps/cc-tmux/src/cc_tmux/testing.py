@@ -1033,6 +1033,19 @@ def _test_render_session_bar() -> None:
     )
     _check(out_default == out_explicit_default, "no-kwargs call must match explicit dirty=None, ahead=0")
 
+    # cc-tmux-adopt-nx-context-and-git-status task 4.3: dedicated dirty-counts
+    # format coverage — exact `*<modified>+<untracked>` string, both empty
+    # shapes render nothing, and the `^N` ahead marker is unaffected.
+    out_counts = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(3, 2), ahead=2)
+    _check(f"#[fg={render.YELLOW}]*3+2" in out_counts, "dirty=(3, 2) -> exact '*3+2' YELLOW marker")
+    _check(f"#[fg={render.YELLOW}]^2" in out_counts, "ahead=2 -> '^2' marker (unchanged by task 3.1 signature)")
+
+    out_zero = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=(0, 0), ahead=0)
+    _check("*" not in out_zero, "dirty=(0, 0) -> no '*' marker (empty-count shape renders nothing)")
+
+    out_none_dirty = render.render_session_bar("F", "if", "main", "", None, None, None, dirty=None, ahead=0)
+    _check("*" not in out_none_dirty, "dirty=None -> no '*' marker")
+
 
 def _test_render_beads_bar() -> None:
     # cc-tmux-row3-openspec-beads-format task 2.3: render_beads_bar now takes
