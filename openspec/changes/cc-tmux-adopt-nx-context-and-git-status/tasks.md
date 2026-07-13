@@ -90,12 +90,30 @@
   `render_session_bar`'s new dirty-counts format — `(3, 2)` renders `*3+2`, `(0, 0)`/`None`
   renders nothing, `ahead=2` still renders `^2` unchanged. Run `cc-tmux self-test` and paste the
   passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.4] [P-2] Live verification: with a real tracked pane in this repo (project `if`) and [beads:if-7pdj]
+- [ ] [4.4] [deferred] [P-2] Live verification: with a real tracked pane in this repo (project `if`) and [beads:if-7pdj]
   nx-agent running, confirm row 2 renders SES% from `/sessions/:id/context`, branch/dirty-counts
   from `/projects/if/status`, and `ahead` from local git — paste observed row-2 output. Then stop
   nx-agent (or point at an unreachable port) and confirm row 2 falls back to local
   branch/dirty/blank-SES without erroring — paste that observed output too.
   [owner:general-purpose] [type:testing]
+  DEFERRED (2026-07-13, /apply orchestrator): the modified `cc_tmux` package lives only in this
+  session's git worktree, not yet deployed as the live plugin — a genuine "click a real pane, see
+  the rendered row 2" verification needs the worktree's code installed as the active binary, which
+  is out of scope pre-merge (the worktree boundary exists specifically to keep in-flight changes
+  out of the live environment until Phase 4 merge-back). What WAS verified with real runtime
+  evidence instead, from within the worktree, against the ACTUALLY RUNNING nx-agent on this
+  machine (not mocked): (1) `nx_agent.project_git_status('if')` against the live agent returned
+  real current git state for this repo (`branch: main`, real modified/untracked counts, real
+  headSha) — the project-code join (`registry.resolve_project_code` -> nx's own project registry)
+  resolves correctly end-to-end; (2) `nx_agent.session_context()` against the live agent with an
+  unknown/stale session_id correctly returned `None` (real 404 fail-open path, not simulated);
+  (3) both functions pointed at a deliberately unreachable port (not the real nx-agent — did NOT
+  kill the shared live service, which other panes/tooling may depend on) correctly returned `None`
+  (real connection-refused fail-open path). The dual-source composition logic itself
+  (`_build_session_bar` picking nx vs. local fallback) is unit-tested end-to-end in task 4.2's
+  self-test, independently re-run and confirmed 78/78 passing. What remains genuinely unverified:
+  the actual on-screen row-2 render, and the branch/dirty local-fallback path with nx truly killed
+  — needs Leo to do a real click after this spec deploys.
 - [ ] [4.5] [P-3] File two nx-side beads in nx's own tracker (not `if-*`): (1) add an [beads:if-2qyc]
   ahead/behind-vs-upstream field to `git-observer`'s payload, referencing this proposal's Non-Goals
   and nx bead `nx-yn6c2`'s sibling scope; (2) add a `model` field to `/sessions/:id/context`,
