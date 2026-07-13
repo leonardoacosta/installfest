@@ -82,7 +82,7 @@
   branch behind (via a second local clone/remote reset) -> correct behind, 0 ahead; no upstream
   configured -> 0/0. Run `cc-tmux self-test` and paste the passing stdout.
   [owner:general-purpose] [type:testing]
-- [ ] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the new per-field [beads:if-sk45]
+- [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the new per-field [beads:if-sk45]
   dual-source resolver — nx response carrying only `modified`/`untracked` keys results in those
   two preferring nx while `deleted`/`renamed`/`ahead`/`behind` fall back to local (with
   deliberately different nx-vs-local values per field so a wrong-source bug is visible, mirroring
