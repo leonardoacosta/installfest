@@ -210,5 +210,9 @@
     "claudeCode.initialPermissionMode": "bypassPermissions",
     "claudeCode.preferredLocation": "panel",
     "claudeCode.useCtrlEnterToSend": true,
-    "claudeCode.useTerminal": true
+    "claudeCode.useTerminal": true,
+    "yaml.disableSchemaDetection": [
+        "azure-pipelines.yml",
+        "azure-pipelines.yaml"
+    ]
 }
