@@ -2169,17 +2169,19 @@ def _test_nx_agent_project_git_status_cache() -> None:
 
 
 # ---------------------------------------------------------------------------
-# tmux._git_dirty / _git_ahead against a real throwaway git repo
-# (cc-tmux-adopt-nx-context-and-git-status task 4.1). A real fixture repo is
-# simpler + more realistic than mocking _run_git's porcelain/rev-list stdout.
+# tmux._git_status against real throwaway git repos (cc-tmux-git-status-glyphs
+# task 4.1, replacing the prior spec's tmux._git_dirty/_git_ahead fixture —
+# those two functions no longer exist, merged into one _git_status parse of
+# `git status --porcelain=v2 --branch`). A real fixture repo is simpler + more
+# realistic than mocking _run_git's porcelain stdout by hand.
 # ---------------------------------------------------------------------------
 
-def _test_tmux_git_dirty_ahead_fixture() -> None:
-    if shutil.which("git") is None:
-        return  # no git binary -> nothing to exercise; the helpers already fail-open to None/0
+def _init_git_status_fixture(tmpdir: str) -> Callable[..., None]:
+    """Init a throwaway repo at tmpdir with one committed ``tracked.txt``.
 
-    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-git-fixture-")
-
+    Returns a ``git(*args)`` runner bound to ``tmpdir`` so callers can keep
+    building on the same fixture without repeating the subprocess plumbing.
+    """
     def git(*args: str) -> None:
         subprocess.run(
             ["git", "-C", tmpdir, *args],
@@ -2188,35 +2190,196 @@ def _test_tmux_git_dirty_ahead_fixture() -> None:
             text=True,
         )
 
+    git("init", "-q")
+    git("config", "user.email", "self-test@cc-tmux.local")
+    git("config", "user.name", "cc-tmux self-test")
+    git("config", "commit.gpgsign", "false")
+    with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
+        f.write("hello\n")
+    git("add", "tracked.txt")
+    git("commit", "-q", "-m", "initial")
+    return git
+
+
+def _test_tmux_git_status_clean_no_upstream() -> None:
+    if shutil.which("git") is None:
+        return  # no git binary -> nothing to exercise; _git_status already fails open to None
+
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-git-status-clean-")
     try:
-        git("init", "-q")
-        git("config", "user.email", "self-test@cc-tmux.local")
-        git("config", "user.name", "cc-tmux self-test")
-        git("config", "commit.gpgsign", "false")
-
-        # one committed file so HEAD exists and a clean tree is possible
-        with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
-            f.write("hello\n")
-        git("add", "tracked.txt")
-        git("commit", "-q", "-m", "initial")
-
-        # clean tree -> None
-        _check(tmux._git_dirty(tmpdir) is None, "clean tree -> None")
-
-        # 1 modified (edit the committed file) + 1 untracked (a brand-new file) -> (1, 1)
-        with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
-            f.write("changed\n")
-        with open(os.path.join(tmpdir, "untracked.txt"), "w", encoding="utf-8") as f:
-            f.write("new\n")
+        _init_git_status_fixture(tmpdir)
+        status = tmux._git_status(tmpdir)
+        _check(status is not None, "clean tree with git available must not return None")
         _check(
-            tmux._git_dirty(tmpdir) == (1, 1),
-            f"1 modified + 1 untracked -> (1, 1): {tmux._git_dirty(tmpdir)!r}",
+            status == tmux.GitStatusCounts(),
+            f"clean tree -> all-zero GitStatusCounts, got {status!r}",
         )
-
-        # branch with no upstream configured -> 0 (rev-list @{upstream} fails, fail-open)
-        _check(tmux._git_ahead(tmpdir) == 0, "no-upstream branch -> ahead 0")
+        _check(
+            status.ahead == 0 and status.behind == 0,
+            f"no upstream configured -> ahead/behind both 0, got {status!r}",
+        )
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_tmux_git_status_dirty_counts() -> None:
+    if shutil.which("git") is None:
+        return
+
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-git-status-dirty-")
+    try:
+        git = _init_git_status_fixture(tmpdir)
+
+        # a second committed file, to be unstaged-deleted below
+        with open(os.path.join(tmpdir, "deleted.txt"), "w", encoding="utf-8") as f:
+            f.write("bye\n")
+        git("add", "deleted.txt")
+        git("commit", "-q", "-m", "add deleted.txt")
+
+        # 1 staged-modified file
+        with open(os.path.join(tmpdir, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("changed\n")
+        git("add", "tracked.txt")
+
+        # 1 unstaged-deleted file
+        os.remove(os.path.join(tmpdir, "deleted.txt"))
+
+        # 1 untracked file
+        with open(os.path.join(tmpdir, "new.txt"), "w", encoding="utf-8") as f:
+            f.write("new\n")
+
+        status = tmux._git_status(tmpdir)
+        _check(status is not None, "dirty tree must not return None")
+        _check(status.modified == 1, f"1 staged-modified file -> modified=1, got {status!r}")
+        _check(status.deleted == 1, f"1 unstaged-deleted file -> deleted=1, got {status!r}")
+        _check(status.untracked == 1, f"1 untracked file -> untracked=1, got {status!r}")
+        _check(status.renamed == 0, f"no rename in this fixture -> renamed=0, got {status!r}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_tmux_git_status_renamed() -> None:
+    if shutil.which("git") is None:
+        return
+
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-git-status-renamed-")
+    try:
+        git = _init_git_status_fixture(tmpdir)
+        with open(os.path.join(tmpdir, "orig.txt"), "w", encoding="utf-8") as f:
+            f.write("stable content for rename detection\n")
+        git("add", "orig.txt")
+        git("commit", "-q", "-m", "add orig.txt")
+
+        # `git mv` stages the rename directly — no extra `add` needed for
+        # porcelain=v2 to report it as a "2 <XY> ..." rename/copy entry.
+        git("mv", "orig.txt", "renamed.txt")
+
+        status = tmux._git_status(tmpdir)
+        _check(status is not None, "renamed tree must not return None")
+        _check(status.renamed == 1, f"staged rename -> renamed=1, got {status!r}")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_tmux_git_status_ahead() -> None:
+    if shutil.which("git") is None:
+        return
+
+    remote_dir = tempfile.mkdtemp(prefix="cc-tmux-git-status-remote-")
+    work_dir = tempfile.mkdtemp(prefix="cc-tmux-git-status-ahead-")
+    try:
+        subprocess.run(
+            ["git", "init", "-q", "--bare", remote_dir], check=True, capture_output=True, text=True,
+        )
+        git = _init_git_status_fixture(work_dir)
+        git("remote", "add", "origin", remote_dir)
+        branch = subprocess.run(
+            ["git", "-C", work_dir, "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        git("push", "-q", "-u", "origin", f"{branch}:{branch}")
+
+        # one more local commit, never pushed -> local HEAD is ahead of upstream
+        with open(os.path.join(work_dir, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("ahead commit\n")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "ahead commit")
+
+        status = tmux._git_status(work_dir)
+        _check(status is not None, "ahead-of-upstream tree must not return None")
+        _check(status.ahead == 1, f"one unpushed commit -> ahead=1, got {status!r}")
+        _check(status.behind == 0, f"nothing on the remote we lack -> behind=0, got {status!r}")
+    finally:
+        shutil.rmtree(remote_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
+def _test_tmux_git_status_behind() -> None:
+    if shutil.which("git") is None:
+        return
+
+    remote_dir = tempfile.mkdtemp(prefix="cc-tmux-git-status-remote-")
+    work_dir = tempfile.mkdtemp(prefix="cc-tmux-git-status-behind-")
+    other_dir = tempfile.mkdtemp(prefix="cc-tmux-git-status-other-")
+    try:
+        subprocess.run(
+            ["git", "init", "-q", "--bare", remote_dir], check=True, capture_output=True, text=True,
+        )
+        git = _init_git_status_fixture(work_dir)
+        git("remote", "add", "origin", remote_dir)
+        branch = subprocess.run(
+            ["git", "-C", work_dir, "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        git("push", "-q", "-u", "origin", f"{branch}:{branch}")
+
+        # A second clone pushes a commit work_dir hasn't seen yet.
+        subprocess.run(
+            ["git", "clone", "-q", remote_dir, other_dir], check=True, capture_output=True, text=True,
+        )
+
+        def other_git(*args: str) -> None:
+            subprocess.run(["git", "-C", other_dir, *args], check=True, capture_output=True, text=True)
+
+        other_git("config", "user.email", "self-test@cc-tmux.local")
+        other_git("config", "user.name", "cc-tmux self-test")
+        other_git("config", "commit.gpgsign", "false")
+        with open(os.path.join(other_dir, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("upstream moved on\n")
+        other_git("add", "tracked.txt")
+        other_git("commit", "-q", "-m", "upstream-only commit")
+        other_git("push", "-q", "origin", f"{branch}:{branch}")
+
+        # work_dir fetches the remote-tracking ref WITHOUT merging it into
+        # HEAD, so @{upstream} now points past local HEAD -> behind, not ahead.
+        git("fetch", "-q", "origin")
+
+        status = tmux._git_status(work_dir)
+        _check(status is not None, "behind-upstream tree must not return None")
+        _check(status.behind == 1, f"one un-merged upstream commit -> behind=1, got {status!r}")
+        _check(status.ahead == 0, f"no local-only commits -> ahead=0, got {status!r}")
+    finally:
+        shutil.rmtree(remote_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
+        shutil.rmtree(other_dir, ignore_errors=True)
+
+
+def _test_tmux_git_status_failure() -> None:
+    # Nonexistent directory -> `git -C <dir>` exits non-zero -> _run_git returns
+    # None -> _git_status returns None (works even without a git binary present,
+    # since _run_git's own shutil.which guard fails open the same way).
+    _check(
+        tmux._git_status("/nonexistent/cc-tmux-self-test-path-zzz") is None,
+        "nonexistent directory -> _git_status returns None",
+    )
+
+    # Explicit _run_git failure (monkeypatched) -> None regardless of cwd.
+    saved_run_git = tmux._run_git
+    tmux._run_git = lambda cwd, args: None  # type: ignore[assignment]
+    try:
+        _check(tmux._git_status(".") is None, "_run_git failure -> _git_status returns None")
+    finally:
+        tmux._run_git = saved_run_git  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -2441,7 +2604,12 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.register_subagent_start_stop_branching", _test_cli_register_subagent_start_stop_branching),
     ("nx_agent.session_context_cache", _test_nx_agent_session_context_cache),
     ("nx_agent.project_git_status_cache", _test_nx_agent_project_git_status_cache),
-    ("tmux.git_dirty_ahead_fixture", _test_tmux_git_dirty_ahead_fixture),
+    ("tmux.git_status_clean_no_upstream", _test_tmux_git_status_clean_no_upstream),
+    ("tmux.git_status_dirty_counts", _test_tmux_git_status_dirty_counts),
+    ("tmux.git_status_renamed", _test_tmux_git_status_renamed),
+    ("tmux.git_status_ahead", _test_tmux_git_status_ahead),
+    ("tmux.git_status_behind", _test_tmux_git_status_behind),
+    ("tmux.git_status_failure", _test_tmux_git_status_failure),
     ("cli.register_captures_session_id", _test_cli_register_captures_session_id),
     ("cli.build_session_bar_dual_source", _test_cli_build_session_bar_dual_source),
 ]
