@@ -5,10 +5,14 @@ The plugin SHALL bind a click on row 2's account-label segment to `cc-tmux accou
 read-only floating pane (positioned immediately above the current status-bar row) listing every
 tracked-but-not-currently-active Claude account with its 5-hour/7-day utilization, plus a
 distinguished row for the currently active account including its live SES (session
-context-window-used %). The popup renders as a static, non-selectable `display-popup` — there is
-no fzf or `display-menu` dependency; it is not a picker. This is a read-only view — it MUST NOT
-switch or swap the active credential. The popup SHALL NOT accept typed text input, and SHALL
-render no visual affordance suggesting it can be typed into.
+context-window-used %). When fzf and tmux >= 3.2 are available (the same `supports_popup` gate
+`cc-tmux inbox`/`picker-data` already use), the popup pipes through fzf with `--no-input`
+(query box hidden/disabled — genuinely cannot be typed into, not merely dismissed on the first
+keystroke) and a `[x]`-labeled header bound via `--bind 'click-header:abort'` (a real clickable
+close target — tmux's own `display-popup` has no native mouse-click dismissal). Row clicks and
+Enter are inert (`--bind 'left-click:ignore'`/`'enter:ignore'`) — this is a read-only view, it
+MUST NOT switch or swap the active credential. Without fzf/tmux 3.2+, the popup falls back to a
+static `display-popup` dismissed by any keystroke.
 
 #### Scenario: popup lists other tracked accounts with 5H/7D only
 - Given: 3 tracked nexus-agent credentials, one active, and the click lands on row 2's account
@@ -42,9 +46,14 @@ render no visual affordance suggesting it can be typed into.
 - Then: the popup shows no accounts (fail-open, no error) — same degradation convention as every
   other nexus-agent-dependent segment in this plugin
 
-#### Scenario: popup is dismissed without accepting typed input
-- Given: the accounts popup is open
-- When: the user dismisses it (click on a rendered close target, or any keystroke — whichever
-  mechanism the tmux version in use supports)
-- Then: the popup closes, and at no point during its open state does it render a blinking cursor
-  or other affordance suggesting free-form text can be typed into it
+#### Scenario: popup is dismissed via a real click target when fzf is available
+- Given: fzf and tmux >= 3.2 are available, and the accounts popup is open
+- When: the user clicks the `[x]` header or presses `q`
+- Then: the popup closes (`click-header:abort` / `q:abort`), and at no point does the popup
+  accept typed query input (`--no-input`) or act on a row click/Enter
+
+#### Scenario: popup falls back to any-keystroke dismiss without fzf
+- Given: fzf is unavailable or tmux is below 3.2
+- When: the accounts popup opens
+- Then: it renders as a static `display-popup`, dismissed by any single keystroke (no click
+  target in this fallback)
