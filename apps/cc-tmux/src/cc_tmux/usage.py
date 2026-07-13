@@ -56,6 +56,11 @@ CYAN = "#5BD1B9"
 YELLOW = "#FAC760"
 RED = "#E61F44"
 
+# Git status glyph colours — sourced from home/dot_config/tmux/vercel-theme.conf's
+# documented Vercel Geist Dark palette block (Blue / Green rows).
+GREEN = "#00ac3a"
+BLUE = "#006efe"
+
 # nexus-agent credentials endpoint + query timeout (seconds). Port 7400 is the
 # REAL listening port (confirmed live via `ss -tlnp`) — 7402 (this file's prior
 # value) has never been correct against the current nexus-agent.
