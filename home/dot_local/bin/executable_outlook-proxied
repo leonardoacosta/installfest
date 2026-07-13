@@ -1,4 +1,4 @@
 #!/bin/sh
 # Launch Microsoft Outlook with TCP routed through CloudPC SOCKS5 tunnel
 # UDP (calls/video) goes direct — no latency penalty
-exec proxychains4 -f "$HOME/.config/proxychains/proxychains.conf" outlook "$@"
+exec proxychains4 -f "$HOME/.config/proxychains/proxychains.conf" "/Applications/Microsoft Outlook.app/Contents/MacOS/Microsoft Outlook" "$@"
