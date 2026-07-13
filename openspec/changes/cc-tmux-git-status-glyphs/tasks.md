@@ -55,7 +55,7 @@
   `render.render_session_bar` (task 3.1 updates that callee's signature — pass the new shape
   through even though the callee doesn't support it yet until 3.1 lands, same sequencing pattern
   as the prior spec's task 2.1). [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: update `_build_session_bar`'s docstring to describe [beads:if-1xen]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: update `_build_session_bar`'s docstring to describe [beads:if-1xen]
   the six-field per-field dual-source rule (replacing the now-stale `dirty`-as-2-tuple / bare
   `ahead`-int prose left over from the prior spec). [owner:general-purpose] [type:docs]
 
