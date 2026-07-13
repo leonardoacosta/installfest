@@ -82,8 +82,12 @@ def cmd_register(args) -> int:
 
     # SessionStart hook payloads carry the resolved session title (custom, via
     # /rename or -n, else Claude's own default) — capture it for the opt-in
-    # `title` window-rename format (tab naming). Every other hook event is
-    # ignored here since only SessionStart's payload includes session_title.
+    # `title` window-rename format (tab naming). We also capture session_id here
+    # (-> @cc-session-id) so nx_agent lookups can key on it; session_id is stable
+    # for the session's lifetime and SessionStart re-fires on resume/clear/compact,
+    # so scoping capture to SessionStart (mirroring session_title) is sufficient.
+    # Every other hook event is ignored here since only SessionStart's payload is
+    # treated as authoritative for these fields.
     #
     # NOTE (cc-tmux-bar-cleanup): the model letter used to be captured here too
     # (SessionStart payload `model` field -> @cc-model), but that path was
@@ -96,6 +100,9 @@ def cmd_register(args) -> int:
         title = hook_payload.get("session_title")
         if title:
             tmux.set_pane_title(pane, title)
+        session_id = hook_payload.get("session_id")
+        if session_id:
+            tmux._set_opt(pane, tmux.OPT_SESSION_ID, session_id)
 
     # Sub-agent dispatch tracking (cc-tmux-subagent-tab-icon): the mechanism is
     # the Task tool's own PreToolUse/PostToolUse pair (hooks.json), NOT
