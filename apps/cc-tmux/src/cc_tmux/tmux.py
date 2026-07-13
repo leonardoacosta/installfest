@@ -16,6 +16,9 @@ The tracked options on each Claude pane:
     @cc-branch       resolved git branch
     @cc-title        Claude Code session title (SessionStart hook payload; opt-in
                       `title` window-rename format only — see cli._title_window_name)
+    @cc-dirty        JSON [modified, untracked] git dirty counts (local fallback; primary source is nx)
+    @cc-ahead        commits ahead of upstream (local-only; no nx source exists)
+    @cc-session-id   Claude Code session_id, captured from the SessionStart hook payload
 
 NOTE (cc-tmux-bar-cleanup): there used to be a ``@cc-model`` option here, written
 from the SessionStart hook payload's ``model`` field. That path was confirmed
@@ -73,6 +76,14 @@ OPT_TITLE = "@cc-title"
 # background agent's completion; aged out on read via a timeout (cli.py).
 OPT_SUBAGENT_FG = "@cc-subagent-fg"
 OPT_SUBAGENT_BG = "@cc-subagent-bg"
+# Local git-status fallbacks (cc-tmux-adopt-nx-context-and-git-status): @cc-dirty is
+# a JSON-encoded [modified, untracked] count pair (primary source is nx; this is the
+# local fallback), @cc-ahead is a stringified count of commits ahead of upstream
+# (local-only, no nx source). @cc-session-id is the Claude Code session_id captured
+# from the SessionStart hook payload (written in cli.cmd_register, not here).
+OPT_DIRTY = "@cc-dirty"
+OPT_AHEAD = "@cc-ahead"
+OPT_SESSION_ID = "@cc-session-id"
 
 _ALL_OPTS = (
     OPT_STATE,
@@ -85,6 +96,9 @@ _ALL_OPTS = (
     OPT_TITLE,
     OPT_SUBAGENT_FG,
     OPT_SUBAGENT_BG,
+    OPT_DIRTY,
+    OPT_AHEAD,
+    OPT_SESSION_ID,
 )
 
 # Global (server) options for the daemon-free reconcile rate limit (design.md
@@ -619,15 +633,17 @@ def set_pane_state(
 
 
 def set_pane_git_identity(pane_id: str) -> None:
-    """Resolve and store ``@cc-project`` / ``@cc-branch`` for a pane.
+    """Resolve and store ``@cc-project`` / ``@cc-branch`` / ``@cc-dirty`` / ``@cc-ahead`` for a pane.
 
     Uses the pane's current working directory: project = git toplevel basename
     (falling back to the directory basename outside a repo), branch = current git
-    branch (empty outside a repo / detached). Fail-open: writes nothing it cannot
-    resolve for project; branch now UNSETS on a definitive empty resolution
-    (outside any repo, detached HEAD / mid-rebase) rather than leaving the
-    previous branch rendering as current (stale-value bug) — only an
-    unresolvable cwd (early-return above) still writes nothing at all.
+    branch (empty outside a repo / detached), dirty = ``(modified, untracked)``
+    counts from :func:`_git_dirty`, ahead = commits ahead of upstream from
+    :func:`_git_ahead`. Fail-open: writes nothing it cannot resolve for project;
+    branch/dirty/ahead each UNSET on a definitive empty resolution (outside any
+    repo, clean tree, no upstream / detached HEAD) rather than leaving a previous
+    value rendering as current (stale-value bug) — only an unresolvable cwd
+    (early-return above) still writes nothing at all.
     """
     cwd = _run_tmux(["display-message", "-p", "-t", pane_id, "#{pane_current_path}"])
     if not cwd:
@@ -635,6 +651,8 @@ def set_pane_git_identity(pane_id: str) -> None:
 
     project = _git_toplevel_name(cwd) or os.path.basename(os.path.normpath(cwd))
     branch = _git_branch(cwd)
+    dirty = _git_dirty(cwd)
+    ahead = _git_ahead(cwd)
 
     if project:
         _set_opt(pane_id, OPT_PROJECT, project)
@@ -646,6 +664,21 @@ def set_pane_git_identity(pane_id: str) -> None:
         # branch keep rendering as current (stale-value bug). Fail-open bias:
         # show nothing over showing wrong.
         _unset_opt(pane_id, OPT_BRANCH)
+
+    if dirty is not None:
+        modified, untracked = dirty
+        _set_opt(pane_id, OPT_DIRTY, json.dumps([modified, untracked]))
+    else:
+        # None is a definitive "clean tree / no git" resolution — unset rather
+        # than leave a stale dirty count rendering (same bias as @cc-branch).
+        _unset_opt(pane_id, OPT_DIRTY)
+
+    if ahead > 0:
+        _set_opt(pane_id, OPT_AHEAD, str(ahead))
+    else:
+        # 0 is a definitive "not ahead / no upstream" resolution — unset the
+        # stale count rather than leave it rendering.
+        _unset_opt(pane_id, OPT_AHEAD)
 
 
 def set_pane_title(pane_id: str, title: str) -> None:
