@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # view.sh — the single front door for "render this file optimally" from a
 # terminal session. Picks the right renderer for the file type and shows it in
-# a horizontal tmux split below the current pane (inferring the session from the
-# inherited $TMUX), so the working pane is never disrupted.
+# a tmux split below the current pane by default (inferring the session from
+# the inherited $TMUX), so the working pane is never disrupted. -h splits
+# side-by-side instead; -v is the pane-below default, made explicit.
 #
 # Session inference is free: a command run inside a tmux pane (including one
 # spawned by Claude Code's Bash tool) inherits $TMUX/$TMUX_PANE, so
@@ -45,8 +46,10 @@
 # HTML/PDF/binary always route to mac-open regardless of context, never a split.
 #
 # Usage:
-#   view.sh [-d] <file> [<file> ...]     render one or more files optimally
-#     -d                                  keep focus on the calling pane (passes -d to the split)
+#   view.sh [-d] [-h|-v] <file> [<file> ...]   render one or more files optimally
+#     -d                                        keep focus on the calling pane (passes -d to the split)
+#     -h                                        split side-by-side (tmux split-window -h)
+#     -v                                        split pane-below (tmux split-window -v) — the default
 #
 # Env:
 #   VIEW_SPLIT_SIZE         tmux split size for the viewer pane  (default: 60%)
@@ -60,10 +63,14 @@ usage() {
 view — render one or more files optimally for their type
 
 Usage:
-  view [-d] <file> [<file> ...]
+  view [-d] [-h|-v] <file> [<file> ...]
 
 Options:
   -d    keep focus on the calling pane (do not switch to the viewer)
+  -h    split side-by-side (tmux split-window -h)
+  -v    split pane-below (tmux split-window -v) — the default
+        (--help for this usage text; there is no bare -h help shorthand,
+        since -h is the horizontal-split flag)
 
 Type dispatch:
   .md / .markdown / .mdx   -> glow (rendered markdown; bat fallback)
@@ -82,11 +89,14 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 # --- Arg parsing (multi-target) ----------------------------------------------
 detach=""        # "-d" keeps focus on the caller pane
+split_dir="v"    # "-h"/"-v" -> tmux split-window -h/-v; -v (pane below) is the v1 default
 targets=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -d)            detach="-d" ;;
-    -h|--help)     usage; exit 0 ;;
+    -h)            split_dir="h" ;;
+    -v)            split_dir="v" ;;
+    --help)        usage; exit 0 ;;
     --)            shift; targets+=("$@"); break ;;
     -*)            echo "view: unknown option: $1" >&2; usage; exit 1 ;;
     *)             targets+=("$1") ;;
@@ -162,6 +172,24 @@ types=()
 for f in "${resolved[@]}"; do
   types+=("$(classify "$f")")
 done
+
+# --- Shared tmux dispatch: reuse the tagged viewer pane, or open a new split -
+# One helper for all three tmux dispatch sites (image / directory / generic
+# code-markdown) so the pane-reuse + @view_pane tagging logic lives in exactly
+# one place instead of three copies drifting apart.
+open_in_pane() {
+  local cmd="$1" existing pane
+  existing="$(tmux list-panes -F '#{pane_id} #{@view_pane}' 2>/dev/null \
+    | awk '$2==1{print $1; exit}')"
+  if [ -n "$existing" ]; then
+    tmux respawn-pane -k -t "$existing" "$cmd"
+    [ -z "$detach" ] && tmux select-pane -t "$existing" 2>/dev/null || true
+  else
+    pane="$(tmux split-window "-$split_dir" -l "$SPLIT_SIZE" $detach -P -F '#{pane_id}' \
+      -c "#{pane_current_path}" "$cmd")"
+    [ -n "$pane" ] && tmux set -p -t "$pane" @view_pane 1 2>/dev/null || true
+  fi
+}
 
 # --- Peel off html targets: always mac-open, never a split --------------------
 # Single-target html preserves the exact v1 behavior (process replacement via
@@ -256,17 +284,7 @@ if [ "${#other_files[@]}" -eq 1 ] && [ "${other_types[0]}" = "image" ]; then
   fi
   img="${other_files[0]}"
   if [ -n "${TMUX:-}" ] && have tmux; then
-    cmd="$(image_split_cmd "$img")"
-    existing="$(tmux list-panes -F '#{pane_id} #{@view_pane}' 2>/dev/null \
-      | awk '$2==1{print $1; exit}')"
-    if [ -n "$existing" ]; then
-      tmux respawn-pane -k -t "$existing" "$cmd"
-      [ -z "$detach" ] && tmux select-pane -t "$existing" 2>/dev/null || true
-    else
-      pane="$(tmux split-window -v -l "$SPLIT_SIZE" $detach -P -F '#{pane_id}' \
-        -c "#{pane_current_path}" "$cmd")"
-      [ -n "$pane" ] && tmux set -p -t "$pane" @view_pane 1 2>/dev/null || true
-    fi
+    open_in_pane "$(image_split_cmd "$img")"
     exit 0
   fi
   if [ -t 1 ]; then
@@ -285,17 +303,7 @@ if [ "${#other_files[@]}" -eq 1 ] && [ "${other_types[0]}" = "directory" ]; then
   fi
   dir="${other_files[0]}"
   if [ -n "${TMUX:-}" ] && have tmux; then
-    cmd="$(printf 'eza --tree --color=always -- %s | less -R' "$(printf '%q' "$dir")")"
-    existing="$(tmux list-panes -F '#{pane_id} #{@view_pane}' 2>/dev/null \
-      | awk '$2==1{print $1; exit}')"
-    if [ -n "$existing" ]; then
-      tmux respawn-pane -k -t "$existing" "$cmd"
-      [ -z "$detach" ] && tmux select-pane -t "$existing" 2>/dev/null || true
-    else
-      pane="$(tmux split-window -v -l "$SPLIT_SIZE" $detach -P -F '#{pane_id}' \
-        -c "#{pane_current_path}" "$cmd")"
-      [ -n "$pane" ] && tmux set -p -t "$pane" @view_pane 1 2>/dev/null || true
-    fi
+    open_in_pane "$(printf 'eza --tree --color=always -- %s | less -R' "$(printf '%q' "$dir")")"
     exit 0
   fi
   if [ -t 1 ]; then
@@ -391,20 +399,7 @@ render_inline_paged() {
 
 # --- Execution context dispatch ----------------------------------------------
 if [ -n "${TMUX:-}" ] && have tmux; then
-  cmd="$(paged_renderer)"
-
-  # Reuse a viewer pane opened by a previous `view` call in this window.
-  existing="$(tmux list-panes -F '#{pane_id} #{@view_pane}' 2>/dev/null \
-    | awk '$2==1{print $1; exit}')"
-
-  if [ -n "$existing" ]; then
-    tmux respawn-pane -k -t "$existing" "$cmd"
-    [ -z "$detach" ] && tmux select-pane -t "$existing" 2>/dev/null || true
-  else
-    pane="$(tmux split-window -v -l "$SPLIT_SIZE" $detach -P -F '#{pane_id}' \
-      -c "#{pane_current_path}" "$cmd")"
-    [ -n "$pane" ] && tmux set -p -t "$pane" @view_pane 1 2>/dev/null || true
-  fi
+  open_in_pane "$(paged_renderer)"
   exit 0
 fi
 
