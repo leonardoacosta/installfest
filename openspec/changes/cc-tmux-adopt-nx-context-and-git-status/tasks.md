@@ -57,7 +57,7 @@
   itself in place for the model_letter read (its return shape may shrink to just the letter, or
   stay as-is with the other fields simply unused by the caller — implementer's call, document
   whichever is chosen in the function's own docstring). [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: update the docstrings on `_build_session_bar`, [beads:if-2soe]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: update the docstrings on `_build_session_bar`, [beads:if-2soe]
   `_read_session_context`, and `SESSION_CONTEXT_MAX_AGE_SECS` to reflect the new dual-source
   reality — do not leave stale prose claiming the legacy file is the sole source of
   branch/dirty/ahead/context_used_pct. [owner:general-purpose] [type:docs]
