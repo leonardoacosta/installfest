@@ -40,6 +40,12 @@ set -g default-terminal "xterm-256color"
 set -as terminal-features ',xterm-256color:RGB'
 set -as terminal-features ',xterm-ghostty:RGB'
 
+# Let Kitty graphics-protocol escape sequences (chafa -f kitty, used by
+# scripts/view.sh's image renderer) pass through tmux to Ghostty instead of
+# being filtered. Ghostty decodes Kitty natively but refuses Sixel permanently,
+# so this is the only in-terminal true-raster image path (if-dc4).
+set -g allow-passthrough on
+
 # Activity monitoring
 setw -g monitor-activity off
 set -g visual-activity off
