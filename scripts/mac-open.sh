@@ -20,7 +20,11 @@
 #                                  already live, and self-reaps via `timeout` —
 #                                  no systemd daemon, no random port to chase.
 #
-# Mac unreachable -> print a clickable (OSC 8) link/path and exit 0.
+# Mac unreachable -> middle tier: best-effort push the URL to the iPhone via
+# Nexus (nx_ropen, Tailscale) so it opens in Safari (tap -> authorize -> paste
+# any manual code back). Silently no-ops if NEXUS_ATTACH_SECRET / nx-send.sh
+# aren't available. Always followed by the last-resort tier: print a clickable
+# (OSC 8) link/path and exit 0, since the push can't be confirmed as delivered.
 #
 # Usage:
 #   mac-open.sh <url|file>            open on the Mac's default browser
@@ -34,6 +38,8 @@
 #   CC_BROWSER_TUNNEL_TTL  loopback reverse-tunnel seconds   (default: 180)
 #   MAC_OPEN_ROOT          file-server root                  (default: $HOME)
 #   CC_BROWSER_DRYRUN=1    print actions instead of running them (for tests)
+#   CC_BROWSER_NO_IPHONE=1 skip the iPhone push tier (go straight to print)
+#   NEXUS_ATTACH_SECRET    required for the iPhone push tier (from ~/.env)
 
 set -uo pipefail
 
@@ -196,8 +202,21 @@ if [ -n "$DRYRUN" ] || mac_reachable; then
   exit 0
 fi
 
-# Mac unreachable.
-echo "mac-open: Mac unreachable — open this yourself:" >&2
+# Mac unreachable. Middle tier: best-effort push to the iPhone via Nexus
+# (nx_ropen) before falling back to print-only. Fire-and-forget — nx_ropen
+# swallows its own failures (no secret, agent down, phone unreachable), so
+# we can't tell whether it landed and always still print the link below.
+if [ -z "${CC_BROWSER_NO_IPHONE:-}" ]; then
+  if [ -n "$DRYRUN" ]; then
+    echo "[dryrun] nx_ropen $(shq "$open_url")  (iPhone push tier)"
+  elif [ -f "$HOME/.claude/scripts/lib/nx-send.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.claude/scripts/lib/nx-send.sh"
+    nx_ropen "$open_url"
+  fi
+fi
+
+echo "mac-open: Mac unreachable — pushed to iPhone if configured; open this yourself if it didn't arrive:" >&2
 print_link "$open_url" >&2
 if [ -n "$callback_port" ]; then
   echo "mac-open: loopback OAuth URL (port $callback_port) — the browser will show a" >&2
