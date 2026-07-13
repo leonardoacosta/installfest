@@ -33,7 +33,7 @@
   writes in this same function are UNCHANGED — do not touch them. Update the module docstring's
   tracked-options table: remove the `@cc-dirty`/`@cc-ahead` rows, add one `@cc-git-status` row.
   [owner:general-purpose] [type:api]
-- [ ] [1.3] `apps/cc-tmux/src/cc_tmux/usage.py`: add `GREEN = "#00ac3a"` and `BLUE = "#006efe"` [beads:if-irwp]
+- [x] [1.3] `apps/cc-tmux/src/cc_tmux/usage.py`: add `GREEN = "#00ac3a"` and `BLUE = "#006efe"` [beads:if-irwp]
   module-level constants alongside the existing `DIM`/`CYAN`/`YELLOW`/`RED` (values taken from
   `home/dot_config/tmux/vercel-theme.conf`'s documented palette comment block — cite the exact
   source lines in a comment here, do not invent new hex values).
