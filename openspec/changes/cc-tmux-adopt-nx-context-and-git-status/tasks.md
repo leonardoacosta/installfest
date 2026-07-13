@@ -46,7 +46,7 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: rewrite `_build_session_bar`'s field resolution. [beads:if-56x4]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: rewrite `_build_session_bar`'s field resolution. [beads:if-56x4]
   `context_used_pct` -> `nx_agent.session_context(tmux.get_pane_option(pane,
   tmux.OPT_SESSION_ID))`'s `usedPercentage / 100` when present, else `None`. `branch`/`dirty` ->
   `nx_agent.project_git_status(registry.resolve_project_code(pane_cwd))`'s `git` object when
