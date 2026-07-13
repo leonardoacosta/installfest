@@ -23,7 +23,7 @@
   untracked. Return `None` only on git failure/not-a-repo/git-unavailable — a clean, up-to-date
   repo returns a valid all-zero `GitStatusCounts`, NOT `None` (callers must distinguish "checked,
   clean" from "couldn't check"). [owner:general-purpose] [type:api]
-- [ ] [1.2] `apps/cc-tmux/src/cc_tmux/tmux.py`: add `OPT_GIT_STATUS = "@cc-git-status"` constant; [beads:if-eitq]
+- [x] [1.2] `apps/cc-tmux/src/cc_tmux/tmux.py`: add `OPT_GIT_STATUS = "@cc-git-status"` constant; [beads:if-eitq]
   remove `OPT_DIRTY`/`OPT_AHEAD` from `_ALL_OPTS`, add `OPT_GIT_STATUS`. Extend
   `set_pane_git_identity` to call `_git_status(cwd)` ONCE (replacing its prior separate
   `_git_dirty(cwd)`/`_git_ahead(cwd)` calls) and write `@cc-git-status` as
