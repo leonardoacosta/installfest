@@ -62,6 +62,14 @@ RED = "#E61F44"
 GREEN = "#00ac3a"
 BLUE = "#006efe"
 
+# Context-window bar colour tiers (cc-tmux-context-bar, Leo's ask 2026-07-13) —
+# escalation shades beyond YELLOW/RED for the raw-token-count colour ramp.
+# ORANGE sits between YELLOW and RED; BRIGHT_RED/DARK_RED are the two pulse
+# partners for the >600k/>750k tiers (see render.resolve_context_color).
+ORANGE = "#FF8C00"
+BRIGHT_RED = "#FF6B6B"
+DARK_RED = "#8B0000"
+
 # nexus-agent credentials endpoint + query timeout (seconds). Port 7400 is the
 # REAL listening port (confirmed live via `ss -tlnp`) — 7402 (this file's prior
 # value) has never been correct against the current nexus-agent.
@@ -166,6 +174,36 @@ def _account_label(credential: dict) -> str:
         if isinstance(value, str) and value:
             return value
     return ""
+
+
+def _account_identity(credential: dict) -> Tuple[str, str]:
+    """``(display_name, org_id_short)`` for the popup's identity sub-row.
+
+    ``display_name`` mirrors :func:`_account_label`'s own email-first,
+    ``accountName``/``name``-fallback chain — so the sub-row never shows a
+    blank identity when :func:`_account_label` itself wouldn't — but WITHOUT
+    baking in the org-uuid-suffix: that stays :func:`_account_label`'s job
+    alone, since it is the unique key :func:`render.render_accounts_popup`
+    matches ``active_label`` against (the same email can be authenticated
+    against multiple orgs, so email-alone is not a safe matching key — see
+    :func:`_account_label`'s docstring). ``org_id_short`` is the first 8
+    chars of ``orgUuid`` (Leo's 2026-07-13 ask), or ``""`` when absent — the
+    caller omits the org segment entirely when this is empty, same
+    fail-open convention as the reset-time lines.
+    """
+    email = credential.get("accountEmail")
+    if isinstance(email, str) and email:
+        name = email
+    else:
+        name = ""
+        for key in ("accountName", "name"):
+            value = credential.get(key)
+            if isinstance(value, str) and value:
+                name = value
+                break
+    org_uuid = credential.get("orgUuid")
+    org_short = org_uuid[:8] if isinstance(org_uuid, str) and org_uuid else ""
+    return name, org_short
 
 
 def render_usage(payload: dict) -> str:

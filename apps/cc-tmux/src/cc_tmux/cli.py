@@ -1185,28 +1185,63 @@ def _resolve_git_status(pane: str) -> Tuple[str, "tmux.GitStatusCounts"]:
     return branch, counts
 
 
-def _resolve_ses_pct(pane: str) -> Optional[float]:
-    """Live SES (context-window-used %, 0..1 ratio) for ``pane`` via nx-agent.
+def _resolve_context_window(pane: str) -> Tuple[Optional[float], Optional[float]]:
+    """``(used_pct_ratio 0..1, context_window_size)`` for ``pane`` via nx-agent.
 
-    Single source of truth for SES resolution — ``GET /sessions/:id/context``
-    via :func:`nx_agent.session_context`, keyed by the pane's ``@cc-session-id``
-    option. An empty session-id, unreachable nx-agent, non-2xx response, or a
-    malformed/non-numeric ``usedPercentage`` all degrade to ``None`` (fail-open,
-    mirroring :func:`nx_agent.session_context`'s own guard).
+    Single source of truth for context-window resolution — ``GET
+    /sessions/:id/context`` via :func:`nx_agent.session_context`, keyed by
+    the pane's ``@cc-session-id`` option. An empty session-id, unreachable
+    nx-agent, non-2xx response, or a malformed/non-numeric field degrades
+    THAT field to ``None`` independently (fail-open, mirroring
+    :func:`nx_agent.session_context`'s own guard) — a present, valid
+    ``usedPercentage`` alongside an absent ``contextWindowSize`` still
+    returns ``(pct, None)`` rather than dropping both.
 
-    Shared by :func:`_build_session_bar` (row 2) and :func:`cmd_accounts_popup`
-    (if-hrbd fix) so the two surfaces cannot drift onto two different SES
-    sources again — that drift is exactly how if-hrbd happened: row 2 migrated
-    here first while the popup was left reading the legacy per-pane file,
-    which turned out to no longer exist on disk at all.
+    :func:`_resolve_ses_pct` (the fill fraction) and :func:`_resolve_ses_tokens`
+    (the raw-token colour-tier input, cc-tmux-context-bar) both delegate here
+    so the nx-agent call + field parsing lives in exactly one place — same
+    "single source of truth" contract this function replaced
+    :func:`_resolve_ses_pct` for (if-hrbd fix): row 2 and
+    :func:`cmd_accounts_popup` must never drift onto two different SES
+    sources again.
     """
     ctx = nx_agent.session_context(tmux.get_pane_option(pane, tmux.OPT_SESSION_ID))
     if not isinstance(ctx, dict):
-        return None
+        return None, None
     pct_raw = ctx.get("usedPercentage")
-    if isinstance(pct_raw, bool) or not isinstance(pct_raw, (int, float)):
+    pct = None
+    if isinstance(pct_raw, (int, float)) and not isinstance(pct_raw, bool):
+        pct = float(pct_raw) / 100.0
+    size_raw = ctx.get("contextWindowSize")
+    size = None
+    if isinstance(size_raw, (int, float)) and not isinstance(size_raw, bool):
+        size = float(size_raw)
+    return pct, size
+
+
+def _resolve_ses_pct(pane: str) -> Optional[float]:
+    """Live SES (context-window-used %, 0..1 ratio) for ``pane`` via nx-agent.
+
+    Thin wrapper over :func:`_resolve_context_window` — see that function's
+    docstring for the fail-open contract. Shared by :func:`_build_session_bar`
+    (row 2) and :func:`cmd_accounts_popup` so the two surfaces cannot drift
+    onto two different SES sources again.
+    """
+    pct, _size = _resolve_context_window(pane)
+    return pct
+
+
+def _resolve_ses_tokens(pane: str) -> Optional[float]:
+    """Raw context tokens used for ``pane`` (cc-tmux-context-bar), or ``None``.
+
+    ``used_pct_ratio * context_window_size`` from :func:`_resolve_context_window`
+    — ``None`` whenever EITHER piece is unavailable (a percentage with no
+    window size to scale it by isn't a usable token count, fail-open).
+    """
+    pct, size = _resolve_context_window(pane)
+    if pct is None or size is None:
         return None
-    return float(pct_raw) / 100.0
+    return pct * size
 
 
 def _resolve_model_letter(pane: str) -> str:
@@ -1291,8 +1326,10 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # longer exists on disk at all — confirmed 2026-07-13).
     model_letter = _resolve_model_letter(pane)
 
-    # context_used_pct: shared nx-agent resolution (if-hrbd — see _resolve_ses_pct).
+    # context_used_pct / raw tokens: shared nx-agent resolution (if-hrbd, then
+    # cc-tmux-context-bar — see _resolve_context_window).
     ses_pct = _resolve_ses_pct(pane)
+    ses_tokens = _resolve_ses_tokens(pane)
 
     # branch/git-status: per-field nx primary, local @cc-git-status fallback
     # (cc-tmux-git-status-glyphs task 2.1 — replaces the former branch/dirty-only
@@ -1303,11 +1340,14 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
 
     # render.render_session_bar's `git_status` kwarg (task 3.1, UI batch) now
     # consumes the six-field GitStatusCounts directly — the old `dirty` tuple
-    # / `ahead` int params are gone from its signature.
+    # / `ahead` int params are gone from its signature. `raw_tokens` drives
+    # the context-bar's colour tier (cc-tmux-context-bar); `now` defaults to
+    # time.time() inside render_session_bar when omitted.
     return render.render_session_bar(
         model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
         git_status=git_status,
+        raw_tokens=ses_tokens,
     )
 
 
@@ -1337,18 +1377,24 @@ def cmd_accounts_popup(args) -> int:
     :func:`usage.dedupe_credentials` (if-lp8v/if-m5q6 client-side stopgap;
     also now shared with :func:`usage.extract_active` — see that function's
     docstring for the row2/popup 5H-7D mismatch this closed), and extracts a
-    ``(label, 5H, 7D, 5H-reset, 7D-reset)`` 5-tuple per surviving credential
-    via :func:`usage._account_label`/:func:`usage._extract_util`/
+    ``(label, 5H, 7D, 5H-reset, 7D-reset, email, org_id_short)`` 7-tuple per
+    surviving credential via :func:`usage._account_label`/
+    :func:`usage._account_identity`/:func:`usage._extract_util`/
     :func:`usage._extract_reset_at` — reused here rather than re-deriving the
-    field-navigation logic. The credential whose ``isActive`` flag is
-    ``True`` supplies ``active_label``. The reset timestamps feed
+    field-navigation logic. ``label`` stays the internal active-row matching
+    key only (see :func:`render.render_accounts_popup`'s docstring for why
+    email-alone isn't safe for that); ``email``/``org_id_short`` are what
+    actually print, on their own identity row (cc-tmux-context-bar, Leo's
+    2026-07-13 ask). The credential whose ``isActive`` flag is ``True``
+    supplies ``active_label``. The reset timestamps feed
     :func:`render.render_accounts_popup`'s per-account "Resets at/on ... in
     ..." lines (Leo's ask, 2026-07-13).
 
     SES (a property of the currently-focused pane, not any credential row —
     see proposal's "SES is not an account-level metric") is resolved via
-    :func:`_resolve_session_pane` + :func:`_resolve_ses_pct` off the current
-    window (:func:`tmux.current_window_id`) — the SAME nx-agent path
+    :func:`_resolve_session_pane` + :func:`_resolve_ses_pct`/
+    :func:`_resolve_ses_tokens` off the current window
+    (:func:`tmux.current_window_id`) — the SAME nx-agent path
     :func:`_build_session_bar` (row 2) uses. Fixed if-hrbd (2026-07-13): this
     used to read the legacy per-pane ``session-context.<pane>.json`` file via
     :func:`_read_session_context`, left behind when
@@ -1369,26 +1415,35 @@ def cmd_accounts_popup(args) -> int:
     deduped = usage.dedupe_credentials(credentials) if isinstance(credentials, list) else []
 
     active_label = ""
-    accounts: List[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float]]] = []
+    accounts: List[
+        Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], str, str]
+    ] = []
     for cred in deduped:
         label = usage._account_label(cred)
         if not label:
             continue
         if cred.get("isActive") is True:
             active_label = label
+        email, org_short = usage._account_identity(cred)
         accounts.append((
             label,
             usage._extract_util(cred, "usage5hUsed", "usage5hLimit"),
             usage._extract_util(cred, "usage7dUsed", "usage7dLimit"),
             usage._extract_reset_at(cred, "usage5hResetAt"),
             usage._extract_reset_at(cred, "usage7dResetAt"),
+            email,
+            org_short,
         ))
 
     window = tmux.current_window_id()
     pane = _resolve_session_pane(window) if window else ""
     active_ses_pct = _resolve_ses_pct(pane) if pane else None
+    active_raw_tokens = _resolve_ses_tokens(pane) if pane else None
 
-    out = render.render_accounts_popup(accounts, active_label, active_ses_pct, now=time.time())
+    out = render.render_accounts_popup(
+        accounts, active_label, active_ses_pct, now=time.time(),
+        active_raw_tokens=active_raw_tokens,
+    )
     if out:
         print(out)
     return 0

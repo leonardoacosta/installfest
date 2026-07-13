@@ -899,36 +899,55 @@ def _test_usage_dedupe_credentials() -> None:
 
 def _test_render_accounts_popup() -> None:
     accounts = [
-        ("leo@x.dev·f", 0.5, 0.85, None, None),
-        ("other@x.dev·2", 0.1, 0.2, None, None),
+        ("leo@x.dev·f", 0.5, 0.85, None, None, "leo@x.dev", "abcd1234"),
+        ("other@x.dev·2", 0.1, 0.2, None, None, "other@x.dev", "efgh5678"),
     ]
-    out = render.render_accounts_popup(accounts, "leo@x.dev·f", 0.42)
+    out = render.render_accounts_popup(
+        accounts, "leo@x.dev·f", 0.42, active_raw_tokens=252_500
+    )
     lines = out.splitlines()
-    # One summary line + one closing border rule per account (no reset data
-    # on either account -> no reset lines).
-    _check(len(lines) == 4, f"summary + border per account, no reset lines: {lines!r}")
+    # Summary + identity line + closing border rule per account (no reset
+    # data on either account -> no reset lines): 3 lines * 2 accounts.
+    _check(len(lines) == 6, f"summary + identity + border per account: {lines!r}")
     plain_lines = [_strip_ansi(l) for l in lines]
-    active_line = next(l for l in plain_lines if "leo@x.dev" in l)
-    other_line = next(l for l in plain_lines if "other@x.dev" in l)
-    _check("SES:42%" in active_line, f"active row shows SES: {active_line!r}")
+    active_line = next(l for l in plain_lines if "252.5k" in l)
+    other_summary = next(l for l in plain_lines if l.strip().startswith("5H:10%"))
+    active_identity = next(l for l in plain_lines if "leo@x.dev" in l and "abcd1234" in l)
+    other_identity = next(l for l in plain_lines if "other@x.dev" in l and "efgh5678" in l)
+    _check(
+        "252.5k:" in active_line, f"active row shows the raw-token bar label: {active_line!r}"
+    )
     _check(
         "5H:50%" in active_line and "7D:85%" in active_line,
         f"active row shows 5H/7D too: {active_line!r}",
     )
-    _check("SES:" not in other_line, f"non-active row has no SES: {other_line!r}")
     _check(
-        "5H:10%" in other_line and "7D:20%" in other_line,
-        f"non-active row shows 5H/7D: {other_line!r}",
+        "5H:10%" in other_summary and "7D:20%" in other_summary,
+        f"non-active row shows 5H/7D, no bar: {other_summary!r}",
     )
+    _check("k:" not in other_summary, f"non-active row has no bar: {other_summary!r}")
     _check(active_line.startswith("*"), f"active row is marked: {active_line!r}")
-    _check(not other_line.startswith("*"), f"non-active row is not marked: {other_line!r}")
+    _check(
+        not other_summary.startswith("*"), f"non-active row is not marked: {other_summary!r}"
+    )
+    _check(
+        active_identity.strip().startswith("leo@x.dev"),
+        f"identity line under the active row's summary: {active_identity!r}",
+    )
+    _check(
+        other_identity.strip().startswith("other@x.dev"),
+        f"identity line under the non-active row's summary too: {other_identity!r}",
+    )
     # No tmux status-format escaping leaks in (this popup uses real ANSI
     # instead — see the green checks below — never tmux's #[fg=...] tokens).
     _check("#[" not in out, "popup body carries no tmux #[...] style codes")
-    # Every number (Leo's ask, 2026-07-13) is wrapped in the popup's green.
+    # Every number EXCEPT the bar (Leo's ask, 2026-07-13 — the bar carries
+    # its own severity colour, deliberately not uniform green) is wrapped in
+    # the popup's green.
     _check(render._green("50%") in out, f"5H percentage is wrapped in green: {out!r}")
     _check(render._green("85%") in out, f"7D percentage is wrapped in green: {out!r}")
-    _check(render._green("42%") in out, f"SES percentage is wrapped in green: {out!r}")
+    # "SES:" text is gone entirely — replaced by the bar.
+    _check("SES:" not in out, f"SES text fully replaced by the bar: {out!r}")
     # Each account block closes with a full-width '─' rule.
     border_lines = [l for l in lines if l and set(l) == {"─"}]
     _check(len(border_lines) == 2, f"one border rule per account: {lines!r}")
@@ -936,11 +955,12 @@ def _test_render_accounts_popup() -> None:
     # Unreachable nexus-agent / zero deduped credentials -> empty, fail-open.
     _check(render.render_accounts_popup([], "leo@x.dev", 0.5) == "", "no accounts -> ''")
 
-    # No account matches active_label -> no row gets SES (e.g. the active
+    # No account matches active_label -> no row gets the bar (e.g. the active
     # credential had no usable label and was dropped by the caller).
     out_no_match = render.render_accounts_popup(accounts, "", None)
     _check(
-        "SES:" not in _strip_ansi(out_no_match), "no active_label match -> no SES anywhere"
+        "SES:" not in _strip_ansi(out_no_match) and "k:" not in _strip_ansi(out_no_match),
+        "no active_label match -> no bar anywhere",
     )
 
 
@@ -963,12 +983,18 @@ def _test_render_accounts_popup_reset_lines() -> None:
     seven_d_reset = now + 3 * 86400 + 14 * 3600 + 22 * 60  # 3d14h22m out
     expected_weekday = time.strftime("%a", time.localtime(seven_d_reset))
 
-    accounts = [("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset)]
+    accounts = [("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset, "leo@x.dev", "abcd1234")]
     out = render.render_accounts_popup(accounts, "leo@x.dev·8", None, now=now)
     lines = out.splitlines()
-    _check(len(lines) == 4, f"summary + two reset lines + border: {lines!r}")
-    reset_5h = _strip_ansi(lines[1])
-    reset_7d = _strip_ansi(lines[2])
+    # summary + identity + two reset lines + border.
+    _check(len(lines) == 5, f"summary + identity + two reset lines + border: {lines!r}")
+    identity = _strip_ansi(lines[1])
+    reset_5h = _strip_ansi(lines[2])
+    reset_7d = _strip_ansi(lines[3])
+    _check(
+        identity.strip().startswith("leo@x.dev") and "abcd1234" in identity,
+        f"identity line under the summary: {identity!r}",
+    )
     _check(
         reset_5h.startswith("   ") and "5H Resets at" in reset_5h and "in 02:14" in reset_5h,
         f"5H reset line indented, correct countdown: {reset_5h!r}",
@@ -991,8 +1017,8 @@ def _test_render_accounts_popup_reset_lines() -> None:
     )
     # Border rule closes the block.
     _check(
-        len(lines[3]) > 0 and set(lines[3]) == {"─"},
-        f"border rule under the account block: {lines[3]!r}",
+        len(lines[4]) > 0 and set(lines[4]) == {"─"},
+        f"border rule under the account block: {lines[4]!r}",
     )
     # Countdowns are green.
     _check(render._green("02:14") in out, f"5H countdown is green: {out!r}")
@@ -1000,23 +1026,23 @@ def _test_render_accounts_popup_reset_lines() -> None:
 
     # Missing reset data (window not yet polled) -> line omitted, not a
     # placeholder — same fail-open convention as an absent 5H/7D percentage.
-    accounts_missing = [("leo@x.dev·8", 0.36, 0.71, None, None)]
+    accounts_missing = [("leo@x.dev·8", 0.36, 0.71, None, None, "leo@x.dev", "abcd1234")]
     out_missing = render.render_accounts_popup(accounts_missing, "leo@x.dev·8", None, now=now)
     _check(
-        len(out_missing.splitlines()) == 2,
-        f"summary + border only, no reset lines: {out_missing!r}",
+        len(out_missing.splitlines()) == 3,
+        f"summary + identity + border only, no reset lines: {out_missing!r}",
     )
 
     # Already-passed reset -> "now", not a negative/garbled countdown.
-    accounts_past = [("leo@x.dev·8", 0.36, 0.71, now - 60, now - 60)]
+    accounts_past = [("leo@x.dev·8", 0.36, 0.71, now - 60, now - 60, "leo@x.dev", "abcd1234")]
     out_past = render.render_accounts_popup(accounts_past, "leo@x.dev·8", None, now=now)
     _check(render._green("now") in out_past, f"already-passed reset renders green 'now': {out_past!r}")
 
     # Reset lines render for a NON-active row too (Leo: "for both 5h and 7d
     # below each account", not just the starred one).
     accounts_two = [
-        ("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset),
-        ("other@x.dev·2", 0.1, 0.2, five_h_reset, None),
+        ("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset, "leo@x.dev", "abcd1234"),
+        ("other@x.dev·2", 0.1, 0.2, five_h_reset, None, "other@x.dev", "efgh5678"),
     ]
     out_two = render.render_accounts_popup(accounts_two, "leo@x.dev·8", 0.5, now=now)
     other_lines = [_strip_ansi(l) for l in out_two.splitlines()]
@@ -1029,6 +1055,123 @@ def _test_render_accounts_popup_reset_lines() -> None:
         "7D Resets" not in other_lines[other_idx + 2],
         f"non-active row's missing 7D reset data omits that line only: {other_lines[other_idx + 2]!r}",
     )
+
+
+def _test_context_bar_colors() -> None:
+    """cc-tmux-context-bar: six-tier raw-token colour ramp + pulse pairs.
+
+    Thresholds are strictly-greater-than (Leo's ask: "green > 100k" etc.), so
+    a value exactly ON a boundary stays in the LOWER tier — checked
+    explicitly at 100_000 to pin that edge down. Pulse tiers are checked at
+    both frame parities (``now=0`` -> even frame -> base colour, ``now=
+    FRAME_PERIOD_SEC`` -> odd frame -> pulse colour), the same wall-clock
+    parity :func:`render.animated_icon` already uses.
+    """
+    _check(render.resolve_context_color(None, 0) == usage.DIM, "no data -> DIM")
+    _check(render.resolve_context_color(50_000, 0) == usage.DIM, "<=100k -> DIM (safe zone)")
+    _check(
+        render.resolve_context_color(100_000, 0) == usage.DIM,
+        "exactly 100k -> DIM (strictly-greater-than threshold, not >=)",
+    )
+    _check(render.resolve_context_color(150_000, 0) == usage.GREEN, ">100k -> GREEN")
+    _check(render.resolve_context_color(250_000, 0) == usage.YELLOW, ">200k -> YELLOW")
+    _check(render.resolve_context_color(350_000, 0) == usage.ORANGE, ">300k -> ORANGE")
+    _check(render.resolve_context_color(550_000, 0) == usage.RED, ">500k -> RED, steady (no pulse pair)")
+    _check(
+        render.resolve_context_color(650_000, 0.0) == usage.RED,
+        ">600k tier, even frame -> base RED",
+    )
+    _check(
+        render.resolve_context_color(650_000, render.FRAME_PERIOD_SEC) == usage.BRIGHT_RED,
+        ">600k tier, odd frame -> pulse BRIGHT_RED",
+    )
+    _check(
+        render.resolve_context_color(800_000, 0.0) == usage.DARK_RED,
+        ">750k tier, even frame -> base DARK_RED",
+    )
+    _check(
+        render.resolve_context_color(800_000, render.FRAME_PERIOD_SEC) == usage.RED,
+        ">750k tier, odd frame -> pulse RED (distinct pair from the 600k tier)",
+    )
+
+
+def _test_context_bar_format() -> None:
+    """format_context_tokens / render_context_bar(_ansi): label + fill math."""
+    _check(render.format_context_tokens(None) == "--", "no tokens -> '--'")
+    _check(render.format_context_tokens(252_500) == "252.5k", "252500 -> '252.5k'")
+    _check(render.format_context_tokens(0) == "0.0k", "0 -> '0.0k'")
+
+    out = render.render_context_bar(252_500, 0.3, 0.0, width=10)
+    _check("252.5k:" in out, f"tmux bar carries the token label: {out!r}")
+    _check(out.count("▓") == 3, f"30% of width 10 -> 3 filled segments: {out!r}")
+    _check(out.count("░") == 7, f"remaining 7 empty segments: {out!r}")
+    _check("#[fg=" in out, f"tmux bar uses #[fg=...] tokens: {out!r}")
+
+    out_ansi = render.render_context_bar_ansi(252_500, 0.3, 0.0, width=10)
+    _check("#[" not in out_ansi, f"ansi bar carries no tmux tokens: {out_ansi!r}")
+    _check("\x1b[38;2;" in out_ansi, f"ansi bar carries a truecolor escape: {out_ansi!r}")
+    _check("252.5k:" in _strip_ansi(out_ansi), f"ansi bar carries the token label too: {out_ansi!r}")
+
+    # No fill/token data -> zero filled segments, '--' label, not a crash.
+    out_none = render.render_context_bar(None, None, 0.0, width=10)
+    _check(out_none.count("▓") == 0, f"no fill data -> zero filled segments: {out_none!r}")
+    _check("--:" in out_none, f"no token data -> '--' label: {out_none!r}")
+
+    # Fill fraction clamps to [0, width] even for out-of-range input.
+    out_over = render.render_context_bar(100, 1.5, 0.0, width=10)
+    _check(out_over.count("▓") == 10, f"used_pct > 1.0 clamps to a full bar: {out_over!r}")
+    out_under = render.render_context_bar(100, -0.5, 0.0, width=10)
+    _check(out_under.count("▓") == 0, f"used_pct < 0 clamps to an empty bar: {out_under!r}")
+
+
+def _test_account_identity() -> None:
+    """usage._account_identity: (email, org_id_short) for the popup's identity row."""
+    _check(
+        usage._account_identity(
+            {"accountEmail": "leo@x.dev", "orgUuid": "37a74420-a010-462a-a938-6d1a4117830e"}
+        )
+        == ("leo@x.dev", "37a74420"),
+        "email + first-8-chars org id",
+    )
+    _check(
+        usage._account_identity({"accountEmail": "leo@x.dev"}) == ("leo@x.dev", ""),
+        "no orgUuid -> empty org segment",
+    )
+    _check(
+        usage._account_identity({"accountName": "Leo"}) == ("Leo", ""),
+        "no email -> falls back to accountName, same chain as _account_label",
+    )
+    _check(usage._account_identity({}) == ("", ""), "nothing resolvable -> empty pair")
+
+
+def _test_cli_resolve_ses_tokens() -> None:
+    """cli._resolve_ses_tokens: used_pct * contextWindowSize, or None when
+    either piece is missing (cc-tmux-context-bar)."""
+    saved_get_pane_option = tmux.get_pane_option
+    saved_session_context = nx_agent.session_context
+    tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
+    try:
+        nx_agent.session_context = lambda *a, **k: {  # type: ignore[assignment]
+            "usedPercentage": 61.0, "contextWindowSize": 200_000,
+        }
+        _check(
+            cli._resolve_ses_tokens("%1") == 122_000.0,
+            f"61% of 200k -> 122000: {cli._resolve_ses_tokens('%1')!r}",
+        )
+
+        # contextWindowSize missing -> tokens unresolvable even with a valid pct.
+        nx_agent.session_context = lambda *a, **k: {"usedPercentage": 61.0}  # type: ignore[assignment]
+        _check(
+            cli._resolve_ses_tokens("%1") is None,
+            "no contextWindowSize -> None, not a wrong count",
+        )
+
+        # nx unreachable -> None.
+        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
+        _check(cli._resolve_ses_tokens("%1") is None, "nx-agent unreachable -> None")
+    finally:
+        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
+        nx_agent.session_context = saved_session_context  # type: ignore[assignment]
 
 
 def _test_accounts_popup_click_dismiss_wiring() -> None:
@@ -1087,26 +1230,34 @@ def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
     tmux.current_window_id = lambda: "@1"  # type: ignore[assignment]
     cli._resolve_session_pane = lambda window: "%1"  # type: ignore[assignment]
     tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
-    # OLD path: if this were still read, SES would render as 99% (the wrong value).
+    # OLD path: if this were still read, SES would render as a 99%-full bar
+    # (the wrong value) — this legacy tuple's 2nd field was the old fraction.
     cli._read_session_context = lambda pane: ("O", 0.99, "", False, 0)  # type: ignore[assignment]
-    # NEW path: nx-agent's real value.
-    nx_agent.session_context = lambda *a, **k: {"usedPercentage": 42.0}  # type: ignore[assignment]
+    # NEW path: nx-agent's real value (42% of a 200k window -> 84.0k raw tokens,
+    # cc-tmux-context-bar's bar label — see cli._resolve_ses_tokens).
+    nx_agent.session_context = lambda *a, **k: {  # type: ignore[assignment]
+        "usedPercentage": 42.0, "contextWindowSize": 200_000,
+    }
     try:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             cli.cmd_accounts_popup(None)
         out = _strip_ansi(buf.getvalue())
-        _check("SES:42%" in out, f"SES comes from nx-agent (42%), not the legacy file: {out!r}")
-        _check("99%" not in out, f"legacy per-pane file's value must NOT leak through: {out!r}")
+        _check(
+            "84.0k:" in out, f"bar label comes from nx-agent (84.0k), not the legacy file: {out!r}"
+        )
+        _check("SES:" not in out, f"SES text is fully replaced by the bar: {out!r}")
 
-        # nx-agent unreachable -> SES blank ('--'), NOT a silent fall-back to
+        # nx-agent unreachable -> bar blank ('--:'), NOT a silent fall-back to
         # the legacy file (that fall-back is exactly what if-hrbd removed).
         nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
         buf2 = io.StringIO()
         with contextlib.redirect_stdout(buf2):
             cli.cmd_accounts_popup(None)
         out2 = _strip_ansi(buf2.getvalue())
-        _check("SES:--" in out2, f"nx-agent unreachable -> SES blank, no legacy fallback: {out2!r}")
+        _check(
+            "--:" in out2, f"nx-agent unreachable -> bar label blank, no legacy fallback: {out2!r}"
+        )
         _check("99%" not in out2, f"legacy per-pane file's value must NOT leak through: {out2!r}")
     finally:
         usage._query = saved_query  # type: ignore[assignment]
@@ -1319,7 +1470,8 @@ def _test_render_session_bar() -> None:
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
     _check("#[align=right]" in out, "left/right sides split via align=right")
     _check("leo@x.dev" in out, "account label present on the right")
-    _check("SES:" in out and "5H:" in out and "7D:" in out, "usage gauges render on the session bar")
+    _check("SES:" not in out, "SES text is fully replaced by the context bar")
+    _check("--:" in out and "5H:" in out and "7D:" in out, "context bar (no raw_tokens -> '--') + usage gauges render")
     _check(out.endswith("#[default]"), "resets colour at end")
 
     # None percentages -> '--' rendered in DIM for every gauge.
@@ -2832,6 +2984,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
     ("render.accounts_popup", _test_render_accounts_popup),
     ("render.accounts_popup_reset_lines", _test_render_accounts_popup_reset_lines),
+    ("render.context_bar_colors", _test_context_bar_colors),
+    ("render.context_bar_format", _test_context_bar_format),
+    ("usage.account_identity", _test_account_identity),
+    ("cli.resolve_ses_tokens", _test_cli_resolve_ses_tokens),
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
     ("accounts_popup.ses_from_nx_agent", _test_cli_accounts_popup_ses_from_nx_agent),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),

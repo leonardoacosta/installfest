@@ -16,7 +16,19 @@ import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import tmux
-from .usage import BLUE, CYAN, DIM, GREEN, RED, YELLOW, color_for, pct_for
+from .usage import (
+    BLUE,
+    BRIGHT_RED,
+    CYAN,
+    DARK_RED,
+    DIM,
+    GREEN,
+    ORANGE,
+    RED,
+    YELLOW,
+    color_for,
+    pct_for,
+)
 
 # Default state glyphs. Geometric Shapes (U+25CF/25CB/25D0), NOT emoji — plain
 # monospace-friendly marks that render in any terminal and are overridable.
@@ -226,6 +238,137 @@ def inbox_rows(
 
 
 # ---------------------------------------------------------------------------
+# Context-window bar (cc-tmux-context-bar, Leo's ask 2026-07-13)
+#
+# Replaces the old "SES:xx%" percentage-only readout with a raw-token-count
+# label + shade-block fill bar: "252.5k:▓▓▓░░░░░░░". Two independent scales,
+# deliberately: the BAR FILL is driven by `used_pct` (this session's fraction
+# of its OWN context window — "how close to hitting the wall right now"),
+# while the BAR COLOUR is driven by `raw_tokens` (absolute context tokens
+# burned this session, regardless of window size — "how much has been spent
+# overall"). A 1M-window session at 250k tokens is only ~25% full (dim bar)
+# but already ORANGE (absolute-burn colour), and that mismatch is intentional
+# — both signals are useful together, not meant to agree.
+# ---------------------------------------------------------------------------
+
+CONTEXT_BAR_WIDTH = 10  # fill-bar segment count
+_BAR_FILLED = "▓"
+_BAR_EMPTY = "░"
+
+
+def _context_color_pair(raw_tokens: Optional[float]) -> Tuple[str, Optional[str]]:
+    """``(base_color, pulse_color_or_None)`` for `raw_tokens` context tokens used.
+
+    Six-tier escalation ramp: <=100k -> DIM (safe zone, no signal); >100k
+    GREEN; >200k YELLOW; >300k ORANGE; >500k RED (steady); >600k RED pulsing
+    against BRIGHT_RED; >750k DARK_RED pulsing against RED — a visually
+    darker, more urgent pulse than the 600k tier, not just a repeat of it.
+    ``None`` (context data unavailable) -> ``(DIM, None)``, same as the
+    safe-zone case — fail-open.
+
+    Returns the pulse PAIR rather than one resolved colour: callers animate
+    the pulsing tiers by alternating ``base``/``pulse`` on wall-clock parity
+    (see :func:`resolve_context_color`) — ``pulse is None`` means "render
+    ``base`` steady, no animation."
+    """
+    if raw_tokens is None:
+        return DIM, None
+    if raw_tokens > 750_000:
+        return DARK_RED, RED
+    if raw_tokens > 600_000:
+        return RED, BRIGHT_RED
+    if raw_tokens > 500_000:
+        return RED, None
+    if raw_tokens > 300_000:
+        return ORANGE, None
+    if raw_tokens > 200_000:
+        return YELLOW, None
+    if raw_tokens > 100_000:
+        return GREEN, None
+    return DIM, None
+
+
+def resolve_context_color(raw_tokens: Optional[float], now: float) -> str:
+    """The single colour to render `raw_tokens` at wall-clock `now`.
+
+    Resolves :func:`_context_color_pair`'s pulse tiers to one concrete colour
+    for this tick, alternating base/pulse every :data:`FRAME_PERIOD_SEC` —
+    same wall-clock-driven, daemon-free cadence :func:`animated_icon` uses
+    (and matches this plugin's 1s ``status-interval``, so the pulse actually
+    reads as motion rather than a slow, unconvincing flicker).
+    """
+    base, pulse = _context_color_pair(raw_tokens)
+    if pulse is None:
+        return base
+    return pulse if int(now / FRAME_PERIOD_SEC) % 2 else base
+
+
+def format_context_tokens(raw_tokens: Optional[float]) -> str:
+    """``"252.5k"``-style label for `raw_tokens` context tokens, or ``"--"``."""
+    if raw_tokens is None:
+        return "--"
+    return f"{raw_tokens / 1000:.1f}k"
+
+
+def _context_bar_parts(
+    raw_tokens: Optional[float],
+    used_pct: Optional[float],
+    now: float,
+    width: int,
+) -> Tuple[str, str, str]:
+    """``(label, color_hex, bar_glyphs)`` shared by both bar renderers below.
+
+    ``used_pct`` (0..1) drives the fill fraction, rounded to the nearest
+    segment and clamped to ``[0, width]`` (a stale/out-of-range value can
+    never over/under-run the bar). ``None`` -> zero segments filled.
+    """
+    label = format_context_tokens(raw_tokens)
+    color = resolve_context_color(raw_tokens, now)
+    filled = 0 if used_pct is None else max(0, min(width, round(used_pct * width)))
+    bar = _BAR_FILLED * filled + _BAR_EMPTY * (width - filled)
+    return label, color, bar
+
+
+def render_context_bar(
+    raw_tokens: Optional[float],
+    used_pct: Optional[float],
+    now: float,
+    *,
+    width: int = CONTEXT_BAR_WIDTH,
+) -> str:
+    """tmux status-format token for the context bar (row 2 — real consumer is
+    tmux's own status-line renderer, hence ``#[fg=...]`` escaping, matching
+    every other segment in :func:`render_session_bar`).
+    """
+    label, color, bar = _context_bar_parts(raw_tokens, used_pct, now, width)
+    return f"#[fg={DIM}]{label}:#[fg={color}]{bar}#[default]"
+
+
+def _hex_to_ansi_fg(hex_color: str) -> str:
+    """``\\x1b[38;2;R;G;Bm`` truecolor ANSI escape for a ``"#RRGGBB"`` hex string."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"\x1b[38;2;{r};{g};{b}m"
+
+
+def render_context_bar_ansi(
+    raw_tokens: Optional[float],
+    used_pct: Optional[float],
+    now: float,
+    *,
+    width: int = CONTEXT_BAR_WIDTH,
+) -> str:
+    """ANSI-escaped counterpart to :func:`render_context_bar`, for the
+    accounts-popup (a real terminal via fzf/display-popup, not tmux's own
+    status-format renderer — see the "Accounts popup" section below for why
+    that split matters: tmux ``#[fg=...]`` tokens would show up as literal
+    garbage here).
+    """
+    label, color, bar = _context_bar_parts(raw_tokens, used_pct, now, width)
+    return f"{label}:{_hex_to_ansi_fg(color)}{bar}{_ANSI_RESET}"
+
+
+# ---------------------------------------------------------------------------
 # Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars,
 # corrected post cc-tmux-bar-cleanup)
 #
@@ -258,6 +401,8 @@ def render_session_bar(
     seven_d_pct: Optional[float],
     *,
     git_status: Optional["tmux.GitStatusCounts"] = None,
+    raw_tokens: Optional[float] = None,
+    now: Optional[float] = None,
 ) -> str:
     """Row-2 status-format string: model/project/git on the left, usage on the right.
 
@@ -273,12 +418,22 @@ def render_session_bar(
     branch segment's own styling rather than getting a distinct colour. The
     whole indicator run is dropped (fail-open) when ``branch`` is empty, so a
     marker never appears without the branch it describes — same fail-open
-    contract the prior ``dirty``/``ahead`` params had. Right
-    side: account label + SES:/5H:/7D: gauges, each coloured via color_for and
-    formatted via pct_for. The two sides are joined with a #[align=right]
-    directive so tmux fills the gap between them. ses_pct / five_h_pct /
-    seven_d_pct are utilization ratios in 0..1 (or None when unpolled -> '--'
-    in DIM).
+    contract the prior ``dirty``/``ahead`` params had. Right side: account
+    label + a context-window bar (cc-tmux-context-bar, replaces the former
+    ``SES:xx%`` text — see :func:`render_context_bar`) + 5H:/7D: gauges, the
+    latter two still coloured via color_for and formatted via pct_for. The
+    two sides are joined with a #[align=right] directive so tmux fills the
+    gap between them. ``ses_pct`` is this session's own context-window
+    fraction (0..1, or ``None`` when unpolled) — it now drives the bar's FILL
+    rather than a printed percentage; ``raw_tokens`` (absolute context tokens
+    used this session, or ``None``) drives the bar's COLOUR tier
+    independently (see :func:`render_context_bar`'s module docstring for why
+    fill and colour are deliberately two different scales). ``now`` is the
+    caller-supplied wall-clock epoch for the bar's pulse-tier animation
+    (``time.time()`` in production, injectable for deterministic tests —
+    same DI pattern :func:`render_accounts_popup` uses; defaults to
+    ``time.time()`` when omitted). five_h_pct / seven_d_pct are utilization
+    ratios in 0..1 (or None when unpolled -> '--' in DIM).
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
@@ -321,8 +476,9 @@ def render_session_bar(
         left_parts.append(seg)
     left = " ".join(left_parts) + "#[default]"
 
-    cs, c5, c7 = color_for(ses_pct), color_for(five_h_pct), color_for(seven_d_pct)
-    ps, p5, p7 = pct_for(ses_pct), pct_for(five_h_pct), pct_for(seven_d_pct)
+    c5, c7 = color_for(five_h_pct), color_for(seven_d_pct)
+    p5, p7 = pct_for(five_h_pct), pct_for(seven_d_pct)
+    t = time.time() if now is None else now
     label_seg = (
         f"#[range=user|accounts]#[fg={DIM}]{account_label} #[norange]"
         if account_label
@@ -330,7 +486,7 @@ def render_session_bar(
     )
     right = (
         f"{label_seg}"
-        f"#[fg={DIM}]SES:#[fg={cs}]{ps}#[default] "
+        f"{render_context_bar(raw_tokens, ses_pct, t)} "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
     )
@@ -438,48 +594,71 @@ def _format_reset_line(
 
 def render_accounts_popup(
     accounts: Sequence[
-        Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float]]
+        Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], str, str]
     ],
     active_label: str,
     active_ses_pct: Optional[float],
     now: Optional[float] = None,
+    *,
+    active_raw_tokens: Optional[float] = None,
 ) -> str:
     """Aligned, ANSI-green-accented popup body: one row per deduped account.
 
     ``accounts`` is every deduped account as an already-extracted
-    ``(label, five_h_pct, seven_d_pct, five_h_reset_epoch, seven_d_reset_epoch)``
-    5-tuple — the CLI handler (:func:`cc_tmux.cli.cmd_accounts_popup`) builds
-    these via :func:`cc_tmux.usage.dedupe_credentials` +
-    :func:`cc_tmux.usage._account_label`/:func:`cc_tmux.usage._extract_util`/
-    :func:`cc_tmux.usage._extract_reset_at`, so this function stays pure with
-    no credential-dict shape knowledge. Every row renders ``5H:xx% 7D:xx%``;
-    the row whose label equals ``active_label`` (exact match) is additionally
-    prefixed with ``SES:xx%`` (from ``active_ses_pct``) and marked with a
-    leading ``*`` — SES is a property of the currently-focused pane, not of a
-    credential in the abstract (proposal's "SES is not an account-level
-    metric"), so it is supplied by the caller rather than looked up
-    per-account here. Every percentage is wrapped in :func:`_green`.
+    ``(label, five_h_pct, seven_d_pct, five_h_reset_epoch, seven_d_reset_epoch,
+    email, org_id_short)`` 7-tuple — the CLI handler
+    (:func:`cc_tmux.cli.cmd_accounts_popup`) builds these via
+    :func:`cc_tmux.usage.dedupe_credentials` +
+    :func:`cc_tmux.usage._account_label`/:func:`cc_tmux.usage._account_identity`/
+    :func:`cc_tmux.usage._extract_util`/:func:`cc_tmux.usage._extract_reset_at`,
+    so this function stays pure with no credential-dict shape knowledge.
+    ``label`` (email·org-char, see :func:`cc_tmux.usage._account_label`) is
+    used ONLY as the internal ``active_label`` matching key now — it is no
+    longer printed directly (cc-tmux-context-bar, Leo's 2026-07-13 ask to
+    move identity off the summary line, since the SAME email can be
+    authenticated against multiple orgs and email-alone is therefore not a
+    safe matching key — see :func:`cc_tmux.usage._account_label`'s
+    docstring). ``email``/``org_id_short`` print on a dedicated identity row
+    instead, one indent level under the summary line, for EVERY account
+    (active or not) — matching the existing reset-time lines' "every
+    account, not just the starred one" convention.
 
-    Below EVERY account's summary row (active or not — Leo's ask, not just
-    the starred one) sit up to two indented, aligned, green-accented
-    reset-time lines, one per window, each omitted independently when that
-    window's reset time hasn't been polled yet (see :func:`_format_reset_line`),
-    followed by a full-width ``─`` rule separating this account's block from
-    the next (Leo's 2026-07-13 readability ask):
+    Every row's summary line renders ``5H:xx% 7D:xx%``; the row whose
+    ``label`` equals ``active_label`` (exact match) additionally renders the
+    context-window bar (see :func:`render_context_bar_ansi` — replaces the
+    former ``SES:xx%`` text) ahead of the 5H/7D gauges, and is marked with a
+    leading ``*``. ``active_ses_pct`` (this session's own context-window
+    fraction, drives the bar's FILL) / ``active_raw_tokens`` (absolute
+    context tokens used, drives the bar's COLOUR tier — see
+    :func:`render_context_bar`'s module docstring for why these are two
+    independent scales) are properties of the currently-focused pane, not of
+    a credential in the abstract (proposal's "SES is not an account-level
+    metric"), so both are supplied by the caller rather than looked up
+    per-account here. Every percentage is wrapped in :func:`_green` — the
+    bar is the one deliberate exception, since it carries its own severity
+    colour and the whole point is severity-at-a-glance, not uniform green.
 
-        * leo@x.dev·8   SES:36% 5H:36% 7D:71%
+    Below EVERY account's identity row sit up to two indented, aligned,
+    green-accented reset-time lines, one per window, each omitted
+    independently when that window's reset time hasn't been polled yet (see
+    :func:`_format_reset_line`), followed by a full-width ``─`` rule
+    separating this account's block from the next:
+
+        * 252.5k:▓▓▓░░░░░░░  5H:36% 7D:71%
+             leo@x.dev        37a74420
              5H Resets at      03:45 pm  in 02:14
              7D Resets on  Sat 03:45 pm  in 03:14:22
         ──────────────────────────────────────────
 
     Percent formatting reuses :func:`pct_for` (``--`` for an absent/unpolled
     value); :func:`color_for` (severity RED/YELLOW/CYAN) is deliberately NOT
-    used here — Leo wants every number/datetime uniformly green, not
-    escalated by utilization (contrast :func:`render_session_bar`'s tmux
-    status-format segment, which DOES escalate). ``now`` is the
-    caller-supplied wall-clock epoch (``time.time()`` in production,
-    injectable for deterministic tests) — same DI pattern
-    :func:`render_tabs_row` already uses for its own ``now`` param.
+    used for 5H/7D here — Leo wants those uniformly green, not escalated by
+    utilization (contrast :func:`render_session_bar`'s tmux status-format
+    segment, which DOES escalate 5H/7D too). ``now`` is the caller-supplied
+    wall-clock epoch (``time.time()`` in production, injectable for
+    deterministic tests) — same DI pattern :func:`render_tabs_row` already
+    uses for its own ``now`` param, and now also drives the bar's pulse-tier
+    animation.
 
     Pure function of its inputs. Empty ``accounts`` -> ``""`` (fail-open: an
     unreachable nexus-agent, or a payload with zero deduped/labelled
@@ -489,27 +668,33 @@ def render_accounts_popup(
         return ""
     t = time.time() if now is None else now
 
-    rows: List[Tuple[str, str, str, bool, str, str, str, str]] = []
-    for label, five_h, seven_d, five_h_reset, seven_d_reset in accounts:
+    rows: List[Tuple[str, str, bool, str, str, str, str, str]] = []
+    for label, five_h, seven_d, five_h_reset, seven_d_reset, email, org_short in accounts:
         is_active = bool(active_label) and label == active_label
         five_h_str, seven_d_str = pct_for(five_h), pct_for(seven_d)
         tail_plain = f"5H:{five_h_str} 7D:{seven_d_str}"
         tail = f"5H:{_green(five_h_str)} 7D:{_green(seven_d_str)}"
         if is_active:
-            ses_str = pct_for(active_ses_pct)
-            tail_plain = f"SES:{ses_str} {tail_plain}"
-            tail = f"SES:{_green(ses_str)} {tail}"
+            bar_label, bar_color, bar_glyphs = _context_bar_parts(
+                active_raw_tokens, active_ses_pct, t, CONTEXT_BAR_WIDTH
+            )
+            bar_plain = f"{bar_label}:{bar_glyphs}"
+            bar_colored = f"{bar_label}:{_hex_to_ansi_fg(bar_color)}{bar_glyphs}{_ANSI_RESET}"
+            tail_plain = f"{bar_plain} {tail_plain}"
+            tail = f"{bar_colored} {tail}"
+        identity = f"{email}  {org_short}" if org_short else email
         reset_5h_plain, reset_5h = _format_reset_line("5H", "at", five_h_reset, t, with_day=False)
         reset_7d_plain, reset_7d = _format_reset_line("7D", "on", seven_d_reset, t, with_day=True)
-        rows.append((label, tail_plain, tail, is_active, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d))
+        rows.append((tail_plain, tail, is_active, identity, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d))
 
-    label_width = max(len(label) for label, *_rest in rows)
     lines: List[str] = []
-    for label, tail_plain, tail, is_active, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d in rows:
+    for tail_plain, tail, is_active, identity, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d in rows:
         marker = "* " if is_active else "  "
-        summary_plain = f"{marker}{label.ljust(label_width)}  {tail_plain}"
-        lines.append(f"{marker}{label.ljust(label_width)}  {tail}")
+        summary_plain = f"{marker}{tail_plain}"
+        lines.append(f"{marker}{tail}")
         block_width = len(summary_plain)
+        lines.append(f"   {identity}")
+        block_width = max(block_width, len(identity) + 3)
         if reset_5h_plain:
             lines.append(f"   {reset_5h}")
             block_width = max(block_width, len(reset_5h_plain) + 3)
