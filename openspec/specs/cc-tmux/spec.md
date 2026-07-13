@@ -435,36 +435,40 @@ usage" requirement for its (unchanged, now-degrading) sourcing.
 ### Requirement: A dedicated tmux status row shows session identity and usage
 The plugin SHALL render a dedicated tmux status row (`status-format[1]`) showing, left-justified,
 a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S), the project code, the git branch,
-and (when dirty or ahead) working-tree indicators. Right-justified on the same row, the plugin
-SHALL render Claude usage statistics for the active nexus-agent credential: an account label, and
-SES:/5H:/7D: utilization gauges. This row SHALL remain separate from the window-tabs row.
+and (when any of the six working-tree metrics below is nonzero) working-tree indicators.
+Right-justified on the same row, the plugin SHALL render Claude usage statistics for the active
+nexus-agent credential: an account label, and SES:/5H:/7D: utilization gauges. This row SHALL
+remain separate from the window-tabs row.
 
-**Model letter** (unchanged sourcing, disclosed degradation): the model letter SHALL continue to
-be sourced from the legacy per-pane `session-context.<pane>.json` cache exactly as before this
-proposal — no new mechanism is introduced for it (see this capability's proposal `## Why` item 3
-for the rationale: no source, local or nx, exists for this field today). Once nx stops writing
-that legacy file, the model letter SHALL degrade to absent via the existing freshness-cutoff
-fail-open path — this is expected, disclosed behavior, not a bug this requirement is claiming to
-fix.
+**Model letter** (unchanged sourcing, disclosed degradation) and **branch** (unchanged dual
+source: nx `project_git_status` primary, local `@cc-branch` fallback) are UNCHANGED by this
+requirement version — see the prior MODIFIED delta (`cc-tmux-adopt-nx-context-and-git-status`)
+for their full contract, still in force.
 
-**Branch and dirty** (dual source): the plugin SHALL prefer nx's git-status data
-(`nx_agent.project_git_status`, keyed by the pane's resolved registry project code) for `branch`
-and `dirty` when nx-agent returns a `git` object for that project. When nx-agent is unreachable,
-returns a 404 for the project code, or has not yet observed that project's git state, the plugin
-SHALL fall back to the pane's local `@cc-branch`/`@cc-dirty` options (resolved via
-`tmux.set_pane_git_identity` on `waiting`/`idle` transitions). `dirty` SHALL render as
-`*<modified>+<untracked>` when the total of modified + untracked is nonzero (sourced from nx's
-`{modified, untracked}` counts when nx is the source, or the local git-status-porcelain
-equivalent when the fallback is the source), and SHALL render nothing when the total is zero.
+**Working-tree indicators** (per-field dual source, six metrics): the plugin SHALL render, in
+this fixed left-to-right order after the branch name, each of the following ONLY when its count
+is nonzero (a zero-count metric renders nothing — no glyph, no leading space beyond the single
+separator to the next nonzero metric):
 
-**Ahead** (local-only, no nx source exists): `ahead` SHALL be sourced exclusively from the pane's
-local `@cc-ahead` option (a `git rev-list --count @{upstream}..HEAD`-equivalent resolved on the
-same `waiting`/`idle` cadence as branch/dirty) — nx's git-status payload carries no
-ahead/behind-vs-upstream field as of this proposal, so there is no nx value to prefer. `ahead`
-SHALL render as `^N` when N > 0, and nothing otherwise, unchanged from prior behavior.
+| Metric | Glyph | Color |
+| --- | --- | --- |
+| Modified | `<N>M` | GREEN |
+| Untracked | `<N>U` | YELLOW |
+| Deleted | `<N>D` | RED |
+| Renamed | `<N>R` | BLUE |
+| Ahead of upstream | `⇡<N>` | (unstyled/DIM, matching branch segment styling) |
+| Behind upstream | `⇣<N>` | (unstyled/DIM, matching branch segment styling) |
 
-The window's representative pane resolution (tmux-active pane first, priority-pick fallback) is
-unchanged by this proposal.
+For EACH of the six metrics independently: the plugin SHALL prefer the value from nx-agent's
+`GET /projects/:id/status` `git` object (`nx_agent.project_git_status`) when that specific key is
+present in nx's response, and SHALL fall back to the corresponding field of the local
+`@cc-git-status` pane option (a JSON-encoded object with `modified`/`untracked`/`deleted`/
+`renamed`/`ahead`/`behind` int fields, written by `tmux.set_pane_git_identity` via a single
+`git status --porcelain=v2 --branch` parse on `waiting`/`idle` transitions) when nx's response is
+absent, unreachable, or does not carry that key. As of this requirement version, nx's `git` object
+carries only `modified`/`untracked` — `deleted`/`renamed`/`ahead`/`behind` SHALL always fall back
+to local until nx's payload is extended (tracked externally; this requirement's per-field
+resolution rule requires no future code change when that happens).
 
 #### Scenario: row 2 renders the session identity and usage
 - Given: a tracked Claude pane in project `if` on branch `main`, model Fable, and the active
@@ -473,41 +477,50 @@ unchanged by this proposal.
 - Then: the left side shows `F if > main` (model letter, project, branch) and the right side
   shows the account label plus SES:/5H:/7D: gauges
 
-#### Scenario: branch and dirty prefer nx's git-status data
-- Given: a tracked pane in project `if`, and `GET /projects/if/status` returns a `git` object
-  with `branch: "feature-x"`, `dirty: {modified: 3, untracked: 2}`
+#### Scenario: modified and untracked prefer nx, deleted/renamed/ahead/behind fall back to local
+- Given: a tracked pane in project `if`; `GET /projects/if/status` returns a `git` object with
+  `dirty: {modified: 3, untracked: 1}` (no `deleted`/`renamed`/`ahead`/`behind` keys present);
+  the local `@cc-git-status` option holds `{modified: 5, untracked: 9, deleted: 2, renamed: 1,
+  ahead: 4, behind: 1}`
 - When: the session-bar row renders
-- Then: the branch shown is `feature-x` and the dirty indicator renders `*3+2`, sourced from nx
-  (not the local `@cc-branch`/`@cc-dirty` pane options)
+- Then: the row shows `3M 1U 2D 1R ⇡4 ⇣1` — modified/untracked from nx (3/1, not the local 5/9),
+  deleted/renamed/ahead/behind from local (2/1/4/1, nx had no such keys)
 
-#### Scenario: branch and dirty fall back to local git when nx is unreachable
-- Given: a tracked pane in project `if` with local `@cc-branch` = `main` and `@cc-dirty` =
-  `[1, 0]`, and nx-agent's `/projects/if/status` request fails (connection refused)
+#### Scenario: nx unreachable falls all six metrics back to local
+- Given: a tracked pane in project `if` with local `@cc-git-status` = `{modified: 1, untracked: 0,
+  deleted: 0, renamed: 0, ahead: 0, behind: 0}`, and `GET /projects/if/status` fails (connection
+  refused)
 - When: the session-bar row renders
-- Then: the branch shown is `main` and the dirty indicator renders `*1+0`, sourced from the local
-  pane options (fail-open fallback, not a blank row)
+- Then: the row shows `1M` (only the nonzero metric renders; all six sourced from local)
 
-#### Scenario: unknown project code at nx falls back to local git
+#### Scenario: a fully nx-extended response prefers nx for every field
+- Given: a tracked pane where `GET /projects/if/status`'s `git` object carries all six keys
+  (`modified`, `untracked`, `deleted`, `renamed`, `ahead`, `behind`, hypothetically once nx's
+  payload is extended)
+- When: the session-bar row renders
+- Then: every one of the six metrics is sourced from nx's response, none from the local
+  `@cc-git-status` fallback — proving the per-field rule requires no code change to adopt an
+  expanded nx payload
+
+#### Scenario: an all-clean, up-to-date tree shows no working-tree indicators
+- Given: a tracked pane with a clean working tree, no commits ahead or behind upstream (all six
+  metrics resolve to 0 regardless of source)
+- When: the session-bar row renders
+- Then: no working-tree indicator segment renders at all — just model/project/branch on the left
+
+#### Scenario: registry-code mismatch at nx falls back to local, same as unreachable
 - Given: a tracked pane whose registry project code is not present in nx's own project registry
-  (registry drift between `home/projects.toml` and nx's `~/.claude/scripts/config/projects.json`)
   and `GET /projects/<code>/status` returns 404
 - When: the session-bar row renders
-- Then: the branch/dirty indicators fall back to the local `@cc-branch`/`@cc-dirty` pane options,
-  identical to the unreachable-agent case — a registry mismatch never produces a blank branch when
-  a local value is available
-
-#### Scenario: ahead is always local, never queried from nx
-- Given: a tracked pane 2 commits ahead of its upstream, with `@cc-ahead` = `2`
-- When: the session-bar row renders
-- Then: the ahead indicator renders `^2`, sourced from the local pane option regardless of
-  whether nx-agent is reachable
+- Then: all six working-tree metrics fall back to the local `@cc-git-status` pane option,
+  identical to the unreachable-agent case
 
 #### Scenario: model letter degrades to blank once nx stops writing the legacy file
 - Given: a tracked pane whose legacy `session-context.<pane>.json` file is absent or older than
   the existing freshness cutoff (nx no longer writes it)
 - When: the session-bar row renders
-- Then: the row renders project/branch/dirty/ahead/usage as normal with no model letter (fail
-  open, no error) — this is expected behavior, not a regression this proposal introduces
+- Then: the row renders project/branch/working-tree-indicators/usage as normal with no model
+  letter (fail open, no error) — unchanged from the prior requirement version
 
 #### Scenario: the active pane is used, not the priority-first pane
 - Given: a window with two tracked Claude panes, pane A (`idle`, lower pane index) and pane B
