@@ -255,15 +255,19 @@ def render_session_bar(
     five_h_pct: Optional[float],
     seven_d_pct: Optional[float],
     *,
-    dirty: bool = False,
+    dirty: Optional[Tuple[int, int]] = None,
     ahead: int = 0,
 ) -> str:
     """Row-2 status-format string: model/project/git on the left, usage on the right.
 
     Left side: model letter + project + git branch. When ``branch`` is
-    non-empty, a YELLOW ``*`` marks a dirty worktree and a YELLOW ``^N`` marks
-    N commits ahead of upstream — both dropped (fail-open) when no branch
-    renders, so a marker never appears without the branch it describes. Right
+    non-empty, a YELLOW ``*<modified>+<untracked>`` marks a dirty worktree and a
+    YELLOW ``^N`` marks N commits ahead of upstream — both dropped (fail-open)
+    when no branch renders, so a marker never appears without the branch it
+    describes. ``dirty`` is a ``(modified, untracked)`` count pair (or ``None``);
+    the marker renders only when ``modified + untracked > 0`` (e.g. ``(3, 2)`` ->
+    ``*3+2``, ``(1, 0)`` -> ``*1+0``), and renders nothing for ``None`` or
+    ``(0, 0)``. Right
     side: account label + SES:/5H:/7D: gauges, each coloured via color_for and
     formatted via pct_for. The two sides are joined with a #[align=right]
     directive so tmux fills the gap between them. ses_pct / five_h_pct /
@@ -292,8 +296,8 @@ def render_session_bar(
     if branch:
         left_parts.append(f"#[fg={DIM}]>")
         seg = f"#[fg={BRANCH}]{branch}"
-        if dirty:
-            seg += f"#[fg={YELLOW}]*"
+        if dirty is not None and dirty[0] + dirty[1] > 0:
+            seg += f"#[fg={YELLOW}]*{dirty[0]}+{dirty[1]}"
         if ahead > 0:
             seg += f"#[fg={YELLOW}]^{ahead}"
         left_parts.append(seg)

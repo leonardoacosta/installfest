@@ -64,7 +64,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: change `render_session_bar`'s `dirty` parameter [beads:if-d178]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: change `render_session_bar`'s `dirty` parameter [beads:if-d178]
   from `bool = False` to `dirty: Optional[Tuple[int, int]] = None` (modified, untracked). Render
   `*<modified>+<untracked>` in the existing YELLOW styling when `modified + untracked > 0`, render
   nothing when `None` or `(0, 0)`. `ahead`'s existing `int`/`^N` behavior is unchanged.
