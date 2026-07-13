@@ -41,7 +41,7 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: replace `_resolve_branch_dirty`/ [beads:if-3vho]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: replace `_resolve_branch_dirty`/ [beads:if-3vho]
   `_parse_dirty_counts` with a per-field resolver — e.g. `_resolve_git_status(pane: str) ->
   Tuple[str, GitStatusCounts]` (branch, and a `GitStatusCounts`-shaped result assembled
   field-by-field). For EACH of `modified`/`untracked`/`deleted`/`renamed`/`ahead`/`behind`:

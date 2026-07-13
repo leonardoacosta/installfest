@@ -1063,22 +1063,95 @@ def _resolve_session_pane(window: str) -> str:
     return tmux.get_window_top_pane(window)
 
 
-def _resolve_branch_dirty(pane: str) -> Tuple[str, Optional[Tuple[int, int]]]:
-    """``(branch, dirty)`` for row 2 — nx primary, local pane options fallback.
+_MISSING = object()  # sentinel: distinguishes "nx key absent" from "nx key == 0"
 
-    Prefers nx-agent's ``GET /projects/:id/status`` ``git`` object (keyed by the
-    pane's resolved registry project code, resolved via the same
-    ``display-message #{pane_current_path}`` -> :func:`registry.resolve_project_code`
-    pattern :func:`_read_roadmap_pulse` uses). When nx returns a ``git`` dict:
-    ``branch`` is its ``branch`` (``None``/missing -> ``""``); ``dirty`` is
-    ``(modified, untracked)`` from its ``dirty`` sub-object, or ``None`` if that
-    sub-object is missing / not a dict / either count non-int (fail open).
 
-    When :func:`nx_agent.project_git_status` returns ``None`` (unreachable / 404 /
-    not-yet-observed), falls back to the local ``@cc-branch`` pane option for
-    ``branch`` and the JSON-decoded ``@cc-dirty`` option (a ``[modified, untracked]``
-    list written by :func:`tmux.set_pane_git_identity`) for ``dirty`` — an empty /
-    missing / malformed value yields ``None`` (never raises on a bad ``json.loads``).
+def _local_git_status(pane: str) -> tmux.GitStatusCounts:
+    """The local ``@cc-git-status`` pane option, JSON-decoded into a :class:`tmux.GitStatusCounts`.
+
+    This is the per-field fallback source :func:`_resolve_git_status` reaches for
+    whenever nx's response lacks a given key. Malformed/missing JSON, a non-dict
+    payload, or an individual field that is absent/non-int (``bool`` excluded —
+    it is an ``int`` subclass but never a valid count) all fail open to ``0`` for
+    that field — never raises on a bad ``json.loads`` (mirrors the former
+    ``_parse_dirty_counts``'s bool-excluded int check, now applied per-field
+    instead of all-or-nothing).
+    """
+    try:
+        decoded = json.loads(tmux.get_pane_option(pane, tmux.OPT_GIT_STATUS))
+    except (ValueError, TypeError):
+        decoded = None
+    if not isinstance(decoded, dict):
+        return tmux.GitStatusCounts()
+
+    def _int_field(key: str) -> int:
+        val = decoded.get(key)
+        if isinstance(val, bool) or not isinstance(val, int):
+            return 0
+        return val
+
+    return tmux.GitStatusCounts(
+        modified=_int_field("modified"),
+        untracked=_int_field("untracked"),
+        deleted=_int_field("deleted"),
+        renamed=_int_field("renamed"),
+        ahead=_int_field("ahead"),
+        behind=_int_field("behind"),
+    )
+
+
+def _nx_field(nx_source: dict, key: str, local_value: int) -> int:
+    """One field of the per-field dual-source rule: prefer ``nx_source[key]`` when
+    PRESENT (``.get(key, _MISSING)`` — presence-checked, not truthiness, so a
+    legitimate nx ``0`` still counts as "nx has this field" and is preferred over
+    ``local_value``), else fall back to ``local_value``. Also falls back when the
+    present nx value is the wrong type (``bool`` excluded, non-``int``) — a
+    malformed nx field degrades to local rather than propagating garbage.
+    """
+    val = nx_source.get(key, _MISSING)
+    if val is _MISSING or isinstance(val, bool) or not isinstance(val, int):
+        return local_value
+    return val
+
+
+def _resolve_git_status(pane: str) -> Tuple[str, "tmux.GitStatusCounts"]:
+    """``(branch, GitStatusCounts)`` for row 2 — per-field nx/local dual source.
+
+    **Branch** — UNCHANGED from the prior ``_resolve_branch_dirty`` logic: nx's
+    ``GET /projects/:id/status`` ``git.branch`` (keyed by the pane's resolved
+    registry project code, via the same ``display-message #{pane_current_path}``
+    -> :func:`registry.resolve_project_code` pattern :func:`_read_roadmap_pulse`
+    uses) when nx returns a ``git`` dict, else the local ``@cc-branch`` pane
+    option.
+
+    **Each of the six** :class:`tmux.GitStatusCounts` **fields, independently**
+    (spec's "per-field dual-source, not an all-or-nothing block"): prefer nx's
+    value when nx's response actually carries that key, else the corresponding
+    field of :func:`_local_git_status`. Presence, not truthiness, gates the
+    preference (:func:`_nx_field`) — a legitimate nx ``0`` still wins over local.
+
+    Two nesting depths on nx's ``git`` object, per the proposal's documented nx
+    response shape (``{"branch":..., "dirty": {"modified": N, "untracked": N},
+    ...}``):
+
+    * ``modified``/``untracked`` — nx nests these under a ``dirty`` sub-object
+      today (confirmed, ``nx_agent.project_git_status``'s own docstring). Resolved
+      from ``git["dirty"]``.
+    * ``deleted``/``renamed``/``ahead``/``behind`` — nx sends none of these today;
+      resolved from ``git`` ITSELF (top-level), on the anticipatory assumption
+      that a future nx schema expansion (bead ``nx-mbnqj``) would add them as
+      top-level ``git`` keys, matching ``branch``/``headSha``/``detached``'s
+      existing top-level placement rather than nesting under ``dirty`` (which is
+      semantically an untracked-tree-cleanliness pair, not a home for
+      ahead/behind-vs-upstream or deleted/renamed counts). **This is a judgment
+      call, not a confirmed fact** — nx has no precedent for where these four
+      would land; if nx ships them nested differently, only this function's
+      ``nx_top`` vs ``nx_dirty`` source selection per field needs updating, the
+      per-field dual-source CONTRACT itself does not change.
+
+    Fail-open throughout: no cwd / no registry code / nx unreachable / 404 -> all
+    six fields fall back to :func:`_local_git_status`; a malformed local
+    ``@cc-git-status`` -> all-zero counts for whatever falls back to it.
     """
     cwd = tmux._run_tmux(["display-message", "-p", "-t", pane, "#{pane_current_path}"])
     code = registry.resolve_project_code(cwd) if cwd else ""
@@ -1087,34 +1160,24 @@ def _resolve_branch_dirty(pane: str) -> Tuple[str, Optional[Tuple[int, int]]]:
     if isinstance(git, dict):
         nx_branch = git.get("branch")
         branch = nx_branch if isinstance(nx_branch, str) else ""
-        return branch, _parse_dirty_counts(git.get("dirty"))
-
-    branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
-    try:
-        decoded = json.loads(tmux.get_pane_option(pane, tmux.OPT_DIRTY))
-    except (ValueError, TypeError):
-        decoded = None
-    return branch, _parse_dirty_counts(decoded)
-
-
-def _parse_dirty_counts(raw: object) -> Optional[Tuple[int, int]]:
-    """``(modified, untracked)`` from an nx ``dirty`` dict or a ``[m, u]`` list.
-
-    Accepts nx's ``{"modified": int, "untracked": int}`` shape or the local
-    ``@cc-dirty`` list shape ``[modified, untracked]``. Returns ``None`` (fail open)
-    when the value is the wrong type, missing a count, or carries a non-int
-    (``bool`` excluded — it is an ``int`` subclass but never a valid count).
-    """
-    if isinstance(raw, dict):
-        modified, untracked = raw.get("modified"), raw.get("untracked")
-    elif isinstance(raw, list) and len(raw) == 2:
-        modified, untracked = raw[0], raw[1]
     else:
-        return None
-    for val in (modified, untracked):
-        if isinstance(val, bool) or not isinstance(val, int):
-            return None
-    return modified, untracked
+        branch = tmux.get_pane_option(pane, tmux.OPT_BRANCH)
+
+    local = _local_git_status(pane)
+
+    nx_top = git if isinstance(git, dict) else {}
+    nx_dirty = nx_top.get("dirty")
+    nx_dirty = nx_dirty if isinstance(nx_dirty, dict) else {}
+
+    counts = tmux.GitStatusCounts(
+        modified=_nx_field(nx_dirty, "modified", local.modified),
+        untracked=_nx_field(nx_dirty, "untracked", local.untracked),
+        deleted=_nx_field(nx_top, "deleted", local.deleted),
+        renamed=_nx_field(nx_top, "renamed", local.renamed),
+        ahead=_nx_field(nx_top, "ahead", local.ahead),
+        behind=_nx_field(nx_top, "behind", local.behind),
+    )
+    return branch, counts
 
 
 def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
@@ -1171,21 +1234,24 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
         if not isinstance(pct_raw, bool) and isinstance(pct_raw, (int, float)):
             ses_pct = float(pct_raw) / 100.0
 
-    # branch/dirty: nx project-git-status primary, local pane options fallback.
-    branch, dirty = _resolve_branch_dirty(pane)
-
-    # ahead: always local (@cc-ahead), never nx — no nx ahead/behind field exists.
-    try:
-        ahead = int(tmux.get_pane_option(pane, tmux.OPT_AHEAD))
-    except (TypeError, ValueError):
-        ahead = 0
+    # branch/git-status: per-field nx primary, local @cc-git-status fallback
+    # (cc-tmux-git-status-glyphs task 2.1 — replaces the former branch/dirty-only
+    # _resolve_branch_dirty plus the separate always-local @cc-ahead read).
+    branch, git_status = _resolve_git_status(pane)
 
     account_label, five_h_pct, seven_d_pct = _active_usage()
 
+    # NOTE: render.render_session_bar's signature as of this task still only
+    # accepts the OLD `dirty: Optional[Tuple[int, int]]` + `ahead: int` params —
+    # task 3.1 (UI batch) adds `git_status`. Passing the new six-field shape
+    # through anyway, same sequencing pattern as
+    # cc-tmux-adopt-nx-context-and-git-status's task 2.1: this call will raise
+    # TypeError at runtime until 3.1 lands, but that is expected/out of scope
+    # here (this task's own verification is import/syntax-only, not a live call).
     return render.render_session_bar(
         model_letter, project, branch,
         account_label, ses_pct, five_h_pct, seven_d_pct,
-        dirty=dirty, ahead=ahead,
+        git_status=git_status,
     )
 
 
