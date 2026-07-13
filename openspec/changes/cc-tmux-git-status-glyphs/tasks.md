@@ -96,13 +96,35 @@
   `#[fg=<GREEN>]3M`); a zero count for any field renders nothing for that field (no stray glyph,
   no stray separator); all-six-zero renders no working-tree-indicator segment at all. Run
   `cc-tmux self-test` and paste the passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.4] [P-2] Live verification: with a real tracked pane in this repo, dirty the [beads:if-n9tl]
+- [ ] [4.4] [deferred] [P-2] Live verification: with a real tracked pane in this repo, dirty the [beads:if-n9tl]
   working tree in a controlled way (modify a file, delete a file, rename a file, add an untracked
   file) and confirm row 2 renders the exact expected glyph string with correct colors — paste
   observed output. If the modified plugin isn't yet deployed as the live binary at task-run time,
   this may need execution-time deferral (never an authoring-time annotation) with real
   runtime evidence gathered from within the worktree in place of the visual click, mirroring the
   prior spec's task 4.4 handling — but attempt the real verification first; do not assume deferral.
+  DEFERRED (2026-07-13, /apply orchestrator): attempted the real verification first, per the task
+  text above. `~/.tmux/plugins/cc-tmux` is a real symlink straight to this repo's MAIN checkout
+  (`/home/nyaptor/dev/personal/installfest/apps/cc-tmux`) — confirmed via `readlink -f` — so the
+  live plugin only reflects `main`, not this session's worktree, until merge-back; no live
+  tmux pane is currently tracking project `if` to click on anyway (checked all panes'
+  `@cc-project` values). What WAS gathered instead, against REAL running services (not mocked):
+  (1) `tmux._git_status('.')` against this worktree's own real dirty state returned a correct,
+  non-`None` `GitStatusCounts`; (2) driving the REAL `cli._resolve_git_status` (monkeypatching
+  only the pane-option/cwd LOOKUP plumbing, not any git/nx logic) with the cwd forced to the
+  registered `if` project and a real `nx_agent.project_git_status('if')` call against the actual
+  running nx-agent resolved `modified=1, untracked=1` from nx (nx's real live payload) and
+  correctly fell back to local for `deleted`/`renamed` (nx has neither field yet); (3) **discovered
+  live** that nx's `/projects/if/status` response NOW carries top-level `ahead`/`behind` keys
+  (both `0`) that did not exist when this spec was authored — the per-field resolver correctly
+  started preferring them over local's `ahead=9, behind=3` with ZERO code changes, proving the
+  forward-compatible design against a REAL, not simulated, nx schema evolution; (4) rendered the
+  real resolved `GitStatusCounts(modified=1, untracked=1, deleted=0, renamed=0, ahead=0,
+  behind=0)` through the real `render_session_bar` — output: `...main #[fg=#00ac3a]1M
+  #[fg=#FAC760]1U#[default]...` (correct GREEN `1M`, YELLOW `1U`, everything else correctly
+  omitted). What remains genuinely unverified: the actual on-screen row-2 render after a real
+  deploy, and the deleted/renamed glyphs specifically (no real dirty-with-deletes/renames pane
+  available this session) — needs Leo to do a real click after this spec deploys.
   [owner:general-purpose] [type:testing]
 - [ ] [4.5] Update nx bead `nx-mbnqj` (nx's own tracker, NOT `if-*`) — extend its description to [beads:if-e3zf]
   cover the full anticipated schema expansion: `modified`/`untracked`/`deleted`/`renamed` counts
