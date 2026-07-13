@@ -126,9 +126,16 @@
   deploy, and the deleted/renamed glyphs specifically (no real dirty-with-deletes/renames pane
   available this session) — needs Leo to do a real click after this spec deploys.
   [owner:general-purpose] [type:testing]
-- [ ] [4.5] Update nx bead `nx-mbnqj` (nx's own tracker, NOT `if-*`) — extend its description to [beads:if-e3zf]
+- [x] [4.5] Update nx bead `nx-mbnqj` (nx's own tracker, NOT `if-*`) — extend its description to [beads:if-e3zf]
   cover the full anticipated schema expansion: `modified`/`untracked`/`deleted`/`renamed` counts
   (currently only `modified`/`untracked` exist) alongside the already-requested `ahead`/`behind`
   vs-upstream counts, all on `GET /projects/:id/status`'s `git` object. Do NOT create a second
   bead — this is one coherent `git_status_orbit` schema ask. Paste the updated bead's content.
   [owner:general-purpose] [type:docs]
+  PREMISE CHANGED (2026-07-13): `nx-mbnqj` is already CLOSED — a separate nx-side spec
+  (`add-git-ahead-behind-status`) shipped ahead/behind support to `GitStatusObject` today,
+  discovered live during task 4.4's verification. The "one coherent ask" no longer holds (half
+  done, half open), so "update, don't duplicate" no longer applies as written — filed a fresh,
+  narrower bead `nx-c62s2` ("Add deleted/renamed counts to git-observer payload") for the
+  remaining half instead, explicitly cross-referencing `nx-mbnqj` as precedent/pattern. Did NOT
+  reopen or edit the already-correctly-closed `nx-mbnqj`.
