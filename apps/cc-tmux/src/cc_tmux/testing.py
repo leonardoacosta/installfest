@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,6 +24,13 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
 from . import cli, conductor, nx_agent, paths, priority, registry, render, tmux, usage
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI SGR escapes so content assertions can ignore colour codes."""
+    return _ANSI_RE.sub("", text)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +712,59 @@ def _test_usage_extract_active() -> None:
     _check(u5 == 0.25, f"5h util extracted: {u5!r}")
     _check(u7 is None, "unpolled 7d -> None")
 
+    # Regression (2026-07-13, row2/accounts-popup usage mismatch, Leo's
+    # report): a STALE duplicate of the active identity earlier in list order
+    # must not win just because it comes first. extract_active now runs
+    # dedupe_credentials first (same freshest-by-usagePolledAt tie-break the
+    # accounts-popup already used), so the two surfaces resolve the same row
+    # instead of drifting — confirmed live: row2 showed 5H:90%/7D:64% (the
+    # stale first row) while the popup's starred row showed 5H:36%/7D:71%
+    # (the freshest one) for the SAME account.
+    label2, u5_2, u7_2 = usage.extract_active(
+        {"credentials": [
+            {
+                "accountEmail": "leo@x.dev", "orgUuid": "1", "isActive": True,
+                "usage5hUsed": 90.0, "usage5hLimit": 100.0,
+                "usage7dUsed": 64.0, "usage7dLimit": 100.0,
+                "usagePolledAt": "2026-07-13T10:00:00Z",
+            },
+            {
+                "accountEmail": "leo@x.dev", "orgUuid": "1", "isActive": True,
+                "usage5hUsed": 36.0, "usage5hLimit": 100.0,
+                "usage7dUsed": 71.0, "usage7dLimit": 100.0,
+                "usagePolledAt": "2026-07-13T10:05:00Z",
+            },
+        ]}
+    )
+    _check(label2 == "leo@x.dev·1", f"label from deduped active row: {label2!r}")
+    _check(u5_2 == 0.36, f"freshest (by usagePolledAt) row's 5H wins over the stale duplicate: {u5_2!r}")
+    _check(u7_2 == 0.71, f"freshest row's 7D wins too: {u7_2!r}")
+
+
+def _test_usage_extract_reset_at() -> None:
+    _check(usage._extract_reset_at({}, "usage5hResetAt") is None, "missing key -> None")
+    _check(
+        usage._extract_reset_at({"usage5hResetAt": None}, "usage5hResetAt") is None,
+        "null -> None",
+    )
+    _check(
+        usage._extract_reset_at({"usage5hResetAt": 123}, "usage5hResetAt") is None,
+        "non-string -> None",
+    )
+    _check(
+        usage._extract_reset_at({"usage5hResetAt": "not a date"}, "usage5hResetAt") is None,
+        "unparseable string -> None",
+    )
+    epoch = usage._extract_reset_at({"usage5hResetAt": "2030-01-01T00:00:00Z"}, "usage5hResetAt")
+    _check(
+        epoch is not None and abs(epoch - 1893456000.0) < 1,
+        f"Z-suffixed ISO parses to the right epoch: {epoch!r}",
+    )
+    epoch2 = usage._extract_reset_at(
+        {"usage7dResetAt": "2030-01-01T00:00:00+00:00"}, "usage7dResetAt"
+    )
+    _check(epoch2 == epoch, "explicit +00:00 offset matches the Z-suffix equivalent")
+
 
 def _test_usage_dedupe_credentials() -> None:
     _check(usage.dedupe_credentials("nope") == [], "non-list -> []")
@@ -838,14 +899,17 @@ def _test_usage_dedupe_credentials() -> None:
 
 def _test_render_accounts_popup() -> None:
     accounts = [
-        ("leo@x.dev·f", 0.5, 0.85),
-        ("other@x.dev·2", 0.1, 0.2),
+        ("leo@x.dev·f", 0.5, 0.85, None, None),
+        ("other@x.dev·2", 0.1, 0.2, None, None),
     ]
     out = render.render_accounts_popup(accounts, "leo@x.dev·f", 0.42)
     lines = out.splitlines()
-    _check(len(lines) == 2, f"one line per account: {lines!r}")
-    active_line = next(l for l in lines if "leo@x.dev" in l)
-    other_line = next(l for l in lines if "other@x.dev" in l)
+    # One summary line + one closing border rule per account (no reset data
+    # on either account -> no reset lines).
+    _check(len(lines) == 4, f"summary + border per account, no reset lines: {lines!r}")
+    plain_lines = [_strip_ansi(l) for l in lines]
+    active_line = next(l for l in plain_lines if "leo@x.dev" in l)
+    other_line = next(l for l in plain_lines if "other@x.dev" in l)
     _check("SES:42%" in active_line, f"active row shows SES: {active_line!r}")
     _check(
         "5H:50%" in active_line and "7D:85%" in active_line,
@@ -858,8 +922,16 @@ def _test_render_accounts_popup() -> None:
     )
     _check(active_line.startswith("*"), f"active row is marked: {active_line!r}")
     _check(not other_line.startswith("*"), f"non-active row is not marked: {other_line!r}")
-    # Plain text popup: no tmux status-format escaping leaks in.
+    # No tmux status-format escaping leaks in (this popup uses real ANSI
+    # instead — see the green checks below — never tmux's #[fg=...] tokens).
     _check("#[" not in out, "popup body carries no tmux #[...] style codes")
+    # Every number (Leo's ask, 2026-07-13) is wrapped in the popup's green.
+    _check(render._green("50%") in out, f"5H percentage is wrapped in green: {out!r}")
+    _check(render._green("85%") in out, f"7D percentage is wrapped in green: {out!r}")
+    _check(render._green("42%") in out, f"SES percentage is wrapped in green: {out!r}")
+    # Each account block closes with a full-width '─' rule.
+    border_lines = [l for l in lines if l and set(l) == {"─"}]
+    _check(len(border_lines) == 2, f"one border rule per account: {lines!r}")
 
     # Unreachable nexus-agent / zero deduped credentials -> empty, fail-open.
     _check(render.render_accounts_popup([], "leo@x.dev", 0.5) == "", "no accounts -> ''")
@@ -867,7 +939,96 @@ def _test_render_accounts_popup() -> None:
     # No account matches active_label -> no row gets SES (e.g. the active
     # credential had no usable label and was dropped by the caller).
     out_no_match = render.render_accounts_popup(accounts, "", None)
-    _check("SES:" not in out_no_match, "no active_label match -> no SES anywhere")
+    _check(
+        "SES:" not in _strip_ansi(out_no_match), "no active_label match -> no SES anywhere"
+    )
+
+
+def _test_render_accounts_popup_reset_lines() -> None:
+    """Indented per-account 5H/7D reset-time lines (Leo's ask, 2026-07-13),
+    plus the same-day follow-up ask: short weekday instead of day-of-month,
+    the "a" (am/pm) markers aligned between the 5H/7D lines, a border rule
+    under each account block, and every number/datetime rendered green.
+
+    ``now`` is injected (same DI pattern :func:`render.render_tabs_row` uses)
+    so the countdown math is deterministic. The absolute clock text isn't
+    asserted byte-for-byte since it renders in the test machine's local
+    timezone (:func:`render._format_reset_line` uses ``time.localtime``); the
+    expected weekday abbreviation is instead computed the SAME way
+    production code does, so the assertion stays timezone-agnostic without
+    hardcoding a day name.
+    """
+    now = 1_700_000_000.0
+    five_h_reset = now + 2 * 3600 + 14 * 60  # 2h14m out
+    seven_d_reset = now + 3 * 86400 + 14 * 3600 + 22 * 60  # 3d14h22m out
+    expected_weekday = time.strftime("%a", time.localtime(seven_d_reset))
+
+    accounts = [("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset)]
+    out = render.render_accounts_popup(accounts, "leo@x.dev·8", None, now=now)
+    lines = out.splitlines()
+    _check(len(lines) == 4, f"summary + two reset lines + border: {lines!r}")
+    reset_5h = _strip_ansi(lines[1])
+    reset_7d = _strip_ansi(lines[2])
+    _check(
+        reset_5h.startswith("   ") and "5H Resets at" in reset_5h and "in 02:14" in reset_5h,
+        f"5H reset line indented, correct countdown: {reset_5h!r}",
+    )
+    _check(
+        reset_7d.startswith("   ")
+        and "7D Resets on" in reset_7d
+        and f"{expected_weekday} " in reset_7d
+        and "in 03:14:22" in reset_7d,
+        f"7D reset line indented, short weekday (not day-of-month), correct dd:HH:mm countdown: {reset_7d!r}",
+    )
+    # "a" (am/pm) marker lines up in the same column on both lines — 5H's
+    # blank day-slot is the same width as 7D's "<weekday> " prefix.
+    am_pm_col_5h = max(reset_5h.find(" am"), reset_5h.find(" pm"))
+    am_pm_col_7d = max(reset_7d.find(" am"), reset_7d.find(" pm"))
+    _check(am_pm_col_5h >= 0 and am_pm_col_7d >= 0, "both lines carry an am/pm marker")
+    _check(
+        am_pm_col_5h == am_pm_col_7d,
+        f"am/pm marker aligned between 5H and 7D lines: {reset_5h!r} vs {reset_7d!r}",
+    )
+    # Border rule closes the block.
+    _check(
+        len(lines[3]) > 0 and set(lines[3]) == {"─"},
+        f"border rule under the account block: {lines[3]!r}",
+    )
+    # Countdowns are green.
+    _check(render._green("02:14") in out, f"5H countdown is green: {out!r}")
+    _check(render._green("03:14:22") in out, f"7D countdown is green: {out!r}")
+
+    # Missing reset data (window not yet polled) -> line omitted, not a
+    # placeholder — same fail-open convention as an absent 5H/7D percentage.
+    accounts_missing = [("leo@x.dev·8", 0.36, 0.71, None, None)]
+    out_missing = render.render_accounts_popup(accounts_missing, "leo@x.dev·8", None, now=now)
+    _check(
+        len(out_missing.splitlines()) == 2,
+        f"summary + border only, no reset lines: {out_missing!r}",
+    )
+
+    # Already-passed reset -> "now", not a negative/garbled countdown.
+    accounts_past = [("leo@x.dev·8", 0.36, 0.71, now - 60, now - 60)]
+    out_past = render.render_accounts_popup(accounts_past, "leo@x.dev·8", None, now=now)
+    _check(render._green("now") in out_past, f"already-passed reset renders green 'now': {out_past!r}")
+
+    # Reset lines render for a NON-active row too (Leo: "for both 5h and 7d
+    # below each account", not just the starred one).
+    accounts_two = [
+        ("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset),
+        ("other@x.dev·2", 0.1, 0.2, five_h_reset, None),
+    ]
+    out_two = render.render_accounts_popup(accounts_two, "leo@x.dev·8", 0.5, now=now)
+    other_lines = [_strip_ansi(l) for l in out_two.splitlines()]
+    other_idx = next(i for i, l in enumerate(other_lines) if "other@x.dev" in l)
+    _check(
+        "5H Resets at" in other_lines[other_idx + 1],
+        f"non-active row also gets its 5H reset line: {other_lines[other_idx + 1]!r}",
+    )
+    _check(
+        "7D Resets" not in other_lines[other_idx + 2],
+        f"non-active row's missing 7D reset data omits that line only: {other_lines[other_idx + 2]!r}",
+    )
 
 
 def _test_accounts_popup_click_dismiss_wiring() -> None:
@@ -934,7 +1095,7 @@ def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             cli.cmd_accounts_popup(None)
-        out = buf.getvalue()
+        out = _strip_ansi(buf.getvalue())
         _check("SES:42%" in out, f"SES comes from nx-agent (42%), not the legacy file: {out!r}")
         _check("99%" not in out, f"legacy per-pane file's value must NOT leak through: {out!r}")
 
@@ -944,7 +1105,7 @@ def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
         buf2 = io.StringIO()
         with contextlib.redirect_stdout(buf2):
             cli.cmd_accounts_popup(None)
-        out2 = buf2.getvalue()
+        out2 = _strip_ansi(buf2.getvalue())
         _check("SES:--" in out2, f"nx-agent unreachable -> SES blank, no legacy fallback: {out2!r}")
         _check("99%" not in out2, f"legacy per-pane file's value must NOT leak through: {out2!r}")
     finally:
@@ -2667,8 +2828,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.render_segment", _test_usage_render_segment),
     ("usage.fail_open", _test_usage_fail_open),
     ("usage.extract_active", _test_usage_extract_active),
+    ("usage.extract_reset_at", _test_usage_extract_reset_at),
     ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
     ("render.accounts_popup", _test_render_accounts_popup),
+    ("render.accounts_popup_reset_lines", _test_render_accounts_popup_reset_lines),
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
     ("accounts_popup.ses_from_nx_agent", _test_cli_accounts_popup_ses_from_nx_agent),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),

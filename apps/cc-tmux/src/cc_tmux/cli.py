@@ -1334,12 +1334,16 @@ def cmd_accounts_popup(args) -> int:
     Fetches ``/credentials`` fresh (:func:`usage._query` — the raw payload,
     not the short-TTL :func:`_active_usage` cache, because this handler needs
     every credential, not just the active triple), applies
-    :func:`usage.dedupe_credentials` (if-lp8v/if-m5q6 client-side stopgap),
-    and extracts a ``(label, 5H, 7D)`` triple per surviving credential via the
-    same :func:`usage._account_label`/:func:`usage._extract_util` primitives
-    :func:`usage.extract_active`/:func:`usage.render_usage` already build on
-    — reused here rather than re-deriving the field-navigation logic. The
-    credential whose ``isActive`` flag is ``True`` supplies ``active_label``.
+    :func:`usage.dedupe_credentials` (if-lp8v/if-m5q6 client-side stopgap;
+    also now shared with :func:`usage.extract_active` — see that function's
+    docstring for the row2/popup 5H-7D mismatch this closed), and extracts a
+    ``(label, 5H, 7D, 5H-reset, 7D-reset)`` 5-tuple per surviving credential
+    via :func:`usage._account_label`/:func:`usage._extract_util`/
+    :func:`usage._extract_reset_at` — reused here rather than re-deriving the
+    field-navigation logic. The credential whose ``isActive`` flag is
+    ``True`` supplies ``active_label``. The reset timestamps feed
+    :func:`render.render_accounts_popup`'s per-account "Resets at/on ... in
+    ..." lines (Leo's ask, 2026-07-13).
 
     SES (a property of the currently-focused pane, not any credential row —
     see proposal's "SES is not an account-level metric") is resolved via
@@ -1365,7 +1369,7 @@ def cmd_accounts_popup(args) -> int:
     deduped = usage.dedupe_credentials(credentials) if isinstance(credentials, list) else []
 
     active_label = ""
-    accounts: List[Tuple[str, Optional[float], Optional[float]]] = []
+    accounts: List[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float]]] = []
     for cred in deduped:
         label = usage._account_label(cred)
         if not label:
@@ -1376,13 +1380,15 @@ def cmd_accounts_popup(args) -> int:
             label,
             usage._extract_util(cred, "usage5hUsed", "usage5hLimit"),
             usage._extract_util(cred, "usage7dUsed", "usage7dLimit"),
+            usage._extract_reset_at(cred, "usage5hResetAt"),
+            usage._extract_reset_at(cred, "usage7dResetAt"),
         ))
 
     window = tmux.current_window_id()
     pane = _resolve_session_pane(window) if window else ""
     active_ses_pct = _resolve_ses_pct(pane) if pane else None
 
-    out = render.render_accounts_popup(accounts, active_label, active_ses_pct)
+    out = render.render_accounts_popup(accounts, active_label, active_ses_pct, now=time.time())
     if out:
         print(out)
     return 0

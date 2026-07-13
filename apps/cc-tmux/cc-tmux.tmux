@@ -145,11 +145,28 @@ fi
 # have made it look better but stop being clickable, which defeats the
 # feature; Leo confirmed keeping the real click target over the cosmetic
 # border placement.
+#
+# `-h 80%` (2026-07-13, Leo's report): each account's body grew from one
+# line to up to four (summary + 5H/7D reset lines + a closing `─` rule,
+# render.render_accounts_popup) after the reset-time feature landed, but the
+# popup kept relying on `display-popup`'s unspecified-height default (50% of
+# the client, per tmux(1)) sized for the OLD one-line-per-account content.
+# With 3+ tracked accounts the body now regularly exceeds that, and fzf
+# scrolls its list to fit — the top account's summary row scrolls out of
+# view before the user ever touches a key, reading as "broken", not "just
+# scroll up". A fixed generous percentage (not a dynamic `#()`-computed
+# line count) is deliberate: this bind-key string is already a deeply
+# nested, multiply-quoted one-liner (rules/TOOLING.md's RTK
+# quoted-command-token footgun is the same class of fragility), and tmux
+# clamps any requested popup size to the actual client dimensions anyway, so
+# a generous fixed percentage is both simpler and just as safe as computing
+# an exact line count live. Applied to both the fzf and the plain-fallback
+# branch — the same overflow applies to the `read -n 1 -s` popup too.
 # ---------------------------------------------------------------------------
 if supports_popup; then
-  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup | fzf --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
+  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup | fzf --ansi --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
 else
-  accounts_popup_cmd="display-popup -y S -x M -E \"$CMD accounts-popup; read -n 1 -s\""
+  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup; read -n 1 -s\""
 fi
 tmux bind-key -T root MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
   "$accounts_popup_cmd" \

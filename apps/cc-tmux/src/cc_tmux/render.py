@@ -12,6 +12,7 @@ emoji) with sensible defaults, each overridable via ``@cc-icon-<state>``.
 from __future__ import annotations
 
 import re
+import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import tmux
@@ -340,37 +341,145 @@ def render_session_bar(
 # Accounts popup (cc-tmux-account-switcher-popup)
 #
 # Renders the multi-line body shown when the row-2 account-label segment is
-# clicked (the #[range=user|accounts] marker above). PLAIN text, no
-# #[fg=...]/#[range=...] tmux status-format escaping: this string is printed
-# inside an fzf-less display-popup shell, not evaluated by tmux's own
-# status-format renderer, so those escape codes would show up as literal
-# garbage rather than colour.
+# clicked (the #[range=user|accounts] marker above). This body reaches a
+# REAL terminal — either fzf (``--ansi``, see ``cc-tmux.tmux``'s
+# accounts_popup_cmd) or the plain ``display-popup -E "... ; read -n 1 -s"``
+# fallback for pre-3.2 tmux/no-fzf — never tmux's own status-format renderer,
+# so genuine ANSI SGR escapes (:func:`_green`) are the right mechanism for
+# colour here, unlike :func:`render_session_bar`'s ``#[fg=...]`` tokens
+# (which WOULD show up as literal garbage in this popup — the two renderers
+# target two different consumers, not interchangeable escaping).
 # ---------------------------------------------------------------------------
+
+# Truecolor ANSI green matching this module's own tmux-hex GREEN (#00ac3a,
+# usage.py) — Leo's ask (2026-07-13): every number/datetime in the popup is
+# uniformly this green, NOT severity-escalated the way color_for's RED/
+# YELLOW/CYAN colors the tmux status-format segments elsewhere in this file.
+_ANSI_GREEN = "\x1b[38;2;0;172;58m"
+_ANSI_RESET = "\x1b[0m"
+
+
+def _green(text: str) -> str:
+    """Wrap ``text`` in the popup's ANSI truecolor green + reset."""
+    return f"{_ANSI_GREEN}{text}{_ANSI_RESET}"
+
+
+def _format_reset_countdown(remaining_secs: float, *, with_days: bool) -> str:
+    """``HH:mm`` (5H) or ``dd:HH:mm`` (7D) countdown to a reset, or ``"now"``.
+
+    ``remaining_secs`` <= 0 (already reset, or a clock skew edge case) ->
+    ``"now"``, matching the convention nexus-statusline's own
+    ``formatCountdown`` (``apps/nexus-statusline/src/render.ts``) uses for the
+    identical "reset already passed" case.
+    """
+    if remaining_secs <= 0:
+        return "now"
+    total = int(remaining_secs)
+    if with_days:
+        days, rem = divmod(total, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes = rem // 60
+        return f"{days:02d}:{hours:02d}:{minutes:02d}"
+    hours, rem = divmod(total, 3600)
+    minutes = rem // 60
+    return f"{hours:02d}:{minutes:02d}"
+
+
+# Width of the 7D line's day slot: a 3-letter weekday abbreviation + one
+# separating space (``"Sat "``). The 5H line has no day of its own (its
+# reset always lands the same calendar day), but pads with a same-width
+# blank so BOTH lines' ``HH:mm a`` clock — and therefore both lines' "a"
+# am/pm markers — start in the same column (Leo's 2026-07-13 alignment ask).
+_DAY_SLOT_WIDTH = 4
+
+
+def _format_reset_line(
+    window_label: str,
+    verb: str,
+    reset_epoch: Optional[float],
+    now: float,
+    *,
+    with_day: bool,
+) -> Tuple[str, str]:
+    """``(plain, colored)`` reset-time line pair, or ``("", "")`` when unresolved.
+
+    ``reset_epoch`` absent (nexus-agent hasn't polled this window yet) ->
+    ``("", "")``, so the caller omits the line entirely — fail-open, matching
+    :func:`render_accounts_popup`'s own "nothing to show" convention rather
+    than rendering a placeholder. Absolute time renders in LOCAL time
+    (``time.localtime``, matching this module's ``now: float`` epoch-seconds
+    convention elsewhere — :func:`resolve_tab_icon`/:func:`inbox_rows`) since
+    that's what a human reading a terminal popup expects.
+
+    ``with_day`` prefixes the short weekday name (``%a`` — ``Sat``/``Mon``/
+    ``Thu``; 7D's reset can land on a different calendar day than "today", so
+    "which day" matters more than "which date"; 5H always resolves same-day,
+    so its slot is left blank — see :data:`_DAY_SLOT_WIDTH`) and switches the
+    countdown from ``HH:mm`` to ``dd:HH:mm`` (see
+    :func:`_format_reset_countdown`).
+
+    Returns BOTH a plain-text line (for width/alignment math — ANSI escapes
+    are zero-width visually but non-zero in ``len()``, so alignment MUST be
+    computed off the plain variant) and a colour-decorated one (for actual
+    display, :func:`_green` around the "numbers and datetimes" — the clock,
+    weekday, and countdown, not the ``"Resets at/on"``/``"in"`` label text).
+    """
+    if reset_epoch is None:
+        return "", ""
+    lt = time.localtime(reset_epoch)
+    clock = f"{time.strftime('%I:%M', lt)} {time.strftime('%p', lt).lower()}"
+    day_slot = f"{time.strftime('%a', lt):<3} " if with_day else " " * _DAY_SLOT_WIDTH
+    when = f"{day_slot}{clock}"
+    countdown = _format_reset_countdown(reset_epoch - now, with_days=with_day)
+    plain = f"{window_label} Resets {verb} {when}  in {countdown}"
+    colored = f"{window_label} Resets {verb} {_green(when)}  in {_green(countdown)}"
+    return plain, colored
 
 
 def render_accounts_popup(
-    accounts: Sequence[Tuple[str, Optional[float], Optional[float]]],
+    accounts: Sequence[
+        Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float]]
+    ],
     active_label: str,
     active_ses_pct: Optional[float],
+    now: Optional[float] = None,
 ) -> str:
-    """Aligned plain-text popup body: one row per deduped tracked account.
+    """Aligned, ANSI-green-accented popup body: one row per deduped account.
 
     ``accounts`` is every deduped account as an already-extracted
-    ``(label, five_h_pct, seven_d_pct)`` triple — the CLI handler
-    (:func:`cc_tmux.cli.cmd_accounts_popup`) builds these via
-    :func:`cc_tmux.usage.dedupe_credentials` +
-    :func:`cc_tmux.usage._account_label`/:func:`cc_tmux.usage._extract_util`,
-    so this function stays pure with no credential-dict shape knowledge.
-    Every row renders ``5H:xx% 7D:xx%``; the row whose label equals
-    ``active_label`` (exact match) is additionally prefixed with
-    ``SES:xx%`` (from ``active_ses_pct``) and marked with a leading ``*`` —
-    SES is a property of the currently-focused pane, not of a credential in
-    the abstract (proposal's "SES is not an account-level metric"), so it is
-    supplied by the caller rather than looked up per-account here.
+    ``(label, five_h_pct, seven_d_pct, five_h_reset_epoch, seven_d_reset_epoch)``
+    5-tuple — the CLI handler (:func:`cc_tmux.cli.cmd_accounts_popup`) builds
+    these via :func:`cc_tmux.usage.dedupe_credentials` +
+    :func:`cc_tmux.usage._account_label`/:func:`cc_tmux.usage._extract_util`/
+    :func:`cc_tmux.usage._extract_reset_at`, so this function stays pure with
+    no credential-dict shape knowledge. Every row renders ``5H:xx% 7D:xx%``;
+    the row whose label equals ``active_label`` (exact match) is additionally
+    prefixed with ``SES:xx%`` (from ``active_ses_pct``) and marked with a
+    leading ``*`` — SES is a property of the currently-focused pane, not of a
+    credential in the abstract (proposal's "SES is not an account-level
+    metric"), so it is supplied by the caller rather than looked up
+    per-account here. Every percentage is wrapped in :func:`_green`.
+
+    Below EVERY account's summary row (active or not — Leo's ask, not just
+    the starred one) sit up to two indented, aligned, green-accented
+    reset-time lines, one per window, each omitted independently when that
+    window's reset time hasn't been polled yet (see :func:`_format_reset_line`),
+    followed by a full-width ``─`` rule separating this account's block from
+    the next (Leo's 2026-07-13 readability ask):
+
+        * leo@x.dev·8   SES:36% 5H:36% 7D:71%
+             5H Resets at      03:45 pm  in 02:14
+             7D Resets on  Sat 03:45 pm  in 03:14:22
+        ──────────────────────────────────────────
 
     Percent formatting reuses :func:`pct_for` (``--`` for an absent/unpolled
-    value); :func:`color_for` is deliberately NOT used — this is ANSI-less
-    plain text, not a tmux status-format string (see module docstring above).
+    value); :func:`color_for` (severity RED/YELLOW/CYAN) is deliberately NOT
+    used here — Leo wants every number/datetime uniformly green, not
+    escalated by utilization (contrast :func:`render_session_bar`'s tmux
+    status-format segment, which DOES escalate). ``now`` is the
+    caller-supplied wall-clock epoch (``time.time()`` in production,
+    injectable for deterministic tests) — same DI pattern
+    :func:`render_tabs_row` already uses for its own ``now`` param.
 
     Pure function of its inputs. Empty ``accounts`` -> ``""`` (fail-open: an
     unreachable nexus-agent, or a payload with zero deduped/labelled
@@ -378,20 +487,36 @@ def render_accounts_popup(
     """
     if not accounts:
         return ""
+    t = time.time() if now is None else now
 
-    rows: List[Tuple[str, str, bool]] = []
-    for label, five_h, seven_d in accounts:
+    rows: List[Tuple[str, str, str, bool, str, str, str, str]] = []
+    for label, five_h, seven_d, five_h_reset, seven_d_reset in accounts:
         is_active = bool(active_label) and label == active_label
-        tail = f"5H:{pct_for(five_h)} 7D:{pct_for(seven_d)}"
+        five_h_str, seven_d_str = pct_for(five_h), pct_for(seven_d)
+        tail_plain = f"5H:{five_h_str} 7D:{seven_d_str}"
+        tail = f"5H:{_green(five_h_str)} 7D:{_green(seven_d_str)}"
         if is_active:
-            tail = f"SES:{pct_for(active_ses_pct)} {tail}"
-        rows.append((label, tail, is_active))
+            ses_str = pct_for(active_ses_pct)
+            tail_plain = f"SES:{ses_str} {tail_plain}"
+            tail = f"SES:{_green(ses_str)} {tail}"
+        reset_5h_plain, reset_5h = _format_reset_line("5H", "at", five_h_reset, t, with_day=False)
+        reset_7d_plain, reset_7d = _format_reset_line("7D", "on", seven_d_reset, t, with_day=True)
+        rows.append((label, tail_plain, tail, is_active, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d))
 
-    label_width = max(len(label) for label, _tail, _active in rows)
-    lines = [
-        f"{'* ' if is_active else '  '}{label.ljust(label_width)}  {tail}"
-        for label, tail, is_active in rows
-    ]
+    label_width = max(len(label) for label, *_rest in rows)
+    lines: List[str] = []
+    for label, tail_plain, tail, is_active, reset_5h_plain, reset_5h, reset_7d_plain, reset_7d in rows:
+        marker = "* " if is_active else "  "
+        summary_plain = f"{marker}{label.ljust(label_width)}  {tail_plain}"
+        lines.append(f"{marker}{label.ljust(label_width)}  {tail}")
+        block_width = len(summary_plain)
+        if reset_5h_plain:
+            lines.append(f"   {reset_5h}")
+            block_width = max(block_width, len(reset_5h_plain) + 3)
+        if reset_7d_plain:
+            lines.append(f"   {reset_7d}")
+            block_width = max(block_width, len(reset_7d_plain) + 3)
+        lines.append("─" * block_width)
     return "\n".join(lines)
 
 

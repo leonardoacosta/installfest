@@ -48,6 +48,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 # tmux colour codes — identical to the retired tmux-nexus-creds sh script.
@@ -120,6 +121,29 @@ def _extract_util(credential: dict, used_key: str, limit_key: str) -> Optional[f
     if limit_f <= 0:
         return None
     return used_f / limit_f
+
+
+def _extract_reset_at(credential: dict, key: str) -> Optional[float]:
+    """Epoch-seconds reset time for ``key`` (e.g. ``usage5hResetAt``), or ``None``.
+
+    nx-agent serialises the reset columns (``usage_5h_reset_at`` /
+    ``usage_7d_reset_at``, see ``packages/db/src/schema/credentials.ts`` in the
+    nexus repo) as ISO-8601 strings, ``Z``- or offset-suffixed. A missing,
+    non-string, or unparseable value -> ``None`` (fail-open, same contract as
+    :func:`_extract_util`) — nexus-agent leaves the column null until it has
+    actually polled the account, which is the expected "nothing to show" case,
+    not a bug here.
+    """
+    value = credential.get(key)
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
 
 
 def _account_label(credential: dict) -> str:
@@ -228,14 +252,32 @@ def _cache_path() -> str:
 
 
 def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]]:
-    """``(label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``."""
+    """``(label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+
+    Runs :func:`dedupe_credentials` first (fixed 2026-07-13, row2/popup usage
+    mismatch). Before this fix, the raw ``credentials`` list was scanned
+    directly for the first ``isActive is True`` row in payload order — but
+    nx-agent's ``/credentials`` payload carries duplicate rows per identity
+    (if-lp8v/if-m5q6), and the accounts-popup (:func:`cc_tmux.cli.
+    cmd_accounts_popup`) already ran every row through
+    :func:`dedupe_credentials`'s freshest-wins tie-break before picking the
+    active one. The two surfaces could therefore resolve DIFFERENT rows for
+    the same identity — row2 (this function, via :func:`active_usage`)
+    reading a stale duplicate's 5H/7D while the popup read the freshest one
+    — confirmed live: same account, row2 showed 5H:90%/7D:64%, the popup's
+    starred row showed 5H:36%/7D:71%. Routing through the same dedupe here
+    closes that drift class, mirroring the earlier if-hrbd fix that unified
+    the two surfaces' SES resolution onto one function
+    (:func:`cc_tmux.cli._resolve_ses_pct`) for the identical reason.
+    """
     if not isinstance(payload, dict):
         return "", None, None
     credentials = payload.get("credentials")
     if not isinstance(credentials, list):
         return "", None, None
+    deduped = dedupe_credentials(credentials)
     active = next(
-        (c for c in credentials if isinstance(c, dict) and c.get("isActive") is True),
+        (c for c in deduped if c.get("isActive") is True),
         None,
     )
     if active is None:
