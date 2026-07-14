@@ -134,7 +134,7 @@ all-or-nothing glyph blackout).
 - When: the session-bar row renders for that window
 - Then: the row is empty (no session identity, no usage) for that window
 
-### Requirement: A dedicated tmux status row surfaces open/ready beads and proposals plus the active account identity
+### Requirement: A dedicated tmux status row surfaces open/ready beads and proposals
 The plugin SHALL render a second dedicated tmux status row (`status-format[2]`) showing the
 current project's cached roadmap-pulse counts, read directly from
 `~/.claude/scripts/state/roadmap-pulse.<code>.line`, PLUS a third independent segment carrying
@@ -210,7 +210,7 @@ previously bound to row 2 — see the popup requirement below), via the same
 - Then: the row is empty — no error, no placeholder text (unchanged from the prior requirement
   version's "no cache yet" contract, now also gated on the account segment's own absence)
 
-### Requirement: Clicking the account-identity segment opens a read-only accounts popup
+### Requirement: Clicking the row-2 account label opens a read-only accounts popup
 The plugin SHALL bind a click on the account-identity segment (row 3, per the beads/proposals
 row requirement above) to `cc-tmux accounts-popup`, a read-only floating pane (positioned
 immediately above the current status-bar row) listing every tracked Claude account's 5-hour/7-day

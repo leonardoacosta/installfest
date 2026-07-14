@@ -437,13 +437,15 @@ The plugin SHALL render a dedicated tmux status row (`status-format[1]`) showing
 a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S), the project code, the git branch,
 and (when any of the six working-tree metrics below is nonzero) working-tree indicators.
 Right-justified on the same row, the plugin SHALL render Claude usage statistics for the active
-nexus-agent credential: an account label, a token-count label for SES (e.g. `252.5k:`, unchanged
-from the prior `cc-tmux-context-bar` format) plus exact `5H:xx%`/`7D:xx%` text, and a combined
+nexus-agent credential: a token-count label for SES (e.g. `252.5k:`, unchanged from the prior
+`cc-tmux-context-bar` format) plus exact `5H:xx%`/`7D:xx%` text, followed LAST by a combined
 Unicode Braille usage glyph (10 cells wide) encoding all three values in one glyph run — top two
 dot-rows = SES, third dot-row = 5H, fourth (bottom) dot-row = 7D, each row an independent
 proportional left-to-right fill. The glyph renders in a neutral/unstyled color; the exact text
 values remain the sole color-coded signal (unchanged `usage.color_for`/`_context_color_pair`
-thresholds). This row SHALL remain separate from the window-tabs row.
+thresholds). The active account's identity (email + org id) is NOT rendered on this row — see
+the beads/proposals row requirement below, which now carries it. This row SHALL remain separate
+from the window-tabs row.
 
 **Model letter** (unchanged sourcing, disclosed degradation) and **branch** (unchanged dual
 source: nx `project_git_status` primary, local `@cc-branch` fallback) are UNCHANGED by this
@@ -484,14 +486,14 @@ principle as the prior token-count bar, generalized to 3 independently-filling r
 ZERO dots to its own row(s) only — other metrics' rows are unaffected (per-metric degrade, not an
 all-or-nothing glyph blackout).
 
-#### Scenario: row 2 renders the session identity and usage
+#### Scenario: row 2 renders the session identity and usage, no account identity
 - Given: a tracked Claude pane in project `if` on branch `main`, model Fable, and the active
   nexus-agent credential has usage data
 - When: the session-bar row renders
 - Then: the left side shows `F if > main` (model letter, project, branch) and the right side
-  shows the account label, `252.5k: 5H:xx% 7D:xx%` text (SES's token-count label, unchanged from
-  the prior format, plus 5H/7D percentages), and the combined 10-cell braille glyph with each
-  row's fill proportional to that metric's value
+  shows `252.5k: 5H:xx% 7D:xx%` text (SES's token-count label plus 5H/7D percentages) followed
+  LAST by the combined 10-cell braille glyph with each row's fill proportional to that metric's
+  value — no account label or identity text appears anywhere on this row
 
 #### Scenario: modified and untracked prefer nx, deleted/renamed/ahead/behind fall back to local
 - Given: a tracked pane in project `if`; `GET /projects/if/status` returns a `git` object with
@@ -567,32 +569,58 @@ all-or-nothing glyph blackout).
 ### Requirement: A dedicated tmux status row surfaces open/ready beads and proposals
 The plugin SHALL render a second dedicated tmux status row (`status-format[2]`) showing the
 current project's cached roadmap-pulse counts, read directly from
-`~/.claude/scripts/state/roadmap-pulse.<code>.line`. The row SHALL render in the form
-`openspec: {open} open {unarchived} unarchived ({age}) | beads: {ready} ready {blocked} blocked
-({age})`, where the beads half counts only "standalone" beads — issues that are NOT a transitive
-descendant, via a `parent-child` dependency, of any issue whose title starts with `[SPEC]` or
-`[CAPABILITY]` — so the two halves are additive rather than double-counting OpenSpec-tracked
-work. Any line in the cache starting with `next:` or `radar:` SHALL NOT be rendered on this row —
-only the openspec/beads counts render, regardless of what else the cache file contains (defense
-against a stale or rolled-back cache carrying either token). Each half's numeric values SHALL be
-coloured by semantic threshold (DIM for a healthy zero/low count, YELLOW when `unarchived > 0` or
-`standalone_blocked > 0`, RED above a documented high-count threshold). No new data production
-mechanism SHALL be introduced for this row — it reads the cache nexus-statusline's own
-`getRoadmapPulse()` already maintains, extended upstream to carry the beads fields.
+`~/.claude/scripts/state/roadmap-pulse.<code>.line`, PLUS a third independent segment carrying
+the active nexus-agent credential's identity (email + 8-character org id, e.g.
+`leo@priceless.dev·bc7da511` — the same format used by the accounts popup's identity rows). The
+openspec/beads portion SHALL render in the form `openspec: {open} open {unarchived} unarchived
+({age}) | beads: {ready} ready {blocked} blocked ({age})`, where the beads half counts only
+"standalone" beads — issues that are NOT a transitive descendant, via a `parent-child`
+dependency, of any issue whose title starts with `[SPEC]` or `[CAPABILITY]` — so the two halves
+are additive rather than double-counting OpenSpec-tracked work. Any line in the cache starting
+with `next:` or `radar:` SHALL NOT be rendered on this row — only the openspec/beads counts
+render, regardless of what else the cache file contains (defense against a stale or rolled-back
+cache carrying either token). Each half's numeric values SHALL be coloured by semantic threshold
+(DIM for a healthy zero/low count, YELLOW when `unarchived > 0` or `standalone_blocked > 0`, RED
+above a documented high-count threshold). No new data production mechanism SHALL be introduced
+for the openspec/beads portion — it reads the cache nexus-statusline's own `getRoadmapPulse()`
+already maintains, extended upstream to carry the beads fields.
 
-#### Scenario: row 3 renders both halves with independent staleness ages
+**Account identity segment**: the plugin SHALL append the active credential's identity as a
+third segment, independent of the openspec/beads pair — present whenever an active nexus-agent
+credential resolves, regardless of whether the openspec/beads cache exists at all. The segment
+SHALL be clickable, bound to `cc-tmux accounts-popup` (the same read-only popup behavior
+previously bound to row 2 — see the popup requirement below), via the same
+`#[range=user|accounts]` mouse-range marker mechanism.
+
+#### Scenario: row 3 renders both halves with independent staleness ages, plus the account identity
 - Given: a cached roadmap-pulse file whose counts are `2 open, 1 unarchived` (openspec) and `3
-  ready, 0 blocked` (standalone beads)
+  ready, 0 blocked` (standalone beads), and an active nexus-agent credential
+  `leo@priceless.dev` / org `bc7da511-...`
 - When: the beads-bar row renders
-- Then: it shows `openspec: 2 open 1 unarchived (<age>) | beads: 3 ready 0 blocked (<age>)` with
-  `1 unarchived` coloured YELLOW and the rest DIM/CYAN
+- Then: it shows `openspec: 2 open 1 unarchived (<age>) | beads: 3 ready 0 blocked (<age>) |
+  leo@priceless.dev·bc7da511` with `1 unarchived` coloured YELLOW, the rest DIM/CYAN, and the
+  account segment clickable via the same mouse-range marker row 2 used to carry
+
+#### Scenario: no roadmap-pulse cache, but an active account resolves
+- Given: no roadmap-pulse cache file exists yet for the current project, and an active
+  nexus-agent credential resolves
+- When: the beads-bar row renders
+- Then: the row shows ONLY the account identity segment (`leo@priceless.dev·bc7da511`) — not an
+  empty row, since the account segment is independent of the openspec/beads cache
+
+#### Scenario: openspec/beads cache present, no active account resolves
+- Given: a cached roadmap-pulse file with real counts, and nexus-agent is unreachable (no active
+  credential resolves)
+- When: the beads-bar row renders
+- Then: the row shows only the openspec/beads segments, unchanged from the prior requirement
+  version — no empty account segment, no error
 
 #### Scenario: a stray next: or radar: line never renders
 - Given: a cached roadmap-pulse file containing a `next: …` line, a `radar:stale` line (stale
   pre-fix content), and a counts line
 - When: the beads-bar row renders
-- Then: only the openspec/beads counts render — neither the `next:` nor the `radar:` line
-  appears anywhere on the row
+- Then: only the openspec/beads counts (and, if applicable, the account segment) render —
+  neither the `next:` nor the `radar:` line appears anywhere on the row
 
 #### Scenario: standalone beads exclude OpenSpec-tracked work
 - Given: 5 open beads total, 3 of which are tasks under a `[SPEC] some-proposal` feature (itself
@@ -603,14 +631,16 @@ mechanism SHALL be introduced for this row — it reads the cache nexus-statusli
 
 #### Scenario: counts-only cache renders as-is
 - Given: a cached roadmap-pulse file containing only the openspec/beads counts (no `next:` or
-  `radar:` line)
+  `radar:` line), and no active account resolves
 - When: the beads-bar row renders
-- Then: it shows both halves, unchanged
+- Then: it shows both openspec/beads halves, unchanged
 
-#### Scenario: no cache yet renders nothing
-- Given: no roadmap-pulse cache file exists yet for the current project
+#### Scenario: nothing available renders nothing
+- Given: no roadmap-pulse cache file exists yet for the current project, and no active
+  nexus-agent credential resolves
 - When: the beads-bar row renders
-- Then: the row is empty — no error, no placeholder text
+- Then: the row is empty — no error, no placeholder text (unchanged from the prior requirement
+  version's "no cache yet" contract, now also gated on the account segment's own absence)
 
 ### Requirement: The tmux status bar is three lines
 `home/dot_config/tmux/tmux.conf.tmpl` SHALL set `status 3`, and each shipped theme
@@ -643,35 +673,33 @@ diagnostic-only — it MUST NOT alter `_maybe_rename_window`'s existing rename b
 - Then: it does not grow without bound — old entries are rotated or capped
 
 ### Requirement: Clicking the row-2 account label opens a read-only accounts popup
-The plugin SHALL bind a click on row 2's account-label segment to `cc-tmux accounts-popup`, a
-read-only floating pane (positioned immediately above the current status-bar row) listing every
-tracked-but-not-currently-active Claude account with its 5-hour/7-day utilization as text plus a
-combined 2-metric braille glyph (20 cells wide: rows 1-2 = 5H, rows 3-4 = 7D, each metric using
-the full 4-dot-per-cell budget since no SES value applies to a non-active credential), and a
-distinguished row for the currently active account including its live SES (session
-context-window-used %) as text plus the same 3-metric combined glyph used on row 2 (20 cells
-wide: rows 1-2 = SES, row 3 = 5H, row 4 = 7D). When fzf and tmux >= 3.2 are available (the same
-`supports_popup` gate `cc-tmux inbox`/`picker-data` already use), the popup pipes through fzf with
-`--no-input` (query box hidden/disabled — genuinely cannot be typed into, not merely dismissed on
-the first keystroke) and a `[x]`-labeled header bound via `--bind 'click-header:abort'` (a real
-clickable close target — tmux's own `display-popup` has no native mouse-click dismissal). Row
-clicks and Enter are inert (`--bind 'left-click:ignore'`/`'enter:ignore'`) — this is a read-only
-view, it MUST NOT switch or swap the active credential. Without fzf/tmux 3.2+, the popup falls
-back to a static `display-popup` dismissed by any keystroke.
+The plugin SHALL bind a click on the account-identity segment (row 3, per the beads/proposals
+row requirement above) to `cc-tmux accounts-popup`, a read-only floating pane (positioned
+immediately above the current status-bar row) listing every tracked Claude account's 5-hour/7-day
+utilization as text plus a combined 2-metric braille glyph (20 cells wide: rows 1-2 = 5H, rows
+3-4 = 7D, each metric using the full 4-dot-per-cell budget) — uniformly for every account,
+active or not. The popup SHALL NOT render any session-context-window (SES) data anywhere: SES is
+a property of the currently-focused pane's session, not of an account, and does not belong in an
+account-usage view. The active account is distinguished ONLY by a leading `*` marker — no
+separate glyph shape, token-count label, or other session-scoped field marks it. When fzf and
+tmux >= 3.2 are available (the same `supports_popup` gate `cc-tmux inbox`/`picker-data` already
+use), the popup pipes through fzf with `--no-input` (query box hidden/disabled — genuinely
+cannot be typed into, not merely dismissed on the first keystroke) and a `[x]`-labeled header
+bound via `--bind 'click-header:abort'` (a real clickable close target — tmux's own
+`display-popup` has no native mouse-click dismissal). Row clicks and Enter are inert
+(`--bind 'left-click:ignore'`/`'enter:ignore'`) — this is a read-only view, it MUST NOT switch or
+swap the active credential. Without fzf/tmux 3.2+, the popup falls back to a static
+`display-popup` dismissed by any keystroke. The fzf-backed popup SHALL render its full account
+list within the popup pane's actual available height — it MUST NOT truncate the list to less
+than the pane's true height when the account count would otherwise fit.
 
-#### Scenario: popup lists other tracked accounts with 5H/7D only
-- Given: 3 tracked nexus-agent credentials, one active, and the click lands on row 2's account
-  label
+#### Scenario: popup lists every tracked account uniformly, no SES anywhere
+- Given: 3 tracked nexus-agent credentials, one active, and the click lands on the row-3 account
+  identity segment
 - When: the accounts popup opens
-- Then: the 2 non-active accounts each show `<label> 5H:xx% 7D:xx%` (no SES field) plus a 20-cell
-  2-metric braille glyph (rows 1-2 = 5H, rows 3-4 = 7D)
-
-#### Scenario: the active account's row includes SES
-- Given: the accounts popup is open
-- When: the active account's row renders
-- Then: it shows `252.5k: 5H:xx% 7D:xx%` (SES's token-count label, sourced identically to row
-  2's own gauge, plus 5H/7D percentages), plus a 20-cell 3-metric braille glyph (rows 1-2 = SES,
-  row 3 = 5H, row 4 = 7D)
+- Then: all 3 accounts (active and non-active alike) each show `<label> 5H:xx% 7D:xx%` (no SES
+  field anywhere) plus a 20-cell 2-metric braille glyph (rows 1-2 = 5H, rows 3-4 = 7D); the
+  active account's row is distinguished only by its leading `*` marker
 
 #### Scenario: duplicate and orphaned credential rows collapse or drop before display
 - Given: nexus-agent's `/credentials` payload contains multiple historical rows for the same
@@ -688,9 +716,16 @@ back to a static `display-popup` dismissed by any keystroke.
 - Then: it appears as a floating pane positioned immediately above the current status-bar row,
   not overlapping it
 
+#### Scenario: the popup fills its actual available height, no truncation
+- Given: the accounts popup opens with 3 deduped accounts (5 rendered lines each: summary,
+  identity, two reset lines, separator)
+- When: the popup renders
+- Then: every account's full block is visible with no row cut off, using the popup pane's actual
+  available height rather than a fixed fraction that leaves real content off-screen
+
 #### Scenario: unreachable nexus-agent shows nothing
 - Given: nexus-agent is unreachable
-- When: the account label is clicked
+- When: the account identity segment is clicked
 - Then: the popup shows no accounts (fail-open, no error) — same degradation convention as every
   other nexus-agent-dependent segment in this plugin
 
