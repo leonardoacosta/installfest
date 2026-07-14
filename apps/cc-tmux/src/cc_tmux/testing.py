@@ -15,7 +15,6 @@ import contextlib
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -25,12 +24,11 @@ from typing import Callable, List, Optional, Tuple
 
 from . import cli, conductor, nx_agent, paths, priority, registry, render, tmux, usage
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI SGR escapes so content assertions can ignore colour codes."""
-    return _ANSI_RE.sub("", text)
+# Shared with render.strip_ansi / cli's popup-width sizing (cc-tmux-status-bar-
+# popup-polish task 3.4 follow-up, 2026-07-14) -- one regex, not two drifting
+# copies. Kept as a local alias so the 11 existing `_strip_ansi(...)` call
+# sites below don't all need renaming.
+_strip_ansi = render.strip_ansi
 
 
 # ---------------------------------------------------------------------------
@@ -2599,6 +2597,32 @@ def _test_cli_trace_needs_trim() -> None:
     _check(cli.trace_needs_trim(100, threshold=10) is True, "explicit threshold honored")
 
 
+def _test_cli_accounts_popup_max_line_width() -> None:
+    """cc-tmux-status-bar-popup-polish task 3.4 follow-up (2026-07-14,
+    beads if-s1yu): :func:`cli._accounts_popup_max_line_width` must measure
+    the ANSI-STRIPPED visual width, not the raw ``len()`` of a colour-coded
+    line — a green-wrapped reset-time line carries
+    ``\\x1b[38;2;0;172;58m`` + ``\\x1b[0m`` bytes that render as zero columns
+    but would otherwise inflate the computed popup width far past what the
+    content actually needs.
+    """
+    _check(cli._accounts_popup_max_line_width("") == 0, "empty body -> 0")
+    _check(cli._accounts_popup_max_line_width("abc") == 3, "single plain line")
+    _check(
+        cli._accounts_popup_max_line_width("short\nlongest line here\nmid") == 17,
+        "widest of several plain lines wins",
+    )
+    ansi_line = f"{render._ANSI_GREEN}12:34 pm{render._ANSI_RESET}"
+    _check(
+        cli._accounts_popup_max_line_width(ansi_line) == len("12:34 pm"),
+        f"ANSI escapes must not inflate the measured width: {ansi_line!r}",
+    )
+    _check(
+        cli._accounts_popup_max_line_width(f"{ansi_line}\nplain-but-longer-line") == len("plain-but-longer-line"),
+        "a plain line can still win over a shorter ANSI-decorated one",
+    )
+
+
 def _test_cli_hook_freshness() -> None:
     _check(cli.hook_freshness([], 1000.0) == "none", "no panes -> none")
     _check(cli.hook_freshness([0.0], 1000.0) == "none", "zero timestamps -> none")
@@ -3371,6 +3395,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),
     ("cli.evaluate_hook_liveness_ages", _test_cli_evaluate_hook_liveness_ages),
     ("cli.trace_needs_trim", _test_cli_trace_needs_trim),
+    ("cli.accounts_popup_max_line_width", _test_cli_accounts_popup_max_line_width),
     ("cli.hook_freshness", _test_cli_hook_freshness),
     ("conductor.attach_command", _test_conductor_attach_command),
     ("conductor.send_prompt_refusal", _test_conductor_send_prompt_refusal),

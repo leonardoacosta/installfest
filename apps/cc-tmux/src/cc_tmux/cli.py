@@ -1483,6 +1483,63 @@ _ACCOUNTS_POPUP_BORDER_MARGIN = 2
 _ACCOUNTS_POPUP_HEIGHT_PCT_CAP = 0.8
 _ACCOUNTS_POPUP_HEIGHT_FLOOR = _ACCOUNTS_POPUP_BORDER_MARGIN + 1
 
+# Width-analog of the height margins above (2026-07-14 follow-up, beads
+# if-s1yu): the second fix (98ea328) sized fzf's box height correctly but
+# never passed `-w` at all, so the OUTER popup pane stretched to tmux's
+# default width — confirmed live by Leo on a real attached client: "Better
+# height, width could be shrunk." Same measurement discipline as the height
+# constants above, on the same tmux 3.6a / fzf 0.71.0, via two independent
+# throwaway-tmux-server probes (a real `display-popup` for the tmux-side
+# number, a plain resized pane for the fzf-side number — `capture-pane`
+# cannot target a popup's own pane at all, confirmed live: `tmux list-panes`
+# never lists it and `display-message -t <the $TMUX_PANE captured from
+# inside it>` fails "can't find pane" even though the env var itself is
+# real — so the fzf-side measurement has to happen in an addressable regular
+# pane instead, which renders identically since fzf only cares about the pty
+# column count it's attached to, not whether tmux calls that pty a "popup"):
+#   * ``display-popup -w N`` grants the ``-E`` command's own pty exactly
+#     ``N - 2`` columns (2-col border overhead, the SAME
+#     ``_ACCOUNTS_POPUP_BORDER_MARGIN`` the height math already uses — tmux's
+#     rounded popup frame costs one row/column on each side regardless of
+#     dimension) — confirmed via ``stty size`` inside a real popup at six
+#     requested widths (30/40/50/60/70/90), every one landing exactly 2 below
+#     the requested ``-w``.
+#   * Given that pty width, fzf's OWN box (``--header-border`` implies a full
+#     surrounding border, not just around the header) then reserves a FIXED
+#     7 columns of its own before truncating item text with a ``··`` ellipsis
+#     marker: 2 for its outer border + 3 leading (gutter/pointer/margin,
+#     ``--gutter=' ' --pointer=' '`` are each 1 col wide) + 2 trailing pad —
+#     confirmed via ``tmux capture-pane`` on a plain 60-col resized pane
+#     piping a known-length line through the EXACT production fzf command
+#     line: a 53-char line rendered whole (58-col interior - 5 = 53), a
+#     54-char line truncated to 51 chars + ``··`` every time.
+# Combining both: an outer ``display-popup -w`` of
+# ``max_line_width + _ACCOUNTS_POPUP_WIDTH_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN``
+# hands fzf a pty of EXACTLY the column count its longest line needs — no
+# truncation, no dead space to the right of the list.
+_ACCOUNTS_POPUP_WIDTH_FZF_MARGIN = 7
+# Same clamp rationale as `_ACCOUNTS_POPUP_HEIGHT_PCT_CAP`/`_HEIGHT_FLOOR`
+# (absolute `-w` doesn't self-clamp to the client size the way a percentage
+# does) — independent constants rather than reusing the height ones, since
+# the underlying client dimension (width vs height) and floor value differ.
+_ACCOUNTS_POPUP_WIDTH_PCT_CAP = 0.8
+_ACCOUNTS_POPUP_WIDTH_FLOOR = _ACCOUNTS_POPUP_BORDER_MARGIN + 1
+
+
+def _accounts_popup_max_line_width(body: str) -> int:
+    """Widest ANSI-stripped visual line in ``body``, or ``0`` for an empty body.
+
+    Pure and unit-testable (no tmux). Every line in ``body`` may carry
+    ``render._green``-wrapped ANSI colour escapes (see
+    :func:`render.render_accounts_popup`) — measuring ``len()`` directly would
+    count those escape bytes as visible columns and overshoot the real
+    on-screen width, so each line is run through :func:`render.strip_ansi`
+    first (design.md § Decision 5, extended from height to width, 2026-07-14).
+    """
+    if not body:
+        return 0
+    return max((len(render.strip_ansi(line)) for line in body.splitlines()), default=0)
+
 
 def _self_shim_path() -> str:
     """Absolute path to the `bin/cc-tmux` shim, for re-invoking ``$CMD`` from
@@ -1507,22 +1564,29 @@ def _self_shim_path() -> str:
 
 
 def cmd_accounts_popup_launch(args) -> int:
-    """Open the account-switcher popup, sizing `display-popup`'s OWN `-h` to
-    the real content (cc-tmux-status-bar-popup-polish task 3.4 follow-up,
-    2026-07-14, beads if-s1yu).
+    """Open the account-switcher popup, sizing `display-popup`'s OWN `-h`
+    AND `-w` to the real content (cc-tmux-status-bar-popup-polish task 3.4
+    follow-up, 2026-07-14, beads if-s1yu).
 
     The prior fix (98ea328) correctly sized fzf's OWN box inside the popup
     pane via a `wc -l`-based `--height` on the fzf invocation embedded in
     `cc-tmux.tmux`, but left the SURROUNDING `display-popup` pane at a fixed
     `-h 80%` — much taller than the now-correctly-sized fzf box, leaving a
     large dead blank region below the account list (confirmed live by Leo on
-    a real attached client).
+    a real attached client). A same-day second follow-up fixed that `-h`
+    (this function's `height` computation, below); it left `-w` unset
+    entirely, so the popup still stretched to tmux's own default width while
+    the actual content only needed 45-55-ish columns (Leo, live: "Better
+    height, width could be shrunk."). `width` (below) is that fix's
+    width-analog, same margin-measurement discipline, extended per
+    design.md § Decision 5.
 
-    This subcommand is the fix: it computes the real content line count
-    in-process (via :func:`_accounts_popup_body`, no subprocess needed for
-    this half — an improvement on the existing bash `wc -l` double-invoke
-    tradeoff, not a rejection of it) and calls `display-popup` itself with a
-    dynamic `-h`, mirroring `conductor.py`'s `_popup()` — a subcommand
+    This subcommand is the fix: it computes the real content line count AND
+    longest visual line width in-process (via :func:`_accounts_popup_body` /
+    :func:`_accounts_popup_max_line_width`, no subprocess needed for this
+    half — an improvement on the existing bash `wc -l` double-invoke
+    tradeoff, not a rejection of it) and calls `display-popup` itself with
+    dynamic `-h`/`-w`, mirroring `conductor.py`'s `_popup()` — a subcommand
     invoking `display-popup` directly is an established precedent in this
     codebase, not a new pattern introduced here.
 
@@ -1551,7 +1615,7 @@ def cmd_accounts_popup_launch(args) -> int:
 
     Deliberately does NOT go through :func:`tmux._run_tmux` for the final
     `display-popup` launch (unlike every other tmux call in this module,
-    including the `#{client_height}` query above). Confirmed live: `tmux
+    including the `#{client_height}`/`#{client_width}` queries above). Confirmed live: `tmux
     display-popup -E <interactive fzf pipeline>`, run as a subprocess whose
     OWN stdin/stdout are not a real tty (exactly the shape `run-shell` gives
     a job — no controlling terminal of its own), does not exit on its own;
@@ -1580,7 +1644,9 @@ def cmd_accounts_popup_launch(args) -> int:
     self_cmd = _self_shim_path()
     body = _accounts_popup_body()
     content_lines = body.count("\n") + 1 if body else 0
-    wanted = content_lines + _ACCOUNTS_POPUP_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN
+    wanted_height = content_lines + _ACCOUNTS_POPUP_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN
+    max_line_width = _accounts_popup_max_line_width(body)
+    wanted_width = max_line_width + _ACCOUNTS_POPUP_WIDTH_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN
 
     client_height_raw = tmux._run_tmux(["display-message", "-p", "#{client_height}"])
     try:
@@ -1589,10 +1655,22 @@ def cmd_accounts_popup_launch(args) -> int:
         client_height = None
     if client_height:
         cap = max(int(client_height * _ACCOUNTS_POPUP_HEIGHT_PCT_CAP), _ACCOUNTS_POPUP_HEIGHT_FLOOR)
-        height = min(wanted, cap)
+        height = min(wanted_height, cap)
     else:
-        height = wanted
+        height = wanted_height
     height = max(height, _ACCOUNTS_POPUP_HEIGHT_FLOOR)
+
+    client_width_raw = tmux._run_tmux(["display-message", "-p", "#{client_width}"])
+    try:
+        client_width = int(client_width_raw) if client_width_raw else None
+    except ValueError:
+        client_width = None
+    if client_width:
+        width_cap = max(int(client_width * _ACCOUNTS_POPUP_WIDTH_PCT_CAP), _ACCOUNTS_POPUP_WIDTH_FLOOR)
+        width = min(wanted_width, width_cap)
+    else:
+        width = wanted_width
+    width = max(width, _ACCOUNTS_POPUP_WIDTH_FLOOR)
 
     quoted_cmd = shlex.quote(self_cmd)
     inner = (
@@ -1608,7 +1686,7 @@ def cmd_accounts_popup_launch(args) -> int:
     )
     try:
         subprocess.Popen(
-            ["tmux", "display-popup", "-y", "S", "-x", "M", "-h", str(height), "-E", inner],
+            ["tmux", "display-popup", "-y", "S", "-x", "M", "-h", str(height), "-w", str(width), "-E", inner],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

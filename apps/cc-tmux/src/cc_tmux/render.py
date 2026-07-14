@@ -610,6 +610,27 @@ def render_session_bar(
 _ANSI_GREEN = "\x1b[38;2;0;172;58m"
 _ANSI_RESET = "\x1b[0m"
 
+# SGR-only escape matcher (colour codes, always ``\x1b[...m`` — every escape
+# this module emits, see ``_green``/``_hex_to_ansi_fg`` above, ends in ``m``).
+# Shared with :mod:`cc_tmux.testing` (``_strip_ansi``, test-content assertions)
+# and :mod:`cc_tmux.cli` (``cmd_accounts_popup_launch``'s width sizing,
+# cc-tmux-status-bar-popup-polish task 3.4 follow-up, 2026-07-14) — both need
+# the exact same "how wide does this ANSI-decorated line actually look"
+# answer, so this lives once here rather than as two independently-maintained
+# regexes drifting apart.
+_ANSI_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI SGR (colour) escapes, leaving only what prints visually.
+
+    ``len()`` on a string containing ``\\x1b[38;2;0;172;58m`` counts every byte
+    of the escape sequence even though it renders as zero columns — any code
+    measuring on-screen width (line length for alignment, popup sizing) MUST
+    operate on this stripped form instead of the raw ANSI-decorated string.
+    """
+    return _ANSI_SGR_RE.sub("", text)
+
 
 def _green(text: str) -> str:
     """Wrap ``text`` in the popup's ANSI truecolor green + reset."""
