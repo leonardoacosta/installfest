@@ -13,7 +13,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `IDLE_METER_SCALE_TOKENS = 1_000_000`, the 17-glyph `IDLE_METER_RAMP` tuple exactly as listed in `design.md` § The 17-state ramp (`░ ⡀ ⣀ ⣄ ⣤ ⣦ ⣶ ⣷ ⣿ ⢿ ⠿ ⠻ ⠛ ⠙ ⠉ ⠈ ▓`), and `_idle_meter_index(ratio: float) -> int` returning `round(max(0.0, min(1.0, ratio)) * 16)`. Cite the design.md section in a comment rather than re-deriving the table inline. [owner:general-purpose] [type:api] [beads:if-i8eq]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `IDLE_METER_SCALE_TOKENS = 1_000_000`, the 17-glyph `IDLE_METER_RAMP` tuple exactly as listed in `design.md` § The 17-state ramp (`░ ⡀ ⣀ ⣄ ⣤ ⣦ ⣶ ⣷ ⣿ ⢿ ⠿ ⠻ ⠛ ⠙ ⠉ ⠈ ▓`), and `_idle_meter_index(ratio: float) -> int` returning `round(max(0.0, min(1.0, ratio)) * 16)`. Cite the design.md section in a comment rather than re-deriving the table inline. [owner:general-purpose] [type:api] [beads:if-i8eq]
 
 ## API Batch
 
