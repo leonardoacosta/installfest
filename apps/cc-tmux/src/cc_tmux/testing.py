@@ -664,6 +664,116 @@ def _test_render_idle_meter_color_matches_resolve_context_color() -> None:
             )
 
 
+def _test_render_resolve_tab_glyph_precedence() -> None:
+    """resolve_tab_glyph precedence (task 4.2): waiting, active, fg=1 (foreground
+    sub-agent), and bg=2 (background sub-agent) ALL return
+    ``(resolve_tab_icon(state, now, fg_count, bg_count), "")`` byte-identical to
+    calling resolve_tab_icon directly with an empty colour — the meter is never
+    reached in those cases. ONLY the plain-idle case (fg=0, bg=0, state=="idle")
+    routes to :func:`render.idle_usage_meter`."""
+    # waiting state, no subagents -> plain resolve_tab_icon passthrough.
+    icon = render.resolve_tab_icon("waiting", 0.0, 0, 0)
+    _check(
+        render.resolve_tab_glyph("waiting", 0.0, 0, 0) == (icon, ""),
+        "waiting: byte-identical to resolve_tab_icon, empty colour",
+    )
+
+    # active state, no subagents -> plain resolve_tab_icon passthrough.
+    icon = render.resolve_tab_icon("active", 2.0, 0, 0)
+    _check(
+        render.resolve_tab_glyph("active", 2.0, 0, 0) == (icon, ""),
+        "active: byte-identical to resolve_tab_icon, empty colour",
+    )
+
+    # fg=1 (foreground sub-agent), even with state=="idle" -> subagent overlay
+    # wins, never the meter.
+    icon = render.resolve_tab_icon("idle", 0.0, 1, 0)
+    _check(icon == render.SUBAGENT_FG_1, "sanity: fg=1 -> hollow ring")
+    _check(
+        render.resolve_tab_glyph("idle", 0.0, 1, 0) == (icon, ""),
+        "fg=1: byte-identical to resolve_tab_icon, empty colour, not the meter",
+    )
+
+    # bg=2 (background sub-agents), fg=0, state=="idle" -> subagent overlay
+    # wins, never the meter.
+    icon = render.resolve_tab_icon("idle", 0.0, 0, 2)
+    _check(icon == render.SUBAGENT_BG_2PLUS, "sanity: fg=0,bg=2 -> filled diamond")
+    _check(
+        render.resolve_tab_glyph("idle", 0.0, 0, 2) == (icon, ""),
+        "bg=2: byte-identical to resolve_tab_icon, empty colour, not the meter",
+    )
+
+    # ONLY fg=0, bg=0, state=="idle" routes to the meter: with raw_tokens set,
+    # the result diverges from resolve_tab_icon's static glyph and matches
+    # idle_usage_meter directly.
+    plain_icon = render.resolve_tab_icon("idle", 0.0, 0, 0)
+    _check(plain_icon == render.IDLE_GLYPH, "sanity: fg=0,bg=0,idle -> static IDLE_GLYPH via resolve_tab_icon")
+    meter_result = render.resolve_tab_glyph("idle", 0.0, 0, 0, raw_tokens=500_000)
+    _check(
+        meter_result == render.idle_usage_meter(500_000, 0.0),
+        "plain idle + raw_tokens: routes to idle_usage_meter, not resolve_tab_icon",
+    )
+    _check(meter_result[0] != plain_icon, "plain idle + raw_tokens: meter glyph differs from resolve_tab_icon's static glyph")
+    _check(meter_result[1] != "", "plain idle + raw_tokens: non-empty meter colour")
+
+
+def _test_render_render_tabs_row_idle_meter_wiring() -> None:
+    """render_tabs_row wiring (task 4.2): a plain-idle window with raw_tokens set
+    renders the idle-usage-meter ramp glyph wrapped in its own #[fg=...] colour,
+    with the segment's own label colour (CYAN-bold active / DIM inactive)
+    restored immediately after — #[range=window|...] markup unchanged. The same
+    window WITHOUT raw_tokens (None, or the attribute absent entirely) renders
+    byte-identical to today's static-icon segment: no #[fg=] wrap around the
+    icon at all."""
+    idle_window = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    idle_window.raw_tokens = 500_000  # type: ignore[attr-defined]  # 500K/1M -> ratio 0.5 -> ramp idx 8
+
+    expected_glyph, expected_color = render.idle_usage_meter(500_000, 0.0)
+    _check(expected_glyph == "⣿", f"sanity: 500K/1M ratio 0.5 -> index 8 -> '⣿', got {expected_glyph!r}")
+    _check(expected_color != "", "sanity: meter colour non-empty at 500K tokens")
+
+    # Inactive window (DIM label colour): glyph wrapped in meter colour, DIM
+    # restored immediately after for the trailing name.
+    out = render.render_tabs_row([idle_window], "@2", now=0.0)
+    _check(
+        out == (
+            f"#[fg={render.DIM}]#[range=window|1] "
+            f"1 #[fg={expected_color}]{expected_glyph}#[fg={render.DIM}] work "
+            f"#[norange]#[default]"
+        ),
+        f"inactive idle window w/ raw_tokens: meter glyph + colour, DIM restored, range markup intact: {out!r}",
+    )
+
+    # Active window (CYAN-bold label colour): same wiring, CYAN-bold restored
+    # instead of DIM.
+    active_colour = f"{render.CYAN},bold"
+    out_active = render.render_tabs_row([idle_window], "@1", now=0.0)
+    _check(
+        out_active == (
+            f"#[fg={active_colour}]#[range=window|1] "
+            f"1 #[fg={expected_color}]{expected_glyph}#[fg={active_colour}] work "
+            f"#[norange]#[default]"
+        ),
+        f"active idle window w/ raw_tokens: meter glyph + colour, CYAN-bold restored, range markup intact: {out_active!r}",
+    )
+
+    # Same window with raw_tokens explicitly None -> byte-identical to the
+    # prior plain-icon rendering (no colour wrap around the icon at all).
+    static_expected = f"#[fg={render.DIM}]#[range=window|1] 1 {render.IDLE_GLYPH} work #[norange]#[default]"
+    idle_window_none = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    idle_window_none.raw_tokens = None  # type: ignore[attr-defined]
+    out_none = render.render_tabs_row([idle_window_none], "@2", now=0.0)
+    _check(out_none == static_expected, f"idle window, raw_tokens=None: byte-identical to static glyph, no wrap: {out_none!r}")
+    _check(f"#[fg={expected_color}]" not in out_none, "raw_tokens=None: meter colour never appears")
+
+    # Same window with the raw_tokens attribute absent entirely (getattr
+    # default) -> identical to the explicit-None case — the real shape
+    # cli._build_tabs_row emits for a window it never resolved tokens for.
+    idle_window_no_attr = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    out_no_attr = render.render_tabs_row([idle_window_no_attr], "@2", now=0.0)
+    _check(out_no_attr == static_expected, "getattr default (no raw_tokens attribute) matches explicit raw_tokens=None")
+
+
 def _test_tmux_get_window_top_state() -> None:
     saved = tmux._run_tmux
     try:
@@ -3304,6 +3414,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.idle_meter_index0_flash", _test_render_idle_meter_index0_flash),
     ("render.idle_meter_none_fallback", _test_render_idle_meter_none_fallback),
     ("render.idle_meter_color_matches_resolve_context_color", _test_render_idle_meter_color_matches_resolve_context_color),
+    ("render.resolve_tab_glyph_precedence", _test_render_resolve_tab_glyph_precedence),
+    ("render.tabs_row_idle_meter_wiring", _test_render_render_tabs_row_idle_meter_wiring),
     ("tmux.get_window_top_state", _test_tmux_get_window_top_state),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
