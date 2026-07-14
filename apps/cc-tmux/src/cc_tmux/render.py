@@ -419,6 +419,54 @@ def _apply_metric_dots(
         remaining -= take
 
 
+def render_usage_glyph(
+    ses_ratio: Optional[float],
+    h5_ratio: Optional[float],
+    d7_ratio: Optional[float],
+    n: int = 10,
+) -> str:
+    """Combined 3-metric braille usage glyph: SES (rows 1-2), 5H (row 3), 7D
+    (row 4), all sharing one ``n``-cell run (design.md § Encoding — shared
+    overlay, not segmented lanes).
+
+    Worked example validated live during ``/openspec:explore``:
+    ``render_usage_glyph(0.30, 0.88, 0.35, n=8) == "⣿⣿⣧⠤⠤⠤⠤⠀"``
+    (``⣿⣿⣧⠤⠤⠤⠤⠀``) — SES=30% fills rows 1-2 to ~31%, 5H=88% fills row 3 to
+    87.5%, 7D=35% fills row 4 to 37.5%.
+
+    Per-metric degrade (design.md § Staleness): each ratio is independently
+    ``None``-able. A ``None`` ratio contributes zero dots to its own row(s)
+    only — the other metrics' rows render normally, unaffected. All three
+    ``None`` -> fully blank glyph (every cell ``chr(_BRAILLE_BASE)``, i.e.
+    U+2800).
+    """
+    cells = [0] * n
+    _apply_metric_dots(cells, ses_ratio, _SES_BITS, n)
+    _apply_metric_dots(cells, h5_ratio, _H5_BITS, n)
+    _apply_metric_dots(cells, d7_ratio, _D7_BITS, n)
+    return "".join(chr(_BRAILLE_BASE + c) for c in cells)
+
+
+def render_usage_glyph_2metric(
+    h5_ratio: Optional[float],
+    d7_ratio: Optional[float],
+    n: int = 20,
+) -> str:
+    """Combined 2-metric braille usage glyph: 5H (rows 1-2), 7D (rows 3-4),
+    each getting the full 4-dot-per-cell budget (design.md § Non-active popup
+    rows). Used exclusively by :func:`render_accounts_popup`'s non-active
+    account rows, which never have an SES value to show (SES is
+    session-scoped, not account-scoped).
+
+    Per-metric degrade applies the same as :func:`render_usage_glyph`: a
+    ``None`` ratio contributes zero dots to its own row(s) only.
+    """
+    cells = [0] * n
+    _apply_metric_dots(cells, h5_ratio, _H5_BITS_WIDE, n)
+    _apply_metric_dots(cells, d7_ratio, _D7_BITS_WIDE, n)
+    return "".join(chr(_BRAILLE_BASE + c) for c in cells)
+
+
 # ---------------------------------------------------------------------------
 # Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars,
 # corrected post cc-tmux-bar-cleanup)

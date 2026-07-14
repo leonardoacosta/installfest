@@ -33,7 +33,7 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `render_usage_glyph(ses_ratio: [beads:if-22w6]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `render_usage_glyph(ses_ratio: [beads:if-22w6]
   Optional[float], h5_ratio: Optional[float], d7_ratio: Optional[float], n: int = 10) -> str` —
   builds an `n`-length `cells` list, calls `_apply_metric_dots` for SES (`_SES_BITS`), 5H
   (`_H5_BITS`), 7D (`_D7_BITS`) in that order (order doesn't matter for correctness since each
@@ -41,7 +41,7 @@
   `"".join(chr(_BRAILLE_BASE + c) for c in cells)`. Docstring cites the validated mockup example
   (SES=0.30/5H=0.88/7D=0.35 at n=8 -> `⣿⣿⣧⠤⠤⠤⠤⠀`) as a worked example, and states the
   per-metric-degrade contract for `None` inputs. [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: add `render_usage_glyph_2metric(h5_ratio: [beads:if-jpwo]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: add `render_usage_glyph_2metric(h5_ratio: [beads:if-jpwo]
   Optional[float], d7_ratio: Optional[float], n: int = 20) -> str` — same shape as 2.1 but calls
   `_apply_metric_dots` for 5H (`_H5_BITS_WIDE`) and 7D (`_D7_BITS_WIDE`) only, giving each metric
   the full 4-dot-per-cell budget. Used exclusively by the popup's non-active account rows (per
