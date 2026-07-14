@@ -1309,9 +1309,10 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
       unified ``@cc-git-status`` JSON blob and this per-field dual-source
       resolution.
 
-    Usage (account label + 5H / 7D) comes from :func:`_active_usage`. Left side
-    is model/project/git identity; right side is the account label +
-    SES:/5H:/7D: gauges.
+    5H / 7D usage comes from :func:`_active_usage` (the account-label half of
+    that tuple no longer feeds this row — it moved to row 3, see
+    :func:`_build_beads_bar`). Left side is model/project/git identity; right
+    side is the SES:/5H:/7D: gauges plus the combined usage glyph.
     Fail-open: any missing piece degrades to a partial render; no pane -> ``""``.
     """
     if pane is None:
@@ -1342,10 +1343,14 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # consumes the six-field GitStatusCounts directly — the old `dirty` tuple
     # / `ahead` int params are gone from its signature. `raw_tokens` drives
     # the context-bar's colour tier (cc-tmux-context-bar); `now` defaults to
-    # time.time() inside render_session_bar when omitted.
+    # time.time() inside render_session_bar when omitted. `account_label`
+    # is still computed above (5H/7D from the same call still feed this
+    # row's own gauge) but no longer passes through to render_session_bar —
+    # the account-identity segment moved off row 2 to row 3
+    # (render_beads_bar, task 2.2/2.3).
     return render.render_session_bar(
         model_letter, project, branch,
-        account_label, ses_pct, five_h_pct, seven_d_pct,
+        ses_pct, five_h_pct, seven_d_pct,
         git_status=git_status,
         raw_tokens=ses_tokens,
     )
@@ -1390,18 +1395,6 @@ def cmd_accounts_popup(args) -> int:
     :func:`render.render_accounts_popup`'s per-account "Resets at/on ... in
     ..." lines (Leo's ask, 2026-07-13).
 
-    SES (a property of the currently-focused pane, not any credential row —
-    see proposal's "SES is not an account-level metric") is resolved via
-    :func:`_resolve_session_pane` + :func:`_resolve_ses_pct`/
-    :func:`_resolve_ses_tokens` off the current window
-    (:func:`tmux.current_window_id`) — the SAME nx-agent path
-    :func:`_build_session_bar` (row 2) uses. Fixed if-hrbd (2026-07-13): this
-    used to read the legacy per-pane ``session-context.<pane>.json`` file via
-    :func:`_read_session_context`, left behind when
-    cc-tmux-adopt-nx-context-and-git-status migrated row 2 off that file but
-    scoped this handler out — confirmed live that the legacy file no longer
-    exists on disk at all, so this popup's SES was unconditionally blank.
-
     Prints :func:`render.render_accounts_popup`'s plain-text body, or nothing
     on any failure (fail-open, matches this module's universal contract).
     Data/render only — no ``tmux display-popup`` call lives here; the
@@ -1435,15 +1428,7 @@ def cmd_accounts_popup(args) -> int:
             org_short,
         ))
 
-    window = tmux.current_window_id()
-    pane = _resolve_session_pane(window) if window else ""
-    active_ses_pct = _resolve_ses_pct(pane) if pane else None
-    active_raw_tokens = _resolve_ses_tokens(pane) if pane else None
-
-    out = render.render_accounts_popup(
-        accounts, active_label, active_ses_pct, now=time.time(),
-        active_raw_tokens=active_raw_tokens,
-    )
+    out = render.render_accounts_popup(accounts, active_label, now=time.time())
     if out:
         print(out)
     return 0
@@ -1531,7 +1516,14 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     hands the parsed counts plus age to :func:`render.render_beads_bar` — both
     halves currently share the single cache file's mtime as their age, since
     there is only one cache file today (forward-compatible with a future
-    per-half cache split, task 2.3). Fail-open: nothing pending -> ``""``.
+    per-half cache split, task 2.3). Also resolves the active account's
+    identity label via the same cached :func:`_active_usage` call
+    :func:`_build_session_bar` already makes (45s TTL, shared on-disk cache
+    file — calling it again in the same render tick is a cache hit, not a new
+    fetch) and passes it through as ``account_label``, the third independent
+    segment :func:`render.render_beads_bar` now renders (task 2.3) — the 5H/7D
+    values from that call are unused here, row 3 needs only the label.
+    Fail-open: nothing pending -> ``""``.
     """
     if pane is None:
         pane = _beads_pane(window)
@@ -1539,9 +1531,11 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
         return ""
     content, age_sec = _read_roadmap_pulse(pane)
     openspec_open, openspec_unarchived, beads_ready, beads_blocked = _parse_roadmap_pulse_counts(content)
+    account_label, _five_h_pct, _seven_d_pct = _active_usage()
     return render.render_beads_bar(
         openspec_open, openspec_unarchived, beads_ready, beads_blocked,
         openspec_age_sec=age_sec, beads_age_sec=age_sec,
+        account_label=account_label,
     )
 
 

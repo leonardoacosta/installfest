@@ -59,7 +59,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/cli.py`: in `cmd_accounts_popup`, remove the now-dead [beads:if-l6xg]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/cli.py`: in `cmd_accounts_popup`, remove the now-dead [beads:if-l6xg]
   window/pane/SES resolution block (`window = tmux.current_window_id()`, `pane =
   _resolve_session_pane(window) if window else ""`, `active_ses_pct =
   _resolve_ses_pct(pane) if pane else None`, `active_raw_tokens = _resolve_ses_tokens(pane) if
@@ -67,12 +67,12 @@
   call (`active_ses_pct`, `active_raw_tokens`). Update the function's docstring to remove the
   "SES ... is resolved via `_resolve_session_pane` + ..." paragraph — the popup no longer touches
   any per-session state at all. [owner:general-purpose] [type:ui]
-- [ ] [3.2] `apps/cc-tmux/src/cc_tmux/cli.py`: in `render_session_bar`'s call site inside [beads:if-rrfx]
+- [x] [3.2] `apps/cc-tmux/src/cc_tmux/cli.py`: in `render_session_bar`'s call site inside [beads:if-rrfx]
   `_build_session_bar`, drop the now-removed `account_label` positional argument (task 2.2 removed
   it from the function signature) — `_build_session_bar` still computes `account_label,
   five_h_pct, seven_d_pct = _active_usage()` (5H/7D still needed for row 2's own gauge), it just
   stops passing `account_label` through to `render_session_bar`. [owner:general-purpose] [type:ui]
-- [ ] [3.3] `apps/cc-tmux/src/cc_tmux/cli.py`: in `_build_beads_bar`, call the existing cached [beads:if-wa9q]
+- [x] [3.3] `apps/cc-tmux/src/cc_tmux/cli.py`: in `_build_beads_bar`, call the existing cached [beads:if-wa9q]
   `_active_usage()` (same function/cache `_build_session_bar` already calls — 45s TTL, shared
   on-disk cache file, so calling it a second time in the same render tick is a cache hit, not a
   new network fetch) to get `account_label` (5H/7D from this call are unused here — row 3 needs
