@@ -597,6 +597,73 @@ def _test_render_animated_icon() -> None:
     _check(render.animated_icon("bogus-state", 0.0) == "", "unknown state -> ''")
 
 
+# ---------------------------------------------------------------------------
+# render.py idle-tab usage meter tests (cc-tmux-idle-tab-usage-meter)
+# ---------------------------------------------------------------------------
+
+def _test_render_idle_meter_ramp_sweep() -> None:
+    scale = render.IDLE_METER_SCALE_TOKENS
+    cases = [
+        (0.0625, "⡀"),
+        (0.5, "⣿"),
+        (0.75, "⠛"),
+        (0.9375, "⠈"),
+        (1.0, "▓"),
+        (1.5, "▓"),  # above 1.0 also clamps to the top glyph
+    ]
+    for ratio, expected_glyph in cases:
+        idx = render._idle_meter_index(ratio)
+        _check(
+            render.IDLE_METER_RAMP[idx] == expected_glyph,
+            f"ratio {ratio} -> idx {idx} -> {render.IDLE_METER_RAMP[idx]!r}, expected {expected_glyph!r}",
+        )
+        raw_tokens = ratio * scale
+        glyph, _color = render.idle_usage_meter(raw_tokens, now=0.0)
+        _check(
+            glyph == expected_glyph,
+            f"idle_usage_meter ratio={ratio} (raw_tokens={raw_tokens}) glyph {glyph!r}, expected {expected_glyph!r}",
+        )
+
+
+def _test_render_idle_meter_index0_flash() -> None:
+    # raw_tokens near-zero -> ratio ~0.001 -> idx 0.
+    raw_tokens = 1000
+    _check(render._idle_meter_index(raw_tokens / render.IDLE_METER_SCALE_TOKENS) == 0, "sanity: lands in index 0")
+    glyph_even, _ = render.idle_usage_meter(raw_tokens, now=0.0)  # int(0/1) % 2 == 0
+    glyph_odd, _ = render.idle_usage_meter(raw_tokens, now=1.0)  # int(1/1) % 2 == 1
+    _check(glyph_even == "⠀", f"even FRAME_PERIOD_SEC parity -> blank U+2800, got {glyph_even!r}")
+    _check(glyph_odd == render.IDLE_METER_RAMP[0] == "░", f"odd parity -> ramp[0] '░', got {glyph_odd!r}")
+
+
+def _test_render_idle_meter_none_fallback() -> None:
+    for now in (0.0, 1.0, 42.5):
+        glyph, color = render.idle_usage_meter(None, now)
+        _check(glyph == render.IDLE_GLYPH, f"None raw_tokens -> IDLE_GLYPH at now={now}, got {glyph!r}")
+        _check(color == "", f"None raw_tokens -> empty color at now={now}, got {color!r}")
+
+
+def _test_render_idle_meter_color_matches_resolve_context_color() -> None:
+    # One raw_tokens value per severity tier (design.md § Color + pulse),
+    # including the >750k pulse tier checked at BOTH FRAME_PERIOD_SEC parities.
+    tier_values = [
+        50_000,   # DIM (<=100k)
+        150_000,  # GREEN (>100k)
+        250_000,  # YELLOW (>200k)
+        400_000,  # ORANGE (>300k)
+        550_000,  # RED steady (>500k)
+        650_000,  # RED<->BRIGHT_RED pulse (>600k)
+        800_000,  # DARK_RED<->RED pulse (>750k)
+    ]
+    for raw_tokens in tier_values:
+        for now in (0.0, 1.0):
+            _, color = render.idle_usage_meter(raw_tokens, now)
+            expected = render.resolve_context_color(raw_tokens, now)
+            _check(
+                color == expected,
+                f"raw_tokens={raw_tokens} now={now}: idle meter color {color!r} != resolve_context_color {expected!r}",
+            )
+
+
 def _test_tmux_get_window_top_state() -> None:
     saved = tmux._run_tmux
     try:
@@ -3233,6 +3300,10 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.render_status", _test_render_status),
     ("render.resolve_icons", _test_render_resolve_icons),
     ("render.animated_icon", _test_render_animated_icon),
+    ("render.idle_meter_ramp_sweep", _test_render_idle_meter_ramp_sweep),
+    ("render.idle_meter_index0_flash", _test_render_idle_meter_index0_flash),
+    ("render.idle_meter_none_fallback", _test_render_idle_meter_none_fallback),
+    ("render.idle_meter_color_matches_resolve_context_color", _test_render_idle_meter_color_matches_resolve_context_color),
     ("tmux.get_window_top_state", _test_tmux_get_window_top_state),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
