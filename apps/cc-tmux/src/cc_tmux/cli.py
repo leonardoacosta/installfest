@@ -1450,14 +1450,29 @@ def cmd_accounts_popup(args) -> int:
 
 
 def _beads_pane(window_target: str) -> str:
-    """The pane whose cwd drives row 3: top tracked pane, else the active pane.
+    """The pane whose cwd drives row 3: tmux-active pane first, else the top
+    tracked pane, else the plain active pane regardless of tracking.
 
-    Prefers :func:`tmux.get_window_top_pane` (the same representative-pane
-    choice row 2 uses) but falls back to the window's plain active pane when
-    no ``@cc-state`` pane exists — row 3 needs only a cwd, so it must not
-    depend on hook liveness (plan 006 / BEADS-03). ``""`` when tmux is
-    unavailable or the window is empty.
+    Mirrors :func:`_resolve_session_pane` (row 2)'s tmux-active-pane-first
+    preference. cc-tmux-active-pane-resolution originally fixed row 2 only
+    and left this function on the OLD priority-pick-first order — so a
+    window with two-or-more TRACKED panes (e.g. two Claude panes sharing one
+    tmux window) could silently read a DIFFERENT pane's project than the one
+    actually focused, surfacing a different (and possibly stale) project's
+    roadmap-pulse cache. Found 2026-07-13 auditing why row 3 rendered
+    nothing for a window whose actually-focused pane's own cache was fresh
+    and valid — `get_window_top_pane`'s priority pick (waiting > idle >
+    active, tie-broken by iteration order, never tmux's own focus) had
+    picked the OTHER tracked pane instead.
+
+    Still falls back to the window's plain active pane (regardless of
+    ``@cc-state`` tracking) when NO pane in the window is tracked at all —
+    row 3 needs only a cwd, so it must not depend on hook liveness (plan
+    006 / BEADS-03). ``""`` when tmux is unavailable or the window is empty.
     """
+    active = tmux.get_window_active_pane(window_target)
+    if active and tmux.get_pane_option(active, tmux.OPT_STATE) in VALID_STATES:
+        return active
     return tmux.get_window_top_pane(window_target) or tmux.get_window_active_pane(window_target)
 
 

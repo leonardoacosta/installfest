@@ -1966,6 +1966,32 @@ def _test_cli_beads_pane_fallback() -> None:
         tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
 
 
+def _test_cli_beads_pane_active_tracked_preferred() -> None:
+    """Row 3 pane resolution mirrors row 2's tmux-active-pane-first
+    preference (found + fixed 2026-07-13): a window with TWO tracked panes
+    must use the tmux-ACTIVE one, not `get_window_top_pane`'s priority pick
+    — the exact bug this regression test locks in had row 3 silently
+    reading a different (and stale) pane's project on a multi-tracked-pane
+    window, even though :func:`cli._resolve_session_pane` (row 2) had
+    already been fixed for this same class of bug.
+    """
+    saved_active = tmux.get_window_active_pane
+    saved_option = tmux.get_pane_option
+    saved_top = tmux.get_window_top_pane
+    try:
+        tmux.get_window_active_pane = lambda w: "%5"  # type: ignore[assignment]
+        tmux.get_pane_option = lambda pane, opt: "idle"  # type: ignore[assignment]
+        tmux.get_window_top_pane = lambda w: "%2"  # type: ignore[assignment]  # the OLD (wrong) winner
+        _check(
+            cli._beads_pane("@1") == "%5",
+            "tmux-active tracked pane must win over the priority-pick top pane",
+        )
+    finally:
+        tmux.get_window_active_pane = saved_active  # type: ignore[assignment]
+        tmux.get_pane_option = saved_option  # type: ignore[assignment]
+        tmux.get_window_top_pane = saved_top  # type: ignore[assignment]
+
+
 def _test_cli_resolve_session_pane_active_tracked() -> None:
     # Row 2 pane resolution (cc-tmux-active-pane-resolution): the window's
     # tmux-active pane wins outright when it is a tracked Claude pane (its
@@ -3059,6 +3085,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
     ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
+    ("cli.beads_pane_active_tracked_preferred", _test_cli_beads_pane_active_tracked_preferred),
     ("cli.resolve_session_pane_active_tracked", _test_cli_resolve_session_pane_active_tracked),
     ("cli.resolve_session_pane_active_untracked_fallback", _test_cli_resolve_session_pane_active_untracked_fallback),
     ("cli.resolve_session_pane_no_active_fallback", _test_cli_resolve_session_pane_no_active_fallback),
