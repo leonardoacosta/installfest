@@ -1,0 +1,139 @@
+[Unit]
+Description=Nexus Agent — per-machine daemon for Claude Code session tracking
+# Tailscale startup-race ordering. The agent's default bind path discovers the
+# Tailscale interface IP via `tailscale ip -4` and falls into loopback-only
+# "degraded mode" (127.0.0.1:7400 ONLY, no 100.x) if tailscaled isn't yet
+# registered when the probe fires. The Mac listener (Nexus.app SSE observer
+# over Tailscale) can then never connect -> zero notifications until a manual
+# `systemctl --user restart nexus-agent`. Confirmed on cold boot 2026-06-07.
+#
+# IMPORTANT: After=/Wants=tailscaled.service below is a SILENT NO-OP for this
+# unit. This is a systemd --user unit; tailscaled is a system-scope unit, and
+# a user-manager unit CANNOT order itself against a system-manager unit. The
+# ordering directive is simply ignored by the user manager — it does NOT make
+# us wait for tailscaled (the earlier nx-ir43a fix mistakenly believed it did).
+# The lines are kept because they are harmless and would become correct if this
+# unit were ever migrated to a system instance.
+#
+# The DURABLE fix is the ExecStartPre gate in [Service] below: it blocks the
+# agent start until `tailscale ip -4` succeeds (bounded to 60s), then always
+# exits 0 so a genuinely Tailscale-less machine (laptop on a flight) still
+# starts in degraded (loopback-only) mode rather than failing the unit. The
+# in-process retry-with-backoff loop (apps/agent/src/server.ts
+# discoverTailscaleIp) remains the residual-handshake backstop.
+# Spec: bd:nx-j7fmf (gate), bd:nx-ir43a (original in-process retry).
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+# Tailscale readiness gate (the durable fix for the cold-boot race — see the
+# [Unit] comment above and bd:nx-j7fmf). Block until `tailscale ip -4` resolves
+# an address, bounded to ~60s. ALWAYS exits 0: on a Tailscale-less machine we
+# still want the agent to come up (degraded/loopback-only) rather than fail the
+# unit. `command -v tailscale` guards against the binary being absent from the
+# unit's Environment=PATH (set below) — if tailscale isn't installed at all,
+# proceed immediately to degraded start.
+# NOTE: `$` is escaped as `$$` so systemd passes a literal `$` to bash rather
+# than attempting its own variable expansion (systemd strips unescaped `$i`).
+ExecStartPre=/usr/bin/env bash -c 'command -v tailscale >/dev/null 2>&1 || { echo "tailscale binary not found on PATH — starting in degraded (loopback-only) mode" >&2; exit 0; }; for i in $$(seq 1 60); do tailscale ip -4 >/dev/null 2>&1 && { echo "tailscale ip -4 ready after $${i}s — proceeding to dual-bind start" >&2; exit 0; }; sleep 1; done; echo "tailscale never registered in 60s — starting in degraded (loopback-only) mode" >&2; exit 0'
+# Accommodate the up-to-60s ExecStartPre wait plus agent boot. The systemd
+# default is 90s; set explicitly so the gate never trips a start timeout.
+TimeoutStartSec=120
+ExecStart=%h/.local/bin/nexus-agent
+# Restart always: systemd restarts the agent after any exit, including clean
+# shutdowns (status=0). RestartSec adds a 5-second backoff. StartLimitBurst
+# and StartLimitIntervalSec prevent infinite restart loops — if the agent
+# crashes 5 times within 60 seconds, systemd marks it as failed.
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+Environment=LOG_LEVEL=info
+# %h/.local/share/mise/shims is on PATH so the `openspec` CLI resolves under
+# systemd (nx-cblfj). handleGetSpec (routes/specs.ts) shells to `openspec show`
+# via runOpenspec; openspec is mise-managed and version-pinned
+# (~/.local/share/mise/installs/node/<ver>/bin/openspec), so only the stable,
+# version-independent shims dir reliably finds it. Interactive shells / bare
+# `bun run` resolve it via the full user PATH, which is why this only bites the
+# sandboxed agent — a deploy-env gap, not feature logic (same shape as the
+# dolt-sandbox ReadWritePaths grant above). The shims dir lives under
+# %h/.local, already covered by ReadWritePaths=%h/.local.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+
+# Notification env vars (absorbed from retired claude-daemon)
+# Load from ~/.env for machine-local secrets (ELEVENLABS_API_KEY, APNS_*, etc.)
+EnvironmentFile=-%h/.env
+
+# Security hardening (matching claude-daemon)
+NoNewPrivileges=true
+# PrivateTmp disabled — nexus-agent exposes sockets in /tmp/ that CC hooks must access
+PrivateTmp=false
+ProtectSystem=strict
+
+# CAP_SYS_PTRACE — INERT under the current user-instance deployment (nx-9jz0v).
+#
+# The earlier session-attach-and-cwd-cap spec wired this in to grant readlink
+# access to /proc/<pid>/cwd for non-descendant `claude` processes under
+# kernel.yama.ptrace_scope=1. In practice, user-instance systemd holds
+# CapEff=0x800000000 (cap_audit_write only); it CANNOT delegate a capability
+# it does not itself hold. The agent's process status shows CapAmb=0x80000
+# but ptrace_may_access() still returns EACCES because the granting authority
+# (user systemd) never had the cap. /proc/PID/environ has the same restriction.
+#
+# Consequence: the watcher no longer attempts /proc readlinks. cwd is
+# populated exclusively from the CC `session_start` hook payload, which the
+# socket-server already routes through services/process-hook-event.ts. See
+# `apps/agent/src/services/process-watcher.ts` header for the runtime contract.
+#
+# This line is left in place because it is harmless (the kernel silently
+# drops the cap rather than rejecting unit activation) and a future
+# migration to a system-instance unit would re-light it without further
+# changes.
+#
+# See spec: openspec/changes/session-attach-and-cwd-cap/specs/systemd-service/spec.md.
+AmbientCapabilities=CAP_SYS_PTRACE
+# ProtectHome=read-only replaced with ReadOnlyPaths=/home:
+# ProtectHome uses a mount-namespace bind that breaks readlinkSync('/proc/<pid>/cwd')
+# resolution when the target lives under /home (process-watcher cwd enrichment fails
+# for all CC sessions running in ~/dev/*). ReadOnlyPaths=/home enforces the same
+# read-only invariant on /home without the namespace bind, so /proc cwd readlinks
+# resolve correctly. ReadWritePaths below take precedence for the agent's own
+# state dirs.
+ReadOnlyPaths=/home
+ReadWritePaths=%h/.claude
+ReadWritePaths=%h/.config/nexus
+ReadWritePaths=%h/.local
+ReadWritePaths=/tmp
+# %h/dev is WRITABLE — required for dolt-backed beads (nx-cblfj).
+#
+# The specs/roadmap/rollup surfaces run `bd list`/`bd ready`/`bd show` against
+# every registered project under ~/dev. For a DOLT-backed project (nx, oo, ap,
+# ...) the beads store is an embedded Dolt database at
+# `<project>/.beads/embeddeddolt/`, and Dolt takes an on-disk lock file
+# (`.beads/embeddeddolt/.lock`) even for read-only queries. Under
+# `ReadOnlyPaths=/home` that open() fails with EROFS ("read-only file system"),
+# so `bd` exits 1, `computeBeadRollup` catches it and returns null, and every
+# dolt-backed project shows `beadRollup: null`. SQLite-backed projects (a
+# `.beads/beads.db`) read fine read-only, which is why cc/gd worked and nx/oo
+# did not. Granting write to ~/dev lets Dolt take its lock. The agent only
+# operates on projects under ~/dev (it already reads them all via bd/git/
+# openspec), so this is the minimal grant that restores the surface without
+# widening the sandbox beyond the tree the agent already works in.
+ReadWritePaths=%h/dev
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=1536M
+# MemoryHigh soft ceiling below the MemoryMax hard ceiling (nx-veo5g.3). At
+# MemoryMax the kernel gives no soft landing: an allocation failure inside a
+# spawned child (pthread_create) or Bun's threadpool triggers a native abort()
+# -> SIGABRT that no JS handler can catch (2026-07-13 14:47 coredump: 1.5G mem
+# peak + 1.5G swap peak at the hard ceiling). MemoryHigh throttles/reclaims the
+# cgroup before the hard ceiling so future memory pressure degrades to slowness
+# instead of a native abort.
+MemoryHigh=1.2G
+TasksMax=1024
+
+[Install]
+WantedBy=default.target
