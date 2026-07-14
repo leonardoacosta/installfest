@@ -122,14 +122,23 @@
   present -> unchanged two-segment behavior (regression guard for today's existing contract);
   (d) all three absent -> `""` (unchanged empty-row contract). Run `cc-tmux self-test` and paste
   the passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.5] Live verification, real popup height fix: with the real `/credentials` payload on [beads:if-1ctd]
+- [x] [4.5] Live verification, real popup height fix: with the real `/credentials` payload on [beads:if-1ctd]
   this machine (currently 2-3 deduped accounts per the last `/openspec:explore` session), open
   the actual accounts popup via its tmux keybinding/click and confirm every account's full block
   (summary + identity + reset lines + separator) is visible with no truncation — this is the
   acceptance test for task 3.4, not a source-read confirmation. Paste the observed popup output
   (or a description of exactly what rendered, row by row, if a screenshot isn't captured inline).
   [owner:general-purpose] [type:testing]
-- [ ] [4.6] Live verification, full end-to-end render: with a real tracked pane in this repo, [beads:if-ao78]
+
+  DONE, verified live via 3 real popup triggers on Leo's attached tmux client (window 0:8, then
+  0:5, then 0:2 as panes rotated) against real `/credentials` data (3 deduped accounts): first
+  pass confirmed truncation gone but surfaced two follow-up gaps (fzf highlight/gutter making
+  rows look selectable, and the outer `display-popup` pane not shrinking to match fzf's own
+  content-sized box) — both fixed live (`98ea328`, `3433c6c`, `e2519f8`, the last two adding a
+  new `cc-tmux accounts-popup-launch` subcommand that computes height AND width from real
+  content). Final live confirmation from Leo: "perfect" — box now fits height and width to the
+  actual 3-account content with zero truncation, zero dead space, and no fake selectability.
+- [x] [4.6] Live verification, full end-to-end render: with a real tracked pane in this repo, [beads:if-ao78]
   confirm row 2's actual on-screen render shows the new composition
   (`85.0K 5H:50% 7D:9% [glyph]`, no account label anywhere on that row) and row 3 shows the
   account identity segment (`email·orgid8char`) alongside whatever openspec/beads counts are
@@ -137,3 +146,13 @@
   correctly (range marker successfully relocated) and shows global-usage-only data (no `--`
   SES artifact anywhere in the popup). Run `cc-tmux self-test` one final time and paste the
   full passing stdout (0 failures). [owner:general-purpose] [type:testing]
+
+  DONE. Live output captured directly (worktree binary against real tmux/nx-agent state, cache
+  cleared first to avoid a stale-TTL read): row 2 (`bin/cc-tmux session-bar 0:8`) ->
+  `#[fg=#454D54]mesh #[fg=#454D54]> #[fg=#B267E6]main#[default]#[align=right]#[fg=#454D54]--:#[default] #[fg=#454D54]5H:#[fg=#FAC760]64%#[default] #[fg=#454D54]7D:#[fg=#5BD1B9]32%#[default]⣤⣤⣤⠤⠤⠤⠄⠀⠀⠀`
+  — no account label anywhere, glyph strictly after `7D:`. Row 3
+  (`bin/cc-tmux beads-bar 0:8`) -> `openspec: 1 open 0 unarchived | beads: 19 ready 0 blocked | leo@priceless.dev·bc7da511`
+  — three segments, account identity last, correct 8-char org suffix, wrapped in the
+  `#[range=user|accounts]` marker. Popup click-through confirmed via the 3 live triggers in
+  task 4.5 above (uniform 2-metric glyph, `*` marker only on the active row, zero SES anywhere).
+  `cc-tmux self-test`: 100/100 passed (final run, post all follow-up fixes).
