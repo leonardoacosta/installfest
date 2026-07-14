@@ -13,7 +13,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/usage.py`: in `_account_label`, change the org suffix from [beads:if-dm3t]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/usage.py`: in `_account_label`, change the org suffix from [beads:if-dm3t]
   `org_uuid[-1]` (last character) to `org_uuid[:8]` (first 8 characters) — matching
   `_account_identity`'s existing `org_short` format exactly. This function is the single source
   for BOTH the printed row-2/row-3 label text and the internal `active_label` matching key used

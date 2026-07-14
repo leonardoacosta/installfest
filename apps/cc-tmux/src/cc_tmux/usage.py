@@ -155,7 +155,7 @@ def _extract_reset_at(credential: dict, key: str) -> Optional[float]:
 
 
 def _account_label(credential: dict) -> str:
-    """Account label: full email + last char of the org id, e.g. ``leo@x.dev·7``.
+    """Account label: full email + first 8 chars of the org id, e.g. ``leo@x.dev·bc7da511``.
 
     A bare account name (``"Leo"``) isn't indicative enough — the SAME email
     can be authenticated against multiple orgs, so the full email disambiguates
@@ -167,7 +167,7 @@ def _account_label(credential: dict) -> str:
     if isinstance(email, str) and email:
         org_uuid = credential.get("orgUuid")
         if isinstance(org_uuid, str) and org_uuid:
-            return f"{email}·{org_uuid[-1]}"
+            return f"{email}·{org_uuid[:8]}"
         return email
     for key in ("accountName", "name"):
         value = credential.get(key)
