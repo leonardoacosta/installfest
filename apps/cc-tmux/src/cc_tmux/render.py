@@ -76,6 +76,49 @@ IDLE_GLYPH = "█"
 FRAME_PERIOD_SEC = 1.0
 
 
+# ---------------------------------------------------------------------------
+# Idle-tab usage meter (cc-tmux-idle-tab-usage-meter)
+#
+# Replaces the static IDLE_GLYPH with a 17-state ramp driven by absolute
+# context tokens burned this session. See
+# openspec/changes/cc-tmux-idle-tab-usage-meter/design.md § "The 17-state
+# ramp" for the full boundary math (round-to-nearest-16th rationale, fill/
+# drain glyph shape derivation) — not re-derived here.
+# ---------------------------------------------------------------------------
+
+# Absolute-token scale the ramp index is computed against (design.md §
+# "The 17-state ramp" § Scale) — deliberately the SAME domain as
+# resolve_context_color's absolute-burn colour tiers, not window-relative.
+IDLE_METER_SCALE_TOKENS = 1_000_000
+
+IDLE_METER_RAMP: Tuple[str, ...] = (
+    "░",  # 0   — 0%      (flash: alternates with U+2800 blank on FRAME_PERIOD_SEC parity)
+    "⡀",  # 1   — 6.25%
+    "⣀",  # 2   — 12.5%
+    "⣄",  # 3   — 18.75%
+    "⣤",  # 4   — 25%
+    "⣦",  # 5   — 31.25%
+    "⣶",  # 6   — 37.5%
+    "⣷",  # 7   — 43.75%
+    "⣿",  # 8   — 50%
+    "⢿",  # 9   — 56.25%
+    "⠿",  # 10  — 62.5%
+    "⠻",  # 11  — 68.75%
+    "⠛",  # 12  — 75%
+    "⠙",  # 13  — 81.25%
+    "⠉",  # 14  — 87.5%
+    "⠈",  # 15  — 93.75%
+    "▓",  # 16  — 100%
+)
+
+
+def _idle_meter_index(ratio: float) -> int:
+    """Ramp index (0-16) for `ratio` (0..1), clamped then rounded to the
+    nearest 16th — see design.md § "The 17-state ramp" § Index function.
+    """
+    return round(max(0.0, min(1.0, ratio)) * 16)
+
+
 def animated_icon(state: str, now: float) -> str:
     """The tab-icon glyph for ``state`` at wall-clock ``now``.
 
