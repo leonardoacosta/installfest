@@ -1589,6 +1589,18 @@ def _build_tabs_row(active_window_id: str) -> str:
     timeout = _subagent_bg_timeout()
     for w in windows:
         w.bg = prune_background_entries(w.bg, now, timeout)
+        # cc-tmux-idle-tab-usage-meter: only plain idle windows (no sub-agent
+        # overlay — fg==0 and the just-pruned bg is empty) resolve raw_tokens;
+        # every other window is explicitly None (never half-set across the
+        # loop) so render.resolve_tab_glyph's meter branch is never reached
+        # for a sub-agent/waiting/active tab. Fail-open per this function's
+        # existing convention (see _read_roadmap_pulse) -> None on any error.
+        w.raw_tokens = None
+        if w.state == "idle" and w.fg == 0 and not w.bg:
+            try:
+                w.raw_tokens = _resolve_ses_tokens(_resolve_session_pane(w.id))
+            except Exception:
+                w.raw_tokens = None
     return render.render_tabs_row(windows, active_window_id, now)
 
 
