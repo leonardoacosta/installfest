@@ -106,26 +106,26 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-3ch1]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-3ch1]
   `_apply_metric_dots`: a representative ratio (e.g. 0.5) with a 4-bit order produces the correct
   dot-bit set across a small `n` (e.g. n=4); `None` produces an all-zero `cells` list (no dots
   set) while a sibling call for a different metric on the same `cells` list is unaffected (proves
   per-metric degrade doesn't clobber other metrics' bits); ratio=0.0 -> zero dots; ratio=1.0 ->
   every cell fully filled for that metric's bits. Run `cc-tmux self-test` and paste the passing
   stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case reproducing the [beads:if-i9mh]
+- [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case reproducing the [beads:if-i9mh]
   `/openspec:explore` mockup's validated example exactly: `render_usage_glyph(0.30, 0.88, 0.35,
   n=8)` produces `⣿⣿⣧⠤⠤⠤⠤⠀` byte-for-byte (this is the concrete regression anchor for the
   whole encoding — if this ever changes unexpectedly, the encoding broke). Additional cases at
   n=10 (the shipped row-2 width): all-`None` -> fully blank glyph; SES live + 5H/7D both `None` ->
   only rows 1-2 show dots, rows 3-4 blank. Run `cc-tmux self-test` and paste the passing stdout.
   [owner:general-purpose] [type:testing]
-- [ ] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for [beads:if-6v3f]
+- [x] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for [beads:if-6v3f]
   `render_usage_glyph_2metric` at n=20: 5H and 7D at distinct representative ratios (e.g. 0.9 and
   0.3) produce rows-1-2-fill and rows-3-4-fill proportional to each, independently verifiable by
   bit-tracing the returned glyph the same way the 4.2 case does. Run `cc-tmux self-test` and paste
   the passing stdout. [owner:general-purpose] [type:testing]
-- [ ] [4.4] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the [beads:if-hczj]
+- [x] [4.4] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the [beads:if-hczj]
   `render_session_bar`/`render_accounts_popup` wiring: row 2's rendered output contains both the
   unchanged SES token-count label (now severity-colored per task 3.4, not DIM) + `5H:xx% 7D:xx%`
   text AND the 10-cell glyph; the popup's active row contains both its text and the 20-cell
@@ -139,7 +139,7 @@
   this task is not complete until `cc-tmux self-test` reports 94/94 (the original 92 plus
   whatever new cases 4.1-4.4 add, zero failures). Run `cc-tmux self-test` and paste the passing
   stdout showing 0 failures. [owner:general-purpose] [type:testing]
-- [ ] [4.5] Live verification: with a real tracked pane in this repo, confirm row 2's actual [beads:if-1r71]
+- [x] [4.5] Live verification: with a real tracked pane in this repo, confirm row 2's actual [beads:if-1r71]
   on-screen render shows both the text and the new glyph, using real 5H/7D from nexus-agent (per
   `design.md` § Live-data verification gap, SES may need to stay illustrative if
   `nx_agent.session_context()` still returns `None` for every tracked session on this machine —

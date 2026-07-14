@@ -968,7 +968,11 @@ def _test_render_accounts_popup() -> None:
     _check(len(lines) == 6, f"summary + identity + border per account: {lines!r}")
     plain_lines = [_strip_ansi(l) for l in lines]
     active_line = next(l for l in plain_lines if "252.5k" in l)
-    other_summary = next(l for l in plain_lines if l.strip().startswith("5H:10%"))
+    # cc-tmux-braille-usage-glyph task 4.4 fix: the non-active row now has a
+    # 2-metric glyph PREPENDED ahead of its "5H:xx% 7D:xx%" text (task 3.2),
+    # so it no longer STARTS with a bare "5H:" percentage -- select by
+    # substring instead of the stale `startswith` anchor.
+    other_summary = next(l for l in plain_lines if "5H:10%" in l)
     active_identity = next(l for l in plain_lines if "leo@x.dev" in l and "abcd1234" in l)
     other_identity = next(l for l in plain_lines if "other@x.dev" in l and "efgh5678" in l)
     _check(
@@ -978,11 +982,28 @@ def _test_render_accounts_popup() -> None:
         "5H:50%" in active_line and "7D:85%" in active_line,
         f"active row shows 5H/7D too: {active_line!r}",
     )
+    # Active row carries the 20-cell 3-metric glyph (render_usage_glyph,
+    # active_ses_pct=0.42 per the render_accounts_popup call above).
+    expected_active_glyph = render.render_usage_glyph(0.42, 0.5, 0.85, n=20)
+    _check(
+        expected_active_glyph in active_line,
+        f"active row carries the 20-cell 3-metric glyph: {active_line!r}",
+    )
     _check(
         "5H:10%" in other_summary and "7D:20%" in other_summary,
-        f"non-active row shows 5H/7D, no bar: {other_summary!r}",
+        f"non-active row shows 5H/7D text unchanged: {other_summary!r}",
     )
-    _check("k:" not in other_summary, f"non-active row has no bar: {other_summary!r}")
+    _check(
+        "k:" not in other_summary, f"non-active row has no SES token-count label: {other_summary!r}"
+    )
+    # Non-active row now gets its own 20-cell 2-metric glyph prepended
+    # (design.md § Non-active popup rows) -- new behaviour, this row
+    # previously rendered no glyph at all.
+    expected_other_glyph = render.render_usage_glyph_2metric(0.1, 0.2, n=20)
+    _check(
+        expected_other_glyph in other_summary,
+        f"non-active row carries the 20-cell 2-metric glyph: {other_summary!r}",
+    )
     _check(active_line.startswith("*"), f"active row is marked: {active_line!r}")
     _check(
         not other_summary.startswith("*"), f"non-active row is not marked: {other_summary!r}"
@@ -1152,33 +1173,159 @@ def _test_context_bar_colors() -> None:
     )
 
 
+def _test_apply_metric_dots() -> None:
+    """_apply_metric_dots (cc-tmux-braille-usage-glyph task 4.1): per-metric
+    proportional dot-fill, in place, with per-metric degrade (``ratio is
+    None`` -> no-op) proven not to clobber a sibling metric's already-OR'd
+    bits in the same `cells` list."""
+    # Representative ratio (0.5) with a 4-bit order (SES's) at a small n=4:
+    # total budget = 4*4=16, dots=round(0.5*16)=8 -> the first two cells get
+    # fully filled with the bit mask, the remaining two stay untouched.
+    cells = [0, 0, 0, 0]
+    render._apply_metric_dots(cells, 0.5, render._SES_BITS, 4)
+    ses_mask = 0
+    for b in render._SES_BITS:
+        ses_mask |= 1 << b
+    _check(cells == [ses_mask, ses_mask, 0, 0], f"0.5 ratio, n=4, 4-bit order: {cells!r}")
+
+    # None is a no-op for its own metric AND leaves a sibling metric's
+    # already-set bits in the same cells list untouched (per-metric degrade,
+    # design.md § Staleness) -- metric A fills fully first, then metric B
+    # (disjoint bit positions) gets a None ratio and cells must be
+    # byte-identical after.
+    cells2 = [0, 0]
+    render._apply_metric_dots(cells2, 1.0, (0, 1), 2)
+    before = list(cells2)
+    render._apply_metric_dots(cells2, None, (2, 3), 2)
+    _check(cells2 == before, f"None ratio is a no-op, sibling bits unaffected: {cells2!r}")
+    _check(cells2 == [3, 3], f"metric A (ratio=1.0, bits (0,1)) fully filled first: {cells2!r}")
+
+    # ratio=0.0 -> zero dots (no cells touched).
+    cells3 = [0, 0, 0]
+    render._apply_metric_dots(cells3, 0.0, (2, 5), 3)
+    _check(cells3 == [0, 0, 0], f"ratio=0.0 -> zero dots: {cells3!r}")
+
+    # ratio=1.0 -> every cell fully filled for that metric's bits.
+    cells4 = [0, 0, 0]
+    render._apply_metric_dots(cells4, 1.0, (2, 5), 3)
+    full_mask = (1 << 2) | (1 << 5)
+    _check(
+        cells4 == [full_mask, full_mask, full_mask],
+        f"ratio=1.0 -> every cell fully filled: {cells4!r}",
+    )
+
+
+def _test_render_usage_glyph() -> None:
+    """render_usage_glyph (cc-tmux-braille-usage-glyph task 4.2): the
+    validated /openspec:explore mockup anchor, plus n=10 (shipped row-2
+    width) staleness edge cases."""
+    # Concrete regression anchor -- if this ever changes unexpectedly, the
+    # encoding broke (design.md § Encoding, proposal.md's bit-traced
+    # example: SES=30%/5H=88%/7D=35% -> row3/5H extends to ~87.5%,
+    # row4/7D to ~37.5%, rows1-2/SES to ~31%).
+    anchor = render.render_usage_glyph(0.30, 0.88, 0.35, n=8)
+    _check(anchor == "⣿⣿⣧⠤⠤⠤⠤⠀", f"validated mockup anchor byte-for-byte: {anchor!r}")
+
+    # All-None at the shipped row-2 width -> fully blank glyph (every cell
+    # is bare U+2800, no dots anywhere).
+    blank = render.render_usage_glyph(None, None, None, n=10)
+    _check(blank == chr(render._BRAILLE_BASE) * 10, f"all-None -> fully blank glyph: {blank!r}")
+
+    # SES live, 5H/7D both None -> only rows 1-2 (SES bits) carry dots; rows
+    # 3-4 (5H/7D bits) stay blank on every cell (per-metric degrade).
+    ses_only = render.render_usage_glyph(0.5, None, None, n=10)
+    cells = [ord(c) - render._BRAILLE_BASE for c in ses_only]
+    h5_d7_mask = 0
+    for b in render._H5_BITS + render._D7_BITS:
+        h5_d7_mask |= 1 << b
+    ses_mask = 0
+    for b in render._SES_BITS:
+        ses_mask |= 1 << b
+    _check(
+        all(c & h5_d7_mask == 0 for c in cells),
+        f"5H/7D None -> no 5H/7D-shaped dots anywhere: {ses_only!r}",
+    )
+    _check(
+        any(c & ses_mask for c in cells),
+        f"SES live -> SES rows do carry dots: {ses_only!r}",
+    )
+
+
+def _test_render_usage_glyph_2metric() -> None:
+    """render_usage_glyph_2metric (cc-tmux-braille-usage-glyph task 4.3):
+    5H/7D at n=20, each independently proportional and given the full
+    4-dot-per-cell budget (design.md § Non-active popup rows)."""
+    out = render.render_usage_glyph_2metric(0.9, 0.3, n=20)
+    _check(len(out) == 20, f"n=20 -> 20-cell glyph: {out!r}")
+
+    cells = [ord(c) - render._BRAILLE_BASE for c in out]
+    h5_mask = 0
+    for b in render._H5_BITS_WIDE:
+        h5_mask |= 1 << b
+    d7_mask = 0
+    for b in render._D7_BITS_WIDE:
+        d7_mask |= 1 << b
+    h5_dots = sum(bin(c & h5_mask).count("1") for c in cells)
+    d7_dots = sum(bin(c & d7_mask).count("1") for c in cells)
+    _check(
+        h5_dots == round(0.9 * len(render._H5_BITS_WIDE) * 20),
+        f"5H=0.9 dot count proportional to its own 4-dot/cell budget: {h5_dots}",
+    )
+    _check(
+        d7_dots == round(0.3 * len(render._D7_BITS_WIDE) * 20),
+        f"7D=0.3 dot count proportional to its own 4-dot/cell budget: {d7_dots}",
+    )
+    # Independently bit-traceable, same style as the 4.2 mockup anchor: 5H's
+    # fill (0.9) extends further left-to-right than 7D's (0.3).
+    _check(
+        out == "⣿⣿⣿⣿⣿⣿⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠀⠀",
+        f"exact bit-traced glyph at 5H=0.9/7D=0.3, n=20: {out!r}",
+    )
+
+
 def _test_context_bar_format() -> None:
-    """format_context_tokens / render_context_bar(_ansi): label + fill math."""
+    """format_context_tokens / render_context_bar_ansi: label + fill math.
+
+    ``render_context_bar`` (the tmux-format shade-block bar) was retired by
+    cc-tmux-braille-usage-glyph task 3.3 -- render_session_bar now calls
+    render_usage_glyph instead (see :func:`_test_render_usage_glyph`). Only
+    the ANSI counterpart (render_context_bar_ansi, still a live function
+    with no tmux-format caller today, per task 3.3's "retained" note) and
+    format_context_tokens survive from the original version of this test.
+    """
     _check(render.format_context_tokens(None) == "--", "no tokens -> '--'")
     _check(render.format_context_tokens(252_500) == "252.5k", "252500 -> '252.5k'")
     _check(render.format_context_tokens(0) == "0.0k", "0 -> '0.0k'")
-
-    out = render.render_context_bar(252_500, 0.3, 0.0, width=10)
-    _check("252.5k:" in out, f"tmux bar carries the token label: {out!r}")
-    _check(out.count("▓") == 3, f"30% of width 10 -> 3 filled segments: {out!r}")
-    _check(out.count("░") == 7, f"remaining 7 empty segments: {out!r}")
-    _check("#[fg=" in out, f"tmux bar uses #[fg=...] tokens: {out!r}")
 
     out_ansi = render.render_context_bar_ansi(252_500, 0.3, 0.0, width=10)
     _check("#[" not in out_ansi, f"ansi bar carries no tmux tokens: {out_ansi!r}")
     _check("\x1b[38;2;" in out_ansi, f"ansi bar carries a truecolor escape: {out_ansi!r}")
     _check("252.5k:" in _strip_ansi(out_ansi), f"ansi bar carries the token label too: {out_ansi!r}")
+    _check(
+        _strip_ansi(out_ansi).count("▓") == 3, f"30% of width 10 -> 3 filled segments: {out_ansi!r}"
+    )
+    _check(
+        _strip_ansi(out_ansi).count("░") == 7, f"remaining 7 empty segments: {out_ansi!r}"
+    )
 
     # No fill/token data -> zero filled segments, '--' label, not a crash.
-    out_none = render.render_context_bar(None, None, 0.0, width=10)
-    _check(out_none.count("▓") == 0, f"no fill data -> zero filled segments: {out_none!r}")
-    _check("--:" in out_none, f"no token data -> '--' label: {out_none!r}")
+    out_none = render.render_context_bar_ansi(None, None, 0.0, width=10)
+    _check(
+        _strip_ansi(out_none).count("▓") == 0, f"no fill data -> zero filled segments: {out_none!r}"
+    )
+    _check("--:" in _strip_ansi(out_none), f"no token data -> '--' label: {out_none!r}")
 
     # Fill fraction clamps to [0, width] even for out-of-range input.
-    out_over = render.render_context_bar(100, 1.5, 0.0, width=10)
-    _check(out_over.count("▓") == 10, f"used_pct > 1.0 clamps to a full bar: {out_over!r}")
-    out_under = render.render_context_bar(100, -0.5, 0.0, width=10)
-    _check(out_under.count("▓") == 0, f"used_pct < 0 clamps to an empty bar: {out_under!r}")
+    out_over = render.render_context_bar_ansi(100, 1.5, 0.0, width=10)
+    _check(
+        _strip_ansi(out_over).count("▓") == 10,
+        f"used_pct > 1.0 clamps to a full bar: {out_over!r}",
+    )
+    out_under = render.render_context_bar_ansi(100, -0.5, 0.0, width=10)
+    _check(
+        _strip_ansi(out_under).count("▓") == 0,
+        f"used_pct < 0 clamps to an empty bar: {out_under!r}",
+    )
 
 
 def _test_account_identity() -> None:
@@ -2063,6 +2210,37 @@ def _test_render_session_bar_no_glyph() -> None:
 
     out_empty = render.render_session_bar("", "", "", "", None, None, None)
     _check("◉" not in out_empty and "◌" not in out_empty, "empty call -> no glyph token")
+
+
+def _test_render_session_bar_usage_glyph_wiring() -> None:
+    """render_session_bar (row 2, cc-tmux-braille-usage-glyph task 4.4): the
+    combined 3-metric braille glyph (n=10) renders alongside the unchanged
+    SES token-count label + 5H/7D text, replacing the former shade-block
+    bar (tasks 3.1/3.3); the SES label is severity-coloured, not DIM (task
+    3.4 correction)."""
+    out = render.render_session_bar(
+        "O", "if", "main", "leo@x.dev", 0.30, 0.88, 0.35, raw_tokens=252_500
+    )
+    expected_glyph = render.render_usage_glyph(0.30, 0.88, 0.35, n=10)
+    _check(expected_glyph in out, f"row 2 carries the 10-cell 3-metric glyph: {out!r}")
+    _check("252.5k:" in out, f"row 2 still carries the unchanged SES token-count label: {out!r}")
+    # 5H:/7D: labels and their percentages are separately-coloured segments
+    # (not a contiguous "5H:88%" string -- see the f-string in
+    # render_session_bar), same convention _test_render_session_bar already
+    # asserts on.
+    _check(
+        "5H:" in out and "88%" in out and "7D:" in out and "35%" in out,
+        f"row 2 still carries the unchanged 5H/7D text: {out!r}",
+    )
+    # 252_500 raw tokens falls in the >200k/<=300k tier -> steady YELLOW (no
+    # pulse tier, so this assertion isn't wall-clock-flaky).
+    _check(
+        f"#[fg={usage.YELLOW}]252.5k:" in out,
+        f"SES label wrapped in its severity colour (task 3.4), not DIM: {out!r}",
+    )
+    _check(
+        f"#[fg={render.DIM}]252.5k:" not in out, f"SES label no longer plain DIM: {out!r}"
+    )
 
 
 def _test_cli_read_session_context() -> None:
@@ -3069,6 +3247,9 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.accounts_popup", _test_render_accounts_popup),
     ("render.accounts_popup_reset_lines", _test_render_accounts_popup_reset_lines),
     ("render.context_bar_colors", _test_context_bar_colors),
+    ("render.apply_metric_dots", _test_apply_metric_dots),
+    ("render.usage_glyph", _test_render_usage_glyph),
+    ("render.usage_glyph_2metric", _test_render_usage_glyph_2metric),
     ("render.context_bar_format", _test_context_bar_format),
     ("usage.account_identity", _test_account_identity),
     ("cli.resolve_ses_tokens", _test_cli_resolve_ses_tokens),
@@ -3090,6 +3271,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.resolve_session_pane_active_untracked_fallback", _test_cli_resolve_session_pane_active_untracked_fallback),
     ("cli.resolve_session_pane_no_active_fallback", _test_cli_resolve_session_pane_no_active_fallback),
     ("render.session_bar_no_glyph", _test_render_session_bar_no_glyph),
+    ("render.session_bar_usage_glyph_wiring", _test_render_session_bar_usage_glyph_wiring),
     ("cli.read_session_context", _test_cli_read_session_context),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
