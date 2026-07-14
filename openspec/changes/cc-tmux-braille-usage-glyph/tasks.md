@@ -78,7 +78,7 @@
   grep across `apps/cc-tmux/src/cc_tmux/` before deleting — retired the shade-block bar itself;
   see task 3.4 below for a correction on where its severity color goes).
   [owner:general-purpose] [type:ui]
-- [ ] [3.4] CORRECTION (found during UI batch verification, not new scope): tasks 3.1/3.2 and [beads:if-4lxh.1]
+- [x] [3.4] CORRECTION (found during UI batch verification, not new scope): tasks 3.1/3.2 and [beads:if-4lxh.1]
   design.md's original Color section both mistakenly assumed `_context_color_pair`'s 6-tier
   severity ramp was already applied to the SES token-count label — it was NEVER on the label,
   only on the now-retired shade-bar's fill color (`render_context_bar`'s `#[fg={color}]{bar}`).

@@ -508,9 +508,11 @@ def render_session_bar(
     whole indicator run is dropped (fail-open) when ``branch`` is empty, so a
     marker never appears without the branch it describes — same fail-open
     contract the prior ``dirty``/``ahead`` params had. Right side: account
-    label + the SES token-count label (``#[fg={DIM}]{label}:`` — text and
-    colour kept exactly as before, via :func:`format_context_tokens`)
-    followed by a combined 3-metric braille usage glyph
+    label + the SES token-count label (``#[fg={resolve_context_color(...)}]
+    {label}:`` — text via :func:`format_context_tokens`, colour via
+    :func:`resolve_context_color`'s 6-tier severity ramp, cc-tmux-braille-
+    usage-glyph task 3.4 correction) followed by a combined 3-metric braille
+    usage glyph
     (cc-tmux-braille-usage-glyph, replaces the former shade-block fill bar —
     see :func:`render_usage_glyph`, and ``design.md`` § Encoding for the
     full bit-math rationale) + 5H:/7D: gauges, the latter two still coloured
@@ -521,10 +523,12 @@ def render_session_bar(
     design.md § Staleness) feed the glyph directly at ``n=10``, which itself
     renders in a neutral/unstyled colour (design.md § Color — no severity
     ramp on the glyph). ``raw_tokens`` still selects the SES label's text via
-    :func:`format_context_tokens` (unchanged); ``now`` is accepted for
-    interface parity with :func:`render_accounts_popup`'s DI pattern (no
-    longer drives any visible animation on this row now that the
-    severity-coloured bar is retired — the label stays flat DIM). five_h_pct
+    :func:`format_context_tokens` (unchanged); ``now`` (or, when omitted, a
+    local ``time.time()`` fallback — same DI pattern as
+    :func:`render_accounts_popup`'s ``t``) now drives the SES label's
+    severity-colour pulse tiers via :func:`resolve_context_color`, taking
+    over the animation the retired shade-bar used to carry on its fill
+    colour (cc-tmux-braille-usage-glyph task 3.4 correction). five_h_pct
     / seven_d_pct are utilization ratios in 0..1 (or None when unpolled ->
     '--' in DIM for the text; also feed the glyph).
 
@@ -576,15 +580,19 @@ def render_session_bar(
         if account_label
         else ""
     )
-    # SES label text/colour unchanged (cc-tmux-context-bar); only the
-    # shade-block bar is replaced, by the neutral combined usage glyph
-    # (cc-tmux-braille-usage-glyph — design.md § Color: glyph stays
-    # unstyled, severity colour lives on the text elsewhere, not here).
+    # SES label text unchanged (cc-tmux-context-bar); the shade-block bar is
+    # replaced by the neutral combined usage glyph (cc-tmux-braille-usage-
+    # glyph — design.md § Color: glyph stays unstyled). The 6-tier severity
+    # ramp that used to colour the bar's fill now moves onto the label
+    # itself (task 3.4 correction — the label was never actually wired to
+    # the ramp before, despite the original design.md text assuming it was).
     ses_label = format_context_tokens(raw_tokens)
+    t = now if now is not None else time.time()
+    ses_color = resolve_context_color(raw_tokens, t)
     usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=10)
     right = (
         f"{label_seg}"
-        f"#[fg={DIM}]{ses_label}:#[default]{usage_glyph} "
+        f"#[fg={ses_color}]{ses_label}:#[default]{usage_glyph} "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
     )
@@ -784,10 +792,15 @@ def render_accounts_popup(
             # shade-block bar is replaced by the neutral 3-metric usage
             # glyph — see design.md § Color (glyph stays unstyled, no
             # _hex_to_ansi_fg wrap, unlike the old severity-coloured bar).
+            # The 6-tier severity ramp that used to colour the bar's fill
+            # now moves onto the label itself (task 3.4 correction — the
+            # label was never actually wired to the ramp before).
             bar_label = format_context_tokens(active_raw_tokens)
+            bar_color = _hex_to_ansi_fg(resolve_context_color(active_raw_tokens, t))
             bar_glyphs = render_usage_glyph(active_ses_pct, five_h, seven_d, n=20)
-            bar_str = f"{bar_label}:{bar_glyphs}"
-            tail_plain = f"{bar_str} {tail_plain}"
+            bar_str_plain = f"{bar_label}:{bar_glyphs}"
+            bar_str = f"{bar_color}{bar_label}{_ANSI_RESET}:{bar_glyphs}"
+            tail_plain = f"{bar_str_plain} {tail_plain}"
             tail = f"{bar_str} {tail}"
         else:
             # Non-active rows have no SES value at all (session-scoped, not
