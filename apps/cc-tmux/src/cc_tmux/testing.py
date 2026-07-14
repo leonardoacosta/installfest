@@ -1398,21 +1398,43 @@ def _test_accounts_popup_click_dismiss_wiring() -> None:
     inventing a new mechanism. ``--no-input`` hides/disables the query box
     so the popup genuinely cannot be typed into (stronger than the old
     single-keystroke dismiss, which still left a misleading blinking
-    cursor). This is a static content-grep of the shell file, not a live
-    tmux/fzf exercise (no tty here) — the fzf bind-syntax validity itself
-    was confirmed live at authoring time by comparing valid vs. an
-    invalid bind action name's distinct parse error.
+    cursor). This is a static content-grep, not a live tmux/fzf exercise (no
+    tty here) — the fzf bind-syntax validity itself was confirmed live at
+    authoring time by comparing valid vs. an invalid bind action name's
+    distinct parse error.
+
+    2026-07-14 UPDATE (cc-tmux-status-bar-popup-polish task 3.4 follow-up,
+    beads if-s1yu): the fzf pipeline (and all its click/dismiss flags) moved
+    from a static string embedded in ``cc-tmux.tmux`` into
+    ``cli.cmd_accounts_popup_launch``, which now builds it in Python and
+    calls ``display-popup`` itself with a content-sized ``-h`` (fixing the
+    "outer pane still 80%, fzf's box is small" gap the prior fix left open —
+    see that function's docstring). The mechanism and every flag checked
+    below are UNCHANGED, just relocated; this test now greps both files for
+    where each piece actually lives instead of assuming everything is still
+    in the ``.tmux`` shell string.
     """
     plugin_file = os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cc-tmux.tmux"
     )
     with open(plugin_file, "r", encoding="utf-8") as f:
-        content = f.read()
-    _check("accounts-popup | fzf" in content, "accounts-popup piped through fzf (supports_popup branch)")
-    _check("click-header:abort" in content, "click-header:abort real click-to-close bind present")
-    _check("--no-input" in content, "--no-input present (popup cannot be typed into)")
-    _check("--header-border" in content, "--header-border present ([x] visually attached to the frame)")
-    _check("read -n 1 -s" in content, "static any-keystroke fallback retained for no-fzf/old-tmux case")
+        plugin_content = f.read()
+    cli_file = os.path.join(os.path.dirname(__file__), "cli.py")
+    with open(cli_file, "r", encoding="utf-8") as f:
+        cli_content = f.read()
+
+    _check(
+        "accounts-popup-launch" in plugin_content,
+        "cc-tmux.tmux delegates the supports_popup branch to accounts-popup-launch",
+    )
+    _check(
+        "read -n 1 -s" in plugin_content,
+        "static any-keystroke fallback retained for no-fzf/old-tmux case",
+    )
+    _check("accounts-popup | fzf" in cli_content, "accounts-popup piped through fzf (cmd_accounts_popup_launch)")
+    _check("click-header:abort" in cli_content, "click-header:abort real click-to-close bind present")
+    _check("--no-input" in cli_content, "--no-input present (popup cannot be typed into)")
+    _check("--header-border" in cli_content, "--header-border present ([x] visually attached to the frame)")
 
 
 def _test_cli_accounts_popup_no_session_state() -> None:

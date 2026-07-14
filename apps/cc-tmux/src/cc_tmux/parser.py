@@ -10,8 +10,10 @@ Subcommands split into two ownership groups:
     self-test, doctor (core); inbox, inbox-clear, picker-data, status,
     status-inbox (integration surface — these take no arguments, so their parsers
     stay bare); usage (argless, Req-8), accounts-popup (argless,
-    cc-tmux-account-switcher-popup), tabs-row (argless, cc-tmux-tabs-and-rename-fix)
-    and conductor (Req-9, with its own action + flags).
+    cc-tmux-account-switcher-popup), accounts-popup-launch (argless,
+    cc-tmux-status-bar-popup-polish task 3.4 follow-up — opens the popup itself,
+    unlike accounts-popup's data-only contract), tabs-row (argless,
+    cc-tmux-tabs-and-rename-fix) and conductor (Req-9, with its own action + flags).
 """
 
 from __future__ import annotations
@@ -144,6 +146,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "accounts-popup",
         help="Emit the account-switcher popup body (row-2 account-label click).",
+    )
+
+    # -- accounts-popup-launch: opens the popup itself, sizing `-h` to content
+    # (cc-tmux-status-bar-popup-polish task 3.4 follow-up, 2026-07-14, beads
+    # if-s1yu). Argless — invoked from `cc-tmux.tmux`'s MouseDown1Status
+    # binding via `run-shell` instead of a static `display-popup ...` string,
+    # so the outer popup height can be computed fresh at click time. See
+    # `cli.cmd_accounts_popup_launch`'s docstring for why this ONE subcommand
+    # is allowed to call `tmux display-popup` itself (mirrors `conductor`'s
+    # `--popup` action) despite `accounts-popup` staying data-only.
+    sub.add_parser(
+        "accounts-popup-launch",
+        help="Open the account-switcher popup, sized to the real content height.",
     )
 
     # -- window-icon: animated tab icon (Req: animated tab icon) ---------------

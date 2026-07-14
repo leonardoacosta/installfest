@@ -229,8 +229,66 @@ fi
 # added (supported by this fzf build) so no residual scroll affordance
 # survives even at the outer `-h 80%` clamp boundary.
 # ---------------------------------------------------------------------------
+#
+# 2026-07-14 SECOND FOLLOW-UP (cc-tmux-status-bar-popup-polish task 3.4
+# correction #2, post-live-testing-on-a-real-attached-client): the fix above
+# correctly sized fzf's OWN box (Leo confirmed live: no more truncation, no
+# more fake highlight/gutter) but left a NEW gap the live test surfaced — the
+# SURROUNDING `display-popup -h 80%` floating pane is still a fixed 80% of
+# the screen, much taller than fzf's now-small content box, leaving a large
+# blank region between the bottom of the account list and the popup's own
+# border. The `-h 80%` note two paragraphs up ("tmux already clamps it to
+# the real client size") is true of a PERCENTAGE `-h` but does not mean the
+# percentage itself shrinks to fit content — it never did; that was always
+# fzf's job for its OWN box, and the outer pane was simply never touched.
+#
+# Root cause: `display-popup -h` sizes the FLOATING PANE itself, evaluated
+# once when this bind-key's command string is built (tmux plugin LOAD time,
+# i.e. right here, right now) — completely independent of whatever fzf does
+# inside that pane at CLICK time. Making the outer `-h` dynamic requires a
+# computation that runs AFTER this script has already returned, i.e. at
+# click time, before `display-popup` itself is invoked — which necessarily
+# means one more layer of indirection between the keybinding and the popup.
+#
+# Fix: delegate the whole fzf-popup launch to a NEW Python subcommand,
+# `cc-tmux accounts-popup-launch` (`cli.cmd_accounts_popup_launch`), instead
+# of building the `display-popup ...` string here. That subcommand computes
+# the real content-line count IN-PROCESS (via the same body-builder
+# `cmd_accounts_popup` prints, `_accounts_popup_body`, refactored out so both
+# share it — no new subprocess needed for this half) and calls
+# `tmux display-popup` itself with a freshly-computed `-h`, mirroring
+# `conductor.py`'s `_popup()` (an established precedent for a subcommand
+# invoking `display-popup` directly). This was picked over reconstructing
+# the ENTIRE inner `-E` string inside a `run-shell` bash wrapper right here —
+# that would have needed a THIRD level of shell-in-shell-in-shell escaping on
+# top of the two this one-liner already has, exactly the RTK
+# quoted-command-token fragility class this file's own comments keep
+# flagging. Delegating to Python instead means this binding shrinks to a
+# single `run-shell` call with zero nested quoting.
+#
+# Verified live (throwaway tmux 3.6a / fzf 0.71.0 server, no real attached
+# client involved in production — the popup mechanism itself requires one,
+# so a `script`/`pty.fork`-attached synthetic client stood in): `display-popup
+# -h N` grants its `-E` command's own pty exactly `N - 2` rows (2-row border
+# overhead, confirmed for six different requested heights). Computing outer
+# `-h` as `content_lines + 6 (fzf's existing margin) + 2 (this border
+# overhead)` therefore hands fzf a pty of EXACTLY the height it already
+# needs. Measured two content-line counts end to end: 5 lines -> computed
+# `-h 13` -> real popup pty `stty size` = 11 rows (= 5 + 6, exactly fzf's own
+# required height, zero slack); 19 lines -> computed `-h 27` -> real popup
+# pty `stty size` = 25 rows (= 19 + 6, same exact match). A direct
+# `tmux capture-pane` of fzf rendering that same content in a pane resized
+# to those exact heights (5, 12, and 19 content lines tested) showed every
+# row visible, zero truncation, and only one small structural pad row below
+# the list — proportionate chrome, not the dead-space gap this fix closes.
+# See `cli.cmd_accounts_popup_launch`'s docstring for the full margin
+# breakdown and the client-height clamp (absolute `-h` values do NOT
+# self-clamp like a percentage does — confirmed live, `-h 27` against an
+# 80x24 client errored "height too large" outright rather than shrinking, so
+# the Python side clamps against `#{client_height}` explicitly).
+# ---------------------------------------------------------------------------
 if supports_popup; then
-  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"h=\$($CMD accounts-popup | wc -l); h=\$((h + 6)); $CMD accounts-popup | fzf --ansi --height=\$h --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --gutter=' ' --color='fg+:-1,bg+:-1,gutter:-1' --no-scrollbar --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore' --bind 'up:ignore' --bind 'down:ignore' --bind 'ctrl-j:ignore' --bind 'ctrl-k:ignore' --bind 'ctrl-n:ignore' --bind 'ctrl-p:ignore' --bind 'page-up:ignore' --bind 'page-down:ignore'\""
+  accounts_popup_cmd="run-shell \"$CMD accounts-popup-launch\""
 else
   # Plain fallback: no fzf, no inner box — `$CMD accounts-popup` writes
   # directly to the popup pane and `read -n 1 -s` just waits for a keypress.

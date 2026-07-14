@@ -15,6 +15,7 @@ import json
 import os
 import re
 import select
+import shlex
 import subprocess
 import sys
 import time
@@ -1371,8 +1372,8 @@ def cmd_session_bar(args) -> int:
     return 0
 
 
-def cmd_accounts_popup(args) -> int:
-    """Print the account-switcher popup body (cc-tmux-account-switcher-popup).
+def _accounts_popup_body() -> str:
+    """Build the account-switcher popup body (cc-tmux-account-switcher-popup).
 
     Non-Goals: read-only usage popup, no account SWITCHING action.
 
@@ -1395,13 +1396,12 @@ def cmd_accounts_popup(args) -> int:
     :func:`render.render_accounts_popup`'s per-account "Resets at/on ... in
     ..." lines (Leo's ask, 2026-07-13).
 
-    Prints :func:`render.render_accounts_popup`'s plain-text body, or nothing
+    Returns :func:`render.render_accounts_popup`'s plain-text body, or ``""``
     on any failure (fail-open, matches this module's universal contract).
-    Data/render only — no ``tmux display-popup`` call lives here; the
-    tmux-side ``MouseDown1Status`` binding (``cc-tmux.tmux``) wraps this
-    subcommand's output in ``display-popup``, the same DATA-ONLY split
-    :func:`cmd_inbox`/:func:`cmd_picker_data` already use for their fzf
-    popups.
+    Shared by :func:`cmd_accounts_popup` (prints it for the fzf pipeline
+    running inside the popup's own pty) and :func:`cmd_accounts_popup_launch`
+    (calls it in-process to size the outer popup — cc-tmux-status-bar-popup-
+    polish task 3.4 follow-up, 2026-07-14).
     """
     payload = usage._query()
     credentials = payload.get("credentials") if isinstance(payload, dict) else None
@@ -1428,9 +1428,194 @@ def cmd_accounts_popup(args) -> int:
             org_short,
         ))
 
-    out = render.render_accounts_popup(accounts, active_label, now=time.time())
+    return render.render_accounts_popup(accounts, active_label, now=time.time())
+
+
+def cmd_accounts_popup(args) -> int:
+    """Print the account-switcher popup body (cc-tmux-account-switcher-popup).
+
+    Thin wrapper over :func:`_accounts_popup_body`. Prints the body, or
+    nothing on any failure (fail-open). Data/render only — no ``tmux
+    display-popup`` call lives here; the tmux-side ``MouseDown1Status``
+    binding (``cc-tmux.tmux``) wraps this subcommand's output in
+    ``display-popup``, the same DATA-ONLY split :func:`cmd_inbox`/
+    :func:`cmd_picker_data` already use for their fzf popups. (The OUTER
+    popup's own sizing is a separate concern, owned by
+    :func:`cmd_accounts_popup_launch` — see its docstring for why that one
+    subcommand IS allowed to call ``display-popup`` itself.)
+    """
+    out = _accounts_popup_body()
     if out:
         print(out)
+    return 0
+
+
+# Overhead margin constants for the accounts-popup fzf box (cc-tmux-status-bar-
+# popup-polish task 3.4 follow-up, 2026-07-14, beads if-s1yu). Measured live on
+# tmux 3.6a / fzf 0.71.0 in an isolated throwaway tmux server (2 content-line
+# counts, 5 and 19 lines):
+#   * ``display-popup -h N`` grants the ``-E`` command's own pty exactly
+#     ``N - 2`` rows (2-row border overhead) — confirmed via ``stty size``
+#     inside the popup for six different requested heights (8/10/15/20/13/27),
+#     every one landing exactly 2 below the requested ``-h``.
+#   * ``fzf --height=$h`` (``h`` = content lines + this same margin, the
+#     EXISTING formula ``cc-tmux.tmux``'s inner ``-E`` command already uses
+#     for its own box, unchanged) renders the full content with zero
+#     truncation when given a pty of exactly ``h`` rows (confirmed via
+#     ``tmux capture-pane`` on a plain resized pane at content-line counts
+#     5, 12, and 19 — every row visible, one harmless structural pad row).
+# Combining both: an outer ``display-popup -h`` of
+# ``content_lines + _ACCOUNTS_POPUP_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN``
+# hands fzf a pty of EXACTLY the height it already needs — no truncation, no
+# dead space below the list. This is the fix for the gap the second fix
+# (98ea328) left open: that fix correctly sized fzf's OWN box but left the
+# surrounding `display-popup` pane at a fixed, oversized `-h 80%`.
+_ACCOUNTS_POPUP_FZF_MARGIN = 6
+_ACCOUNTS_POPUP_BORDER_MARGIN = 2
+# `display-popup -h <absolute lines>` does NOT self-clamp to the client size
+# the way a percentage does — confirmed live: requesting `-h 27` against an
+# 80x24 client errored "height too large" outright (exit 1, no popup at all)
+# rather than clamping. `-h 80%` (the old baseline) never risked this since
+# tmux computes 80% of whatever the client actually is. Clamp explicitly
+# against the real client height, at the same 80% fraction, so a large
+# deduped-account list degrades to "as big as fits" instead of erroring the
+# popup out entirely.
+_ACCOUNTS_POPUP_HEIGHT_PCT_CAP = 0.8
+_ACCOUNTS_POPUP_HEIGHT_FLOOR = _ACCOUNTS_POPUP_BORDER_MARGIN + 1
+
+
+def _self_shim_path() -> str:
+    """Absolute path to the `bin/cc-tmux` shim, for re-invoking ``$CMD`` from
+    inside an already-running `cc-tmux` process (cc-tmux-status-bar-popup-
+    polish task 3.4 follow-up, 2026-07-14).
+
+    NOT ``sys.argv[0]``: the shim execs ``python3 -m cc_tmux "$@"`` (see
+    ``bin/cc-tmux``), and under ``-m`` Python sets ``sys.argv[0]`` to the
+    resolved path of ``src/cc_tmux/__main__.py`` — invoking THAT path
+    directly (bypassing ``-m``'s package bootstrapping) breaks this
+    package's relative imports (``from . import log, ...``). Confirmed live:
+    doing this made the re-invoked `accounts-popup` inside the popup's own
+    `-E` shell silently produce zero output, so fzf's own `wc -l`-computed
+    height came out `0 + 6 = 6` instead of the real content height.
+
+    Derived the same way `cc-tmux.tmux` itself resolves `$CURRENT_DIR`
+    (follow symlinks to the real file, then locate `bin/` beside `src/`) so
+    a chezmoi-symlinked deployment resolves identically on both the shell
+    and Python sides.
+    """
+    return str(Path(__file__).resolve().parent.parent.parent / "bin" / "cc-tmux")
+
+
+def cmd_accounts_popup_launch(args) -> int:
+    """Open the account-switcher popup, sizing `display-popup`'s OWN `-h` to
+    the real content (cc-tmux-status-bar-popup-polish task 3.4 follow-up,
+    2026-07-14, beads if-s1yu).
+
+    The prior fix (98ea328) correctly sized fzf's OWN box inside the popup
+    pane via a `wc -l`-based `--height` on the fzf invocation embedded in
+    `cc-tmux.tmux`, but left the SURROUNDING `display-popup` pane at a fixed
+    `-h 80%` — much taller than the now-correctly-sized fzf box, leaving a
+    large dead blank region below the account list (confirmed live by Leo on
+    a real attached client).
+
+    This subcommand is the fix: it computes the real content line count
+    in-process (via :func:`_accounts_popup_body`, no subprocess needed for
+    this half — an improvement on the existing bash `wc -l` double-invoke
+    tradeoff, not a rejection of it) and calls `display-popup` itself with a
+    dynamic `-h`, mirroring `conductor.py`'s `_popup()` — a subcommand
+    invoking `display-popup` directly is an established precedent in this
+    codebase, not a new pattern introduced here.
+
+    `cmd_accounts_popup` stays data-only and unchanged (still the same
+    DATA-ONLY contract `cmd_inbox`/`cmd_picker_data` use). Sizing the OUTER
+    popup is a genuinely separate responsibility that must run BEFORE
+    `display-popup` is invoked — i.e. outside any popup pty — which a
+    DATA-ONLY subcommand structurally cannot do from inside its own `-E`
+    body. Doing the "compute height, then invoke display-popup" step in
+    Python (one argv list handed straight to a tmux subprocess, no shell
+    string built for the OUTER command at all) avoids adding a THIRD level of
+    shell-in-shell-in-shell escaping to an already fragile bash one-liner in
+    `cc-tmux.tmux` (rules/TOOLING.md's RTK quoted-command-token footgun is
+    the same fragility class this file's own comments already flag
+    repeatedly) — the alternative (a `run-shell` bash wrapper reconstructing
+    the existing `-E` string from scratch) would have needed exactly that
+    extra nesting layer.
+
+    The inner `-E` command is UNCHANGED from `cc-tmux.tmux`'s existing fzf
+    pipeline (same flags, same self-contained `wc -l` height computation for
+    fzf's own box, re-invoking `$CMD accounts-popup` itself once more inside
+    the popup pty) — only the OUTER `-h` becomes dynamic. Fail-open: any
+    failure (not in tmux, `display-popup` itself erroring to start) returns 1
+    without raising, matching this module's universal contract; never raises
+    past `main`'s handler boundary regardless.
+
+    Deliberately does NOT go through :func:`tmux._run_tmux` for the final
+    `display-popup` launch (unlike every other tmux call in this module,
+    including the `#{client_height}` query above). Confirmed live: `tmux
+    display-popup -E <interactive fzf pipeline>`, run as a subprocess whose
+    OWN stdin/stdout are not a real tty (exactly the shape `run-shell` gives
+    a job — no controlling terminal of its own), does not exit on its own;
+    the underlying popup renders correctly on the real attached client
+    regardless, but the LAUNCHING client process itself stays alive for the
+    popup's whole lifetime. `_run_tmux`'s `subprocess.run(..., timeout=5)`
+    would therefore hit its timeout on every single invocation (reproduced:
+    both a direct `subprocess.run` and the real `tmux run-shell "$CMD
+    accounts-popup-launch"` shape blocked for exactly 5s and returned a
+    false failure, even though the popup opened correctly with the right
+    height every time) — 5 seconds is fine for the quick, one-shot
+    `#{client_height}` query above, but wrong for a popup meant to stay open
+    until the user dismisses it. `subprocess.Popen` (fire-and-forget, never
+    waited on) is the correct shape here: it returns control in under a
+    millisecond and the popup still renders correctly (confirmed live,
+    same height/content as the blocking version). `conductor.py`'s
+    `_popup()` calls the exact same `_run_tmux(["display-popup", "-E",
+    ...])` pattern for the (also long-lived, interactive) conductor
+    session and likely carries this identical latent 5s-false-failure
+    issue — out of scope to fix here (separate owner, separate proposal),
+    noted for a follow-up rather than silently patched as a drive-by.
+    """
+    if not tmux.tmux_available():
+        return 1
+
+    self_cmd = _self_shim_path()
+    body = _accounts_popup_body()
+    content_lines = body.count("\n") + 1 if body else 0
+    wanted = content_lines + _ACCOUNTS_POPUP_FZF_MARGIN + _ACCOUNTS_POPUP_BORDER_MARGIN
+
+    client_height_raw = tmux._run_tmux(["display-message", "-p", "#{client_height}"])
+    try:
+        client_height = int(client_height_raw) if client_height_raw else None
+    except ValueError:
+        client_height = None
+    if client_height:
+        cap = max(int(client_height * _ACCOUNTS_POPUP_HEIGHT_PCT_CAP), _ACCOUNTS_POPUP_HEIGHT_FLOOR)
+        height = min(wanted, cap)
+    else:
+        height = wanted
+    height = max(height, _ACCOUNTS_POPUP_HEIGHT_FLOOR)
+
+    quoted_cmd = shlex.quote(self_cmd)
+    inner = (
+        f"h=$({quoted_cmd} accounts-popup | wc -l); "
+        f"h=$((h + {_ACCOUNTS_POPUP_FZF_MARGIN})); "
+        f"{quoted_cmd} accounts-popup | fzf --ansi --height=$h --no-input --header-border "
+        "--header='[x] click here or press q to close' --prompt='' --pointer=' ' --gutter=' ' "
+        "--color='fg+:-1,bg+:-1,gutter:-1' --no-scrollbar --bind 'click-header:abort' "
+        "--bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore' --bind 'up:ignore' "
+        "--bind 'down:ignore' --bind 'ctrl-j:ignore' --bind 'ctrl-k:ignore' "
+        "--bind 'ctrl-n:ignore' --bind 'ctrl-p:ignore' --bind 'page-up:ignore' "
+        "--bind 'page-down:ignore'"
+    )
+    try:
+        subprocess.Popen(
+            ["tmux", "display-popup", "-y", "S", "-x", "M", "-h", str(height), "-E", inner],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        log.warn("accounts-popup-launch: display-popup failed to start: %s", exc)
+        return 1
     return 0
 
 
@@ -1736,6 +1921,7 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "status-inbox": cmd_status_inbox,
     "usage": cmd_usage,
     "accounts-popup": cmd_accounts_popup,
+    "accounts-popup-launch": cmd_accounts_popup_launch,
     "window-icon": cmd_window_icon,
     "session-bar": cmd_session_bar,
     "beads-bar": cmd_beads_bar,
