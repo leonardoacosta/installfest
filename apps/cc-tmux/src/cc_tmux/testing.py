@@ -984,6 +984,38 @@ def _test_usage_extract_active() -> None:
     _check(u5_2 == 0.36, f"freshest (by usagePolledAt) row's 5H wins over the stale duplicate: {u5_2!r}")
     _check(u7_2 == 0.71, f"freshest row's 7D wins too: {u7_2!r}")
 
+    # Regression (if-lh9u, confirmed live 2026-07-14): nx-agent's /credentials
+    # payload can carry TWO simultaneous isActive: true rows for the SAME
+    # email under DIFFERENT orgUuids -- dedupe_credentials groups by
+    # (accountEmail, orgUuid), so it cannot collapse these two rows into one
+    # (they're different groups, both survive dedupe as isActive: true). The
+    # pre-fix extract_active picked the first isActive match in the deduped
+    # list's order, not the most-recently-polled one, so a stale org's numbers
+    # could silently win over the actually-current one. Same live shape: one
+    # org stale since a prior day, one current.
+    label3, u5_3, u7_3 = usage.extract_active(
+        {"credentials": [
+            {
+                "accountEmail": "leo@x.dev", "orgUuid": "stale-org-1", "isActive": True,
+                "usage5hUsed": 90.0, "usage5hLimit": 100.0,
+                "usage7dUsed": 64.0, "usage7dLimit": 100.0,
+                "usagePolledAt": "2026-07-13T09:00:00Z",
+            },
+            {
+                "accountEmail": "leo@x.dev", "orgUuid": "current-org-2", "isActive": True,
+                "usage5hUsed": 12.0, "usage5hLimit": 100.0,
+                "usage7dUsed": 20.0, "usage7dLimit": 100.0,
+                "usagePolledAt": "2026-07-14T09:00:00Z",
+            },
+        ]}
+    )
+    _check(
+        label3 == "leo@x.dev·current-",
+        f"label from freshest cross-org active row: {label3!r}",
+    )
+    _check(u5_3 == 0.12, f"freshest org's 5H wins over the stale org's isActive row: {u5_3!r}")
+    _check(u7_3 == 0.20, f"freshest org's 7D wins too: {u7_3!r}")
+
 
 def _test_usage_extract_reset_at() -> None:
     _check(usage._extract_reset_at({}, "usage5hResetAt") is None, "missing key -> None")

@@ -289,6 +289,49 @@ def _cache_path() -> str:
     return os.path.join(tempfile.gettempdir(), f"cc-tmux-usage-cache.{uid}.json")
 
 
+def _freshest_active(deduped: List[dict]) -> Optional[dict]:
+    """Freshest ``isActive: True`` row in ``deduped``, or ``None`` if there is none.
+
+    :func:`dedupe_credentials` only collapses duplicates WITHIN an
+    ``(accountEmail, orgUuid)`` group — it cannot merge across groups, so the
+    SAME email authenticated against two different orgs can independently
+    survive dedupe as two separate ``isActive: True`` rows (if-lh9u, confirmed
+    live 2026-07-14: one org's row stale since a prior day, the other current,
+    both ``isActive: True`` post-dedupe). Picking the first such row in list
+    order — the pre-fix behaviour — can silently render a stale, no-longer-
+    current org's numbers.
+
+    Resolves the cross-group tie with the SAME "data-presence-first, then
+    recency, then last-wins" tie-break :func:`dedupe_credentials` already
+    applies to its own WITHIN-group ``isActive`` ties (see its ``new_polled``/
+    ``old_polled``/``new_has_ts``/``old_has_ts`` block) — this is a second
+    application of that pattern across groups, not a new rule.
+    """
+    best: Optional[dict] = None
+    for candidate in deduped:
+        if candidate.get("isActive") is not True:
+            continue
+        if best is None:
+            best = candidate
+            continue
+
+        new_polled = candidate.get("usagePolledAt")
+        old_polled = best.get("usagePolledAt")
+        new_has_ts = isinstance(new_polled, str) and bool(new_polled)
+        old_has_ts = isinstance(old_polled, str) and bool(old_polled)
+
+        if new_has_ts and old_has_ts:
+            if new_polled >= old_polled:
+                best = candidate
+        elif new_has_ts and not old_has_ts:
+            best = candidate
+        elif old_has_ts and not new_has_ts:
+            pass
+        else:
+            best = candidate
+    return best
+
+
 def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]]:
     """``(label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
 
@@ -307,6 +350,11 @@ def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]
     closes that drift class, mirroring the earlier if-hrbd fix that unified
     the two surfaces' SES resolution onto one function
     (:func:`cc_tmux.cli._resolve_ses_pct`) for the identical reason.
+
+    :func:`dedupe_credentials` can still leave MORE THAN ONE ``isActive: True``
+    row when the same identity is split across ``orgUuid``s (if-lh9u) —
+    :func:`_freshest_active` resolves that residual tie by ``usagePolledAt``
+    recency instead of picking the first list match.
     """
     if not isinstance(payload, dict):
         return "", None, None
@@ -314,10 +362,7 @@ def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]
     if not isinstance(credentials, list):
         return "", None, None
     deduped = dedupe_credentials(credentials)
-    active = next(
-        (c for c in deduped if c.get("isActive") is True),
-        None,
-    )
+    active = _freshest_active(deduped)
     if active is None:
         return "", None, None
     return (
