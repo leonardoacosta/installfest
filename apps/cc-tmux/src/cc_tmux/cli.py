@@ -1476,32 +1476,41 @@ def _beads_pane(window_target: str) -> str:
     return tmux.get_window_top_pane(window_target) or tmux.get_window_active_pane(window_target)
 
 
-# roadmap-pulse `--line` mode's two-line cache format (cc-tmux-row3-openspec-
-# beads-format task 1.2, ~/dev/cc `scripts/bin/roadmap-pulse`):
-#   openspec: {open} open, {unarchived} unarchived
-#   beads: {ready} ready, {blocked} blocked
+# roadmap-pulse `--line` mode's abbreviated three-line cache format (if-bqw.1,
+# cc commit b6b9a234 / cc-w83ov.4, ~/dev/cc `scripts/bin/roadmap-pulse`):
+#   op: {open}o {in_progress}ip {ua}ua
+#   bd: {open}o {ready}r {blocked}b
+# `ua` is the closure-debt count (done-but-unarchived specs) — the renamed,
+# more narrowly-scoped `unarchived` field from the prior two-line format.
+# `bd:` carries a third number, `open` (total standalone beads open/
+# in_progress/blocked), alongside the pre-existing `ready`/`blocked`.
 # Each line is optional and parsed independently — see _parse_roadmap_pulse_counts.
-_OPENSPEC_LINE_RE = re.compile(r"^openspec:\s*(\d+)\s+open,\s*(\d+)\s+unarchived\s*$")
-_BEADS_LINE_RE = re.compile(r"^beads:\s*(\d+)\s+ready,\s*(\d+)\s+blocked\s*$")
+_OPENSPEC_LINE_RE = re.compile(r"^op:\s*(\d+)o\s+(\d+)ip\s+(\d+)ua\s*$")
+_BEADS_LINE_RE = re.compile(r"^bd:\s*(\d+)o\s+(\d+)r\s+(\d+)b\s*$")
 
 
 def _parse_roadmap_pulse_counts(
     content: str,
-) -> Tuple[Optional[int], Optional[int], Optional[int], Optional[int]]:
-    """Parse roadmap-pulse's two-line ``--line`` cache format into counts.
+) -> Tuple[
+    Optional[int], Optional[int], Optional[int],
+    Optional[int], Optional[int], Optional[int],
+]:
+    """Parse roadmap-pulse's abbreviated ``--line`` cache format into counts.
 
     ``content`` is the (already ``radar:``-stripped, per :func:`_read_roadmap_pulse`)
-    cache text. Returns ``(openspec_open, openspec_unarchived, beads_ready,
-    beads_blocked)``. The ``openspec:`` and ``beads:`` lines are matched and
-    parsed independently of each other and of line order: a missing or
-    unparseable ``beads:`` line degrades ONLY the beads half to ``(None, None)``
-    without affecting an otherwise-valid ``openspec:`` half, and vice versa —
-    the same fail-open contract the rest of this module uses (e.g.
-    :func:`_read_session_context`'s per-field ``None`` degradation), so a
-    malformed half never blanks the other.
+    cache text. Returns ``(openspec_open, openspec_in_progress, openspec_ua,
+    beads_open, beads_ready, beads_blocked)``. The ``op:`` and ``bd:`` lines
+    are matched and parsed independently of each other and of line order: a
+    missing or unparseable ``bd:`` line degrades ONLY the beads half to
+    ``(None, None, None)`` without affecting an otherwise-valid ``op:`` half,
+    and vice versa — the same fail-open contract the rest of this module uses
+    (e.g. :func:`_read_session_context`'s per-field ``None`` degradation), so
+    a malformed half never blanks the other.
     """
     openspec_open: Optional[int] = None
-    openspec_unarchived: Optional[int] = None
+    openspec_in_progress: Optional[int] = None
+    openspec_ua: Optional[int] = None
+    beads_open: Optional[int] = None
     beads_ready: Optional[int] = None
     beads_blocked: Optional[int] = None
 
@@ -1509,13 +1518,20 @@ def _parse_roadmap_pulse_counts(
         line = line.strip()
         m = _OPENSPEC_LINE_RE.match(line)
         if m:
-            openspec_open, openspec_unarchived = int(m.group(1)), int(m.group(2))
+            openspec_open = int(m.group(1))
+            openspec_in_progress = int(m.group(2))
+            openspec_ua = int(m.group(3))
             continue
         m = _BEADS_LINE_RE.match(line)
         if m:
-            beads_ready, beads_blocked = int(m.group(1)), int(m.group(2))
+            beads_open = int(m.group(1))
+            beads_ready = int(m.group(2))
+            beads_blocked = int(m.group(3))
 
-    return openspec_open, openspec_unarchived, beads_ready, beads_blocked
+    return (
+        openspec_open, openspec_in_progress, openspec_ua,
+        beads_open, beads_ready, beads_blocked,
+    )
 
 
 def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
@@ -1526,8 +1542,8 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     builders. Resolves the window's representative pane (unless ``pane`` is
     already known), falling back to the window's active pane when no
     ``@cc-state`` pane exists (plan 006 / BEADS-03), reads its project's
-    roadmap-pulse line + cache age, parses the two-line ``openspec:``/``beads:``
-    content into structured counts (:func:`_parse_roadmap_pulse_counts`), and
+    roadmap-pulse line + cache age, parses the abbreviated two-line ``op:``/
+    ``bd:`` content into structured counts (:func:`_parse_roadmap_pulse_counts`), and
     hands the parsed counts plus age to :func:`render.render_beads_bar` — both
     halves currently share the single cache file's mtime as their age, since
     there is only one cache file today (forward-compatible with a future
@@ -1538,9 +1554,13 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     if not pane:
         return ""
     content, age_sec = _read_roadmap_pulse(pane)
-    openspec_open, openspec_unarchived, beads_ready, beads_blocked = _parse_roadmap_pulse_counts(content)
+    (
+        openspec_open, openspec_in_progress, openspec_ua,
+        beads_open, beads_ready, beads_blocked,
+    ) = _parse_roadmap_pulse_counts(content)
     return render.render_beads_bar(
-        openspec_open, openspec_unarchived, beads_ready, beads_blocked,
+        openspec_open, openspec_in_progress, openspec_ua,
+        beads_open, beads_ready, beads_blocked,
         openspec_age_sec=age_sec, beads_age_sec=age_sec,
     )
 

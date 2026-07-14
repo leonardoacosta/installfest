@@ -1921,122 +1921,124 @@ def _test_render_session_bar() -> None:
 
 
 def _test_render_beads_bar() -> None:
-    # cc-tmux-row3-openspec-beads-format task 2.3: render_beads_bar now takes
-    # structured (openspec_open, openspec_unarchived, beads_ready,
-    # beads_blocked) counts + independent per-half ages, rather than a raw
-    # pulse-line string.
+    # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): render_beads_bar now takes
+    # structured (openspec_open, openspec_in_progress, openspec_ua,
+    # beads_open, beads_ready, beads_blocked) counts + independent per-half
+    # ages, rendering the abbreviated `op:`/`bd:` format.
     D = render.DIM
     Y = render.YELLOW
     R = render.RED
 
     # No counts at all (no cache, or nothing parsed from either line) -> ''.
-    _check(render.render_beads_bar(None, None, None, None) == "", "all None -> ''")
+    _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all None -> ''")
 
-    # A half is "present" only when BOTH its counts are non-None — a
-    # partially-present half (one count set, the other None, e.g. from a
-    # malformed line) renders as fully absent, same as fully-None (task 2.2's
-    # fail-open contract: a broken half never leaks a placeholder value).
-    out_partial = render.render_beads_bar(12, None, 5, 2)
-    _check("openspec:" not in out_partial, "partial openspec half (unarchived=None) omitted entirely")
+    # A half is "present" only when ALL THREE of its counts are non-None — a
+    # partially-present half (one count set, the others None, e.g. from a
+    # malformed line) renders as fully absent, same as fully-None (fail-open
+    # contract: a broken half never leaks a placeholder value).
+    out_partial = render.render_beads_bar(12, 1, None, 1, 5, 2)
+    _check("op:" not in out_partial, "partial openspec half (ua=None) omitted entirely")
     _check(
-        out_partial == f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]",
-        "partial openspec half omitted -> only the valid beads half renders",
+        out_partial == f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]",
+        "partial openspec half omitted -> only the valid bd half renders",
     )
 
     # Openspec-only (beads half fully absent) -> single segment, no
-    # separator, no beads text anywhere.
-    out_openspec_only = render.render_beads_bar(12, 0, None, None)
+    # separator, no bd text anywhere.
+    out_openspec_only = render.render_beads_bar(12, 1, 0, None, None, None)
     _check(
-        out_openspec_only == f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived#[default]",
-        "openspec-only: single segment, zero unarchived -> DIM",
+        out_openspec_only == f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua#[default]",
+        "openspec-only: single segment, zero ua -> DIM",
     )
     _check(
-        "beads:" not in out_openspec_only and "|" not in out_openspec_only,
-        "openspec-only: no beads segment, no separator",
+        "bd:" not in out_openspec_only and "|" not in out_openspec_only,
+        "openspec-only: no bd segment, no separator",
     )
 
     # Beads-only (openspec half fully absent) -> single segment.
-    out_beads_only = render.render_beads_bar(None, None, 5, 0)
+    out_beads_only = render.render_beads_bar(None, None, None, 1, 5, 0)
     _check(
-        out_beads_only == f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]",
+        out_beads_only == f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]",
         "beads-only: single segment, zero blocked -> DIM",
     )
-    _check("openspec:" not in out_beads_only, "beads-only: no openspec segment")
+    _check("op:" not in out_beads_only, "beads-only: no openspec segment")
 
-    # Both halves present, zero unarchived/blocked -> DIM throughout, joined
-    # by the DIM ' | ' separator, single trailing reset (mirrors the old
+    # Both halves present, zero ua/blocked -> DIM throughout, joined by the
+    # DIM ' | ' separator, single trailing reset (mirrors the old
     # multi-line-join shape, now built from two structured segments).
-    out_both_zero = render.render_beads_bar(12, 0, 5, 0)
+    out_both_zero = render.render_beads_bar(12, 1, 0, 1, 5, 0)
     _check(
         out_both_zero == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
         ),
-        "both halves, zero unarchived/blocked -> DIM, joined by separator",
+        "both halves, zero ua/blocked -> DIM, joined by separator",
     )
     _check(out_both_zero.count("#[default]") == 1, "single trailing reset, not per-segment")
 
-    # Nonzero-but-below-threshold unarchived/blocked -> YELLOW; open/ready
+    # Nonzero-but-below-threshold ua/blocked -> YELLOW; open/in_progress/ready
     # counts always stay DIM regardless of their own value (informational,
     # not a health signal).
-    out_yellow = render.render_beads_bar(12, 3, 5, 2)
+    out_yellow = render.render_beads_bar(12, 1, 3, 1, 5, 2)
     _check(
         out_yellow == (
-            f"#[fg={D}]openspec: 12 open #[fg={Y}]3#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={Y}]3#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]"
         ),
-        "unarchived/blocked > 0 and < high threshold -> YELLOW",
+        "ua/blocked > 0 and < high threshold -> YELLOW",
     )
 
     # At/above the documented high-count threshold -> RED.
     hi_u, hi_b = render.BEADS_UNARCHIVED_HIGH, render.BEADS_BLOCKED_HIGH
-    out_red = render.render_beads_bar(12, hi_u, 5, hi_b)
+    out_red = render.render_beads_bar(12, 1, hi_u, 1, 5, hi_b)
     _check(
         out_red == (
-            f"#[fg={D}]openspec: 12 open #[fg={R}]{hi_u}#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={R}]{hi_u}#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={R}]{hi_b}#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={R}]{hi_b}#[fg={D}]b#[default]"
         ),
-        "unarchived/blocked >= documented high threshold -> RED",
+        "ua/blocked >= documented high threshold -> RED",
     )
     _check(render._threshold_color(hi_u - 1, hi_u) == Y, "one below threshold -> still YELLOW, not RED")
 
     # Staleness markers (plan 006 / BEADS-01, extended to independent
-    # per-segment ages by task 2.3): fresh/unknown age -> unchanged; age
-    # beyond BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)"
-    # marker on that segment only, the other segment unaffected.
+    # per-segment ages): fresh/unknown age -> unchanged; age beyond
+    # BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)" marker
+    # on that segment only, the other segment unaffected.
     base = (
-        f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+        f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
         f"{render._BEADS_SEP}"
-        f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+        f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
     )
-    _check(render.render_beads_bar(12, 0, 5, 0, None, None) == base, "both ages None -> no markers")
-    _check(render.render_beads_bar(12, 0, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
+    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, None, None) == base, "both ages None -> no markers")
+    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
     _check(
-        render.render_beads_bar(12, 0, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC) == base,
+        render.render_beads_bar(
+            12, 1, 0, 1, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC
+        ) == base,
         "age exactly at threshold -> not yet stale (strict >)",
     )
 
-    out_stale_openspec = render.render_beads_bar(12, 0, 5, 0, 901.0, None)
+    out_stale_openspec = render.render_beads_bar(12, 1, 0, 1, 5, 0, 901.0, None)
     _check(
         out_stale_openspec == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived (15m)"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua (15m)"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
         ),
-        "stale openspec age only -> (15m) marker on the openspec segment, beads segment unaffected",
+        "stale openspec age only -> (15m) marker on the op segment, bd segment unaffected",
     )
 
-    out_stale_beads = render.render_beads_bar(12, 0, 5, 0, None, 7500.0)
+    out_stale_beads = render.render_beads_bar(12, 1, 0, 1, 5, 0, None, 7500.0)
     _check(
         out_stale_beads == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked (2h)#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b (2h)#[default]"
         ),
-        "stale beads age only -> (2h) marker on the beads segment, openspec segment unaffected",
+        "stale beads age only -> (2h) marker on the bd segment, op segment unaffected",
     )
 
 
@@ -2187,20 +2189,20 @@ def _test_cli_read_roadmap_pulse_radar_strip() -> None:
 
         # A stray radar: line is stripped entirely; the other lines survive.
         with open(pulse_file, "w") as f:
-            f.write("radar:stale (1d)\nopenspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+            f.write("radar:stale (1d)\nop: 12o 3ip 1ua\nbd: 4o 5r 2b\n")
         content, _age = cli._read_roadmap_pulse("%1")
         _check(
-            content == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            content == "op: 12o 3ip 1ua\nbd: 4o 5r 2b",
             "radar: line stripped, other lines preserved",
         )
         _check("radar:" not in content, "no radar: content survives the read")
 
         # Content with no radar: line at all is unaffected.
         with open(pulse_file, "w") as f:
-            f.write("openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+            f.write("op: 12o 3ip 1ua\nbd: 4o 5r 2b\n")
         content2, _age2 = cli._read_roadmap_pulse("%1")
         _check(
-            content2 == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            content2 == "op: 12o 3ip 1ua\nbd: 4o 5r 2b",
             "content without a radar: line is unaffected",
         )
 
@@ -2221,51 +2223,59 @@ def _test_cli_read_roadmap_pulse_radar_strip() -> None:
 
 
 def _test_cli_parse_roadmap_pulse_counts() -> None:
-    # cc-tmux-row3-openspec-beads-format task 2.2: parse the two-line
-    # "openspec: N open, M unarchived" / "beads: N ready, M blocked" cache
-    # format into structured counts, each half independent and fail-open.
-    both = "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): parse the abbreviated
+    # "op: {N}o {M}ip {K}ua" / "bd: {N}o {M}r {K}b" cache format into
+    # structured counts, each half independent and fail-open.
+    both = "op: 12o 3ip 1ua\nbd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(both) == (12, 3, 5, 2),
+        cli._parse_roadmap_pulse_counts(both) == (12, 3, 1, 4, 5, 2),
         "well-formed two-line content -> both halves parsed",
     )
 
-    reordered = "beads: 5 ready, 2 blocked\nopenspec: 12 open, 3 unarchived"
+    # Real-world sample verified live against
+    # ~/.claude/scripts/state/roadmap-pulse.if.line (if-bqw.1 task text).
+    live_sample = "op: 1o 0ip 0ua\nbd: 1o 1r 0b"
     _check(
-        cli._parse_roadmap_pulse_counts(reordered) == (12, 3, 5, 2),
+        cli._parse_roadmap_pulse_counts(live_sample) == (1, 0, 0, 1, 1, 0),
+        "live-sample two-line content -> both halves parsed exactly",
+    )
+
+    reordered = "bd: 4o 5r 2b\nop: 12o 3ip 1ua"
+    _check(
+        cli._parse_roadmap_pulse_counts(reordered) == (12, 3, 1, 4, 5, 2),
         "line order doesn't affect parsing",
     )
 
-    openspec_only = "openspec: 12 open, 3 unarchived"
+    openspec_only = "op: 12o 3ip 1ua"
     _check(
-        cli._parse_roadmap_pulse_counts(openspec_only) == (12, 3, None, None),
-        "missing beads line -> beads half absent (None, None), openspec half intact",
+        cli._parse_roadmap_pulse_counts(openspec_only) == (12, 3, 1, None, None, None),
+        "missing bd line -> beads half absent (None, None, None), openspec half intact",
     )
 
-    malformed_beads = "openspec: 12 open, 3 unarchived\nbeads: garbage"
+    malformed_beads = "op: 12o 3ip 1ua\nbd: garbage"
     _check(
-        cli._parse_roadmap_pulse_counts(malformed_beads) == (12, 3, None, None),
-        "malformed beads line -> beads half absent, openspec half intact",
+        cli._parse_roadmap_pulse_counts(malformed_beads) == (12, 3, 1, None, None, None),
+        "malformed bd line -> beads half absent, openspec half intact",
     )
 
-    beads_only = "beads: 5 ready, 2 blocked"
+    beads_only = "bd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(beads_only) == (None, None, 5, 2),
-        "missing openspec line -> openspec half absent (None, None), beads half intact",
+        cli._parse_roadmap_pulse_counts(beads_only) == (None, None, None, 4, 5, 2),
+        "missing op line -> openspec half absent (None, None, None), beads half intact",
     )
 
-    malformed_openspec = "openspec: not-a-number open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    malformed_openspec = "op: not-a-number ip 1ua\nbd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(malformed_openspec) == (None, None, 5, 2),
-        "malformed openspec line -> openspec half absent, beads half intact",
+        cli._parse_roadmap_pulse_counts(malformed_openspec) == (None, None, None, 4, 5, 2),
+        "malformed op line -> openspec half absent, beads half intact",
     )
 
     _check(
-        cli._parse_roadmap_pulse_counts("") == (None, None, None, None),
+        cli._parse_roadmap_pulse_counts("") == (None, None, None, None, None, None),
         "empty content -> both halves absent",
     )
     _check(
-        cli._parse_roadmap_pulse_counts("some unrelated line") == (None, None, None, None),
+        cli._parse_roadmap_pulse_counts("some unrelated line") == (None, None, None, None, None, None),
         "unrelated content -> both halves absent",
     )
 
