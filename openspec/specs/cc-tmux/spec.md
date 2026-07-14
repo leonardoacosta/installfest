@@ -437,8 +437,13 @@ The plugin SHALL render a dedicated tmux status row (`status-format[1]`) showing
 a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S), the project code, the git branch,
 and (when any of the six working-tree metrics below is nonzero) working-tree indicators.
 Right-justified on the same row, the plugin SHALL render Claude usage statistics for the active
-nexus-agent credential: an account label, and SES:/5H:/7D: utilization gauges. This row SHALL
-remain separate from the window-tabs row.
+nexus-agent credential: an account label, a token-count label for SES (e.g. `252.5k:`, unchanged
+from the prior `cc-tmux-context-bar` format) plus exact `5H:xx%`/`7D:xx%` text, and a combined
+Unicode Braille usage glyph (10 cells wide) encoding all three values in one glyph run — top two
+dot-rows = SES, third dot-row = 5H, fourth (bottom) dot-row = 7D, each row an independent
+proportional left-to-right fill. The glyph renders in a neutral/unstyled color; the exact text
+values remain the sole color-coded signal (unchanged `usage.color_for`/`_context_color_pair`
+thresholds). This row SHALL remain separate from the window-tabs row.
 
 **Model letter** (unchanged sourcing, disclosed degradation) and **branch** (unchanged dual
 source: nx `project_git_status` primary, local `@cc-branch` fallback) are UNCHANGED by this
@@ -470,12 +475,23 @@ carries only `modified`/`untracked` — `deleted`/`renamed`/`ahead`/`behind` SHA
 to local until nx's payload is extended (tracked externally; this requirement's per-field
 resolution rule requires no future code change when that happens).
 
+**Combined usage glyph** (`render_usage_glyph`, 10 braille cells): for a metric with ratio `r`
+(0..1) and a bit-order table of `k` bits per cell (SES: 4 bits/cell, rows 1-2; 5H: 2 bits/cell,
+row 3; 7D: 2 bits/cell, row 4), the total dot budget is `k * 10` and `dots_lit =
+round(r * budget)`, filled sequentially cell-by-cell left to right — the same segmented-fill
+principle as the prior token-count bar, generalized to 3 independently-filling rows sharing one
+10-cell run. A metric whose data is unavailable (see the unpolled scenario below) contributes
+ZERO dots to its own row(s) only — other metrics' rows are unaffected (per-metric degrade, not an
+all-or-nothing glyph blackout).
+
 #### Scenario: row 2 renders the session identity and usage
 - Given: a tracked Claude pane in project `if` on branch `main`, model Fable, and the active
   nexus-agent credential has usage data
 - When: the session-bar row renders
 - Then: the left side shows `F if > main` (model letter, project, branch) and the right side
-  shows the account label plus SES:/5H:/7D: gauges
+  shows the account label, `252.5k: 5H:xx% 7D:xx%` text (SES's token-count label, unchanged from
+  the prior format, plus 5H/7D percentages), and the combined 10-cell braille glyph with each
+  row's fill proportional to that metric's value
 
 #### Scenario: modified and untracked prefer nx, deleted/renamed/ahead/behind fall back to local
 - Given: a tracked pane in project `if`; `GET /projects/if/status` returns a `git` object with
@@ -535,10 +551,13 @@ resolution rule requires no future code change when that happens).
 - Then: the row reflects the `waiting` Claude pane (fallback to the existing priority-based
   pick), not an empty row
 
-#### Scenario: unpolled usage windows render as '--'
-- Given: an active nexus-agent credential that has not yet been polled for 5-hour/7-day usage
+#### Scenario: unpolled usage windows render as '--' and blank that metric's glyph row(s) only
+- Given: an active nexus-agent credential that has not yet been polled for 5-hour/7-day usage,
+  while SES has live data
 - When: the session-bar row renders
-- Then: the SES:/5H:/7D: gauges render `--` in a dimmed colour rather than a stale/wrong percent
+- Then: the `5H:`/`7D:` text renders `--` in a dimmed colour rather than a stale/wrong percent,
+  the combined glyph's row 3 (5H) and row 4 (7D) render zero dots, and the glyph's rows 1-2 (SES)
+  still render SES's live fill unaffected
 
 #### Scenario: untracked window shows nothing on this row
 - Given: a tmux window with no tracked Claude pane
@@ -626,27 +645,33 @@ diagnostic-only — it MUST NOT alter `_maybe_rename_window`'s existing rename b
 ### Requirement: Clicking the row-2 account label opens a read-only accounts popup
 The plugin SHALL bind a click on row 2's account-label segment to `cc-tmux accounts-popup`, a
 read-only floating pane (positioned immediately above the current status-bar row) listing every
-tracked-but-not-currently-active Claude account with its 5-hour/7-day utilization, plus a
+tracked-but-not-currently-active Claude account with its 5-hour/7-day utilization as text plus a
+combined 2-metric braille glyph (20 cells wide: rows 1-2 = 5H, rows 3-4 = 7D, each metric using
+the full 4-dot-per-cell budget since no SES value applies to a non-active credential), and a
 distinguished row for the currently active account including its live SES (session
-context-window-used %). When fzf and tmux >= 3.2 are available (the same `supports_popup` gate
-`cc-tmux inbox`/`picker-data` already use), the popup pipes through fzf with `--no-input`
-(query box hidden/disabled — genuinely cannot be typed into, not merely dismissed on the first
-keystroke) and a `[x]`-labeled header bound via `--bind 'click-header:abort'` (a real clickable
-close target — tmux's own `display-popup` has no native mouse-click dismissal). Row clicks and
-Enter are inert (`--bind 'left-click:ignore'`/`'enter:ignore'`) — this is a read-only view, it
-MUST NOT switch or swap the active credential. Without fzf/tmux 3.2+, the popup falls back to a
-static `display-popup` dismissed by any keystroke.
+context-window-used %) as text plus the same 3-metric combined glyph used on row 2 (20 cells
+wide: rows 1-2 = SES, row 3 = 5H, row 4 = 7D). When fzf and tmux >= 3.2 are available (the same
+`supports_popup` gate `cc-tmux inbox`/`picker-data` already use), the popup pipes through fzf with
+`--no-input` (query box hidden/disabled — genuinely cannot be typed into, not merely dismissed on
+the first keystroke) and a `[x]`-labeled header bound via `--bind 'click-header:abort'` (a real
+clickable close target — tmux's own `display-popup` has no native mouse-click dismissal). Row
+clicks and Enter are inert (`--bind 'left-click:ignore'`/`'enter:ignore'`) — this is a read-only
+view, it MUST NOT switch or swap the active credential. Without fzf/tmux 3.2+, the popup falls
+back to a static `display-popup` dismissed by any keystroke.
 
 #### Scenario: popup lists other tracked accounts with 5H/7D only
 - Given: 3 tracked nexus-agent credentials, one active, and the click lands on row 2's account
   label
 - When: the accounts popup opens
-- Then: the 2 non-active accounts each show `<label> 5H:xx% 7D:xx%` (no SES field)
+- Then: the 2 non-active accounts each show `<label> 5H:xx% 7D:xx%` (no SES field) plus a 20-cell
+  2-metric braille glyph (rows 1-2 = 5H, rows 3-4 = 7D)
 
 #### Scenario: the active account's row includes SES
 - Given: the accounts popup is open
 - When: the active account's row renders
-- Then: it shows `SES:xx% 5H:xx% 7D:xx%`, with SES sourced identically to row 2's own gauge
+- Then: it shows `252.5k: 5H:xx% 7D:xx%` (SES's token-count label, sourced identically to row
+  2's own gauge, plus 5H/7D percentages), plus a 20-cell 3-metric braille glyph (rows 1-2 = SES,
+  row 3 = 5H, row 4 = 7D)
 
 #### Scenario: duplicate and orphaned credential rows collapse or drop before display
 - Given: nexus-agent's `/credentials` payload contains multiple historical rows for the same
