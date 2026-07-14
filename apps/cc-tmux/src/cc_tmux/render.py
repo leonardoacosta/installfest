@@ -119,6 +119,33 @@ def _idle_meter_index(ratio: float) -> int:
     return round(max(0.0, min(1.0, ratio)) * 16)
 
 
+def idle_usage_meter(raw_tokens: Optional[float], now: float) -> Tuple[str, str]:
+    """``(glyph, color)`` for the idle-tab usage meter at wall-clock ``now``.
+
+    ``raw_tokens is None`` renders byte-identical to today's static idle glyph
+    — :data:`IDLE_GLYPH` with an empty color string (no ``#[fg=...]`` wrap) —
+    never the flash glyph, since missing data is not the same as a fresh
+    session (design.md § "`None` fallback: static `█`, never `░`").
+
+    Otherwise the glyph is :data:`IDLE_METER_RAMP` indexed by
+    :func:`_idle_meter_index` against :data:`IDLE_METER_SCALE_TOKENS`; index 0
+    additionally flashes between the ramp glyph and a blank braille cell
+    (U+2800, same column width) on :data:`FRAME_PERIOD_SEC` parity
+    (design.md § "Flash"). Color is always :func:`resolve_context_color`
+    reused verbatim — no meter-specific color logic (locked decision,
+    design.md § "Color + pulse").
+    """
+    if raw_tokens is None:
+        return IDLE_GLYPH, ""
+    ratio = raw_tokens / IDLE_METER_SCALE_TOKENS
+    idx = _idle_meter_index(ratio)
+    if idx == 0:
+        glyph = IDLE_METER_RAMP[0] if int(now / FRAME_PERIOD_SEC) % 2 else "⠀"
+    else:
+        glyph = IDLE_METER_RAMP[idx]
+    return glyph, resolve_context_color(raw_tokens, now)
+
+
 def animated_icon(state: str, now: float) -> str:
     """The tab-icon glyph for ``state`` at wall-clock ``now``.
 
