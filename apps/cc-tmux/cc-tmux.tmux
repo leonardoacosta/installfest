@@ -182,8 +182,55 @@ fi
 # here. Still needs a real attached-tmux-client check (task 4.5) — this
 # reasoning is static, not an observed fix.
 # ---------------------------------------------------------------------------
+#
+# 2026-07-14 FOLLOW-UP (cc-tmux-status-bar-popup-polish task 3.4 correction,
+# post-4.5 live verification): the `--height=100%` fix above was the right
+# diagnosis (fzf's own auto-height detection is unreliable in a
+# `display-popup -E`-spawned pty) but the wrong-shaped remedy — with only 3
+# real accounts (~5 lines each) it now renders a tall, mostly-empty box.
+# Fixed by computing an ABSOLUTE line count from the real
+# `$CMD accounts-popup` output (`wc -l` on a throwaway invocation) instead of
+# filling whatever pty fzf is handed. Overhead margin of 6 was measured
+# empirically (isolated tmux test session, this fzf build, 0.71.0): the fixed
+# chrome around the list is exactly 5 rows (2 for `display-popup`'s own
+# outer border + 3 for `--header-border`'s inner header box: top rule,
+# header text, bottom rule) with `--no-input` hiding the extra info/prompt
+# row a non-`--no-input` invocation would otherwise add — +1 on top of that
+# measured 5 is a safety cushion for cross-version/cross-terminal variance,
+# not a guess. The outer `-h 80%` stays as a generous UPPER BOUND per the
+# note above (tmux already clamps it to the real client size, and an
+# absolute `fzf --height` larger than the pty it's given is itself clamped
+# down automatically — verified empirically, so an oversized computed value
+# degrades safely instead of erroring). `$CMD accounts-popup` runs twice
+# (once piped to `wc -l`, once piped to `fzf`) rather than capturing its
+# output once into a shell variable and re-quoting that variable through
+# this already deeply-nested, multiply-escaped one-liner (rules/TOOLING.md's
+# RTK quoted-command-token footgun is the same fragility class) — the extra
+# invocation is cheap (local status read, no network) and "simpler, just as
+# safe" is the same tradeoff call the `-h 80%` note above already made.
+#
+# Second bug found in the SAME live pass: fzf draws a persistent gutter
+# glyph on every row EXCEPT the current one (the current row's `--pointer`
+# glyph occupies that same column instead) — confirmed empirically by
+# diffing rendered output with/without a `--gutter=' '` override. This is
+# NOT a background-color highlight (a `--color` override on `bg+`/`fg+`
+# alone does not remove it, since it is a drawn character, not a fill) — it
+# is what actually produced the "looks selectable/scrollable" appearance the
+# click-binds already disprove behaviorally. Fixed by blanking `--gutter` to
+# match the already-blanked `--pointer`. `--color='fg+:-1,bg+:-1,gutter:-1'`
+# is kept alongside as defense-in-depth (belt-and-suspenders per the
+# dispatch), and every cursor-moving bind this fzf build (0.71.0) exposes
+# via `--bind` — arrow up/down, `ctrl-j`/`ctrl-k` (down/up), `ctrl-n`/
+# `ctrl-p` (down-match/up-match), `page-up`/`page-down` — is bound to
+# `ignore`, mirroring the existing `left-click:ignore`/`enter:ignore`
+# pattern (`j`/`k` bare letters are not bound to navigation by default in
+# this fzf build with no vim-mode, and are already inert under
+# `--no-input`, so no bind is needed for them). `--no-scrollbar` is also
+# added (supported by this fzf build) so no residual scroll affordance
+# survives even at the outer `-h 80%` clamp boundary.
+# ---------------------------------------------------------------------------
 if supports_popup; then
-  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup | fzf --ansi --height=100% --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
+  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"h=\$($CMD accounts-popup | wc -l); h=\$((h + 6)); $CMD accounts-popup | fzf --ansi --height=\$h --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --gutter=' ' --color='fg+:-1,bg+:-1,gutter:-1' --no-scrollbar --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore' --bind 'up:ignore' --bind 'down:ignore' --bind 'ctrl-j:ignore' --bind 'ctrl-k:ignore' --bind 'ctrl-n:ignore' --bind 'ctrl-p:ignore' --bind 'page-up:ignore' --bind 'page-down:ignore'\""
 else
   # Plain fallback: no fzf, no inner box — `$CMD accounts-popup` writes
   # directly to the popup pane and `read -n 1 -s` just waits for a keypress.
