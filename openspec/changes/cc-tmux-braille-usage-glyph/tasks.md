@@ -49,20 +49,30 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar` (row 2), replace the [beads:if-dxvy]
-  `render_context_bar` call + separate 5H/7D text-only rendering with: unchanged `SES:xx%
-  5H:xx% 7D:xx%` text (still color-coded via existing `usage.color_for`/`_context_color_pair`),
-  followed by `render_usage_glyph(ses_ratio, h5_ratio, d7_ratio, n=10)` rendered in a
-  neutral/unstyled color (no `#[fg=...]` wrapper, or an explicit DIM/default if the surrounding
-  tmux format string requires one — check how the existing unstyled `⇡`/`⇣` segments handle this
-  and mirror it). Do NOT remove the text percentages — the glyph is additive.
-  [owner:general-purpose] [type:ui]
+- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar` (row 2), the current [beads:if-dxvy]
+  right-side line is `f"{render_context_bar(raw_tokens, ses_pct, t)} " f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] " f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"`
+  (`render_context_bar` = SES token-count label `f"#[fg={DIM}]{label}:#[fg={color}]{bar}#[default]"`
+  via `_context_bar_parts`). Replace ONLY the `bar` (shade-block ▓/░ glyphs) portion — keep the
+  `label:` token-count text and its color exactly as-is (reuse `format_context_tokens`/
+  `resolve_context_color`, both already used internally by `_context_bar_parts` — do not
+  duplicate that logic, call them directly or keep going through `_context_bar_parts` and simply
+  discard its `bar` return value). Append `render_usage_glyph(ses_ratio, h5_ratio, d7_ratio,
+  n=10)` after the label instead of the shade-block bar, in a neutral/unstyled color (no
+  `#[fg=...]` wrapper, or an explicit DIM/default if the surrounding tmux format string requires
+  one — check how the existing unstyled `⇡`/`⇣` segments handle this and mirror it). The
+  `5H:xx% 7D:xx%` text stays completely unchanged. Do NOT remove any existing text — the glyph is
+  additive, appended after the SES label and before (or after — pick one, document it) the 5H/7D
+  text. [owner:general-purpose] [type:ui]
 - [ ] [3.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_accounts_popup`, the active account's [beads:if-s6uh]
-  row calls `render_usage_glyph(ses_ratio, h5_ratio, d7_ratio, n=20)` alongside its existing
-  `SES:xx% 5H:xx% 7D:xx%` text; each non-active account's row calls
-  `render_usage_glyph_2metric(h5_ratio, d7_ratio, n=20)` alongside its existing `5H:xx% 7D:xx%`
-  text (no SES field, unchanged). Both glyphs render neutral/unstyled, same as row 2.
-  [owner:general-purpose] [type:ui]
+  row currently builds `bar_plain = f"{bar_label}:{bar_glyphs}"` / `bar_colored =
+  f"{bar_label}:{_hex_to_ansi_fg(bar_color)}{bar_glyphs}{_ANSI_RESET}"` via `_context_bar_parts`
+  (see the `is_active` branch). Replace `bar_glyphs` with `render_usage_glyph(ses_ratio, h5_ratio,
+  d7_ratio, n=20)` (neutral/unstyled — do not wrap it in `_hex_to_ansi_fg`), keeping `bar_label:`
+  (the token-count label) and the existing `5H:xx% 7D:xx%` tail completely unchanged. Each
+  non-active account's row (the `else` case, no bar today) gets
+  `render_usage_glyph_2metric(h5_ratio, d7_ratio, n=20)` appended alongside its existing
+  `5H:xx% 7D:xx%` text (no SES field, unchanged) — this is NEW for non-active rows, which
+  currently render no glyph at all. [owner:general-purpose] [type:ui]
 - [ ] [3.3] `apps/cc-tmux/src/cc_tmux/render.py`: remove `render_context_bar` and its [beads:if-kl8p]
   `CONTEXT_BAR_WIDTH`/`_BAR_FILLED`/`_BAR_EMPTY` constants once nothing calls it (confirm via
   grep across `apps/cc-tmux/src/cc_tmux/` before deleting — `_context_color_pair`'s 6-tier ramp
@@ -92,10 +102,10 @@
   the passing stdout. [owner:general-purpose] [type:testing]
 - [ ] [4.4] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the [beads:if-hczj]
   `render_session_bar`/`render_accounts_popup` wiring: row 2's rendered output contains both the
-  unchanged `SES:xx% 5H:xx% 7D:xx%` text AND the 10-cell glyph; the popup's active row contains
-  both its text and the 20-cell 3-metric glyph; a non-active popup row contains its text (no SES)
-  and the 20-cell 2-metric glyph, with no SES-shaped dots present. Run `cc-tmux self-test` and
-  paste the passing stdout. [owner:general-purpose] [type:testing]
+  unchanged SES token-count label + `5H:xx% 7D:xx%` text AND the 10-cell glyph; the popup's
+  active row contains both its text and the 20-cell 3-metric glyph; a non-active popup row
+  contains its text (no SES) and the 20-cell 2-metric glyph, with no SES-shaped dots present. Run
+  `cc-tmux self-test` and paste the passing stdout. [owner:general-purpose] [type:testing]
 - [ ] [4.5] Live verification: with a real tracked pane in this repo, confirm row 2's actual [beads:if-1r71]
   on-screen render shows both the text and the new glyph, using real 5H/7D from nexus-agent (per
   `design.md` § Live-data verification gap, SES may need to stay illustrative if

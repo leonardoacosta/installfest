@@ -5,7 +5,8 @@ The plugin SHALL render a dedicated tmux status row (`status-format[1]`) showing
 a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S), the project code, the git branch,
 and (when any of the six working-tree metrics below is nonzero) working-tree indicators.
 Right-justified on the same row, the plugin SHALL render Claude usage statistics for the active
-nexus-agent credential: an account label, exact `SES:xx%`/`5H:xx%`/`7D:xx%` text, and a combined
+nexus-agent credential: an account label, a token-count label for SES (e.g. `252.5k:`, unchanged
+from the prior `cc-tmux-context-bar` format) plus exact `5H:xx%`/`7D:xx%` text, and a combined
 Unicode Braille usage glyph (10 cells wide) encoding all three values in one glyph run — top two
 dot-rows = SES, third dot-row = 5H, fourth (bottom) dot-row = 7D, each row an independent
 proportional left-to-right fill. The glyph renders in a neutral/unstyled color; the exact text
@@ -56,8 +57,9 @@ all-or-nothing glyph blackout).
   nexus-agent credential has usage data
 - When: the session-bar row renders
 - Then: the left side shows `F if > main` (model letter, project, branch) and the right side
-  shows the account label, `SES:xx% 5H:xx% 7D:xx%` text, and the combined 10-cell braille glyph
-  with each row's fill proportional to that metric's value
+  shows the account label, `252.5k: 5H:xx% 7D:xx%` text (SES's token-count label, unchanged from
+  the prior format, plus 5H/7D percentages), and the combined 10-cell braille glyph with each
+  row's fill proportional to that metric's value
 
 #### Scenario: modified and untracked prefer nx, deleted/renamed/ahead/behind fall back to local
 - Given: a tracked pane in project `if`; `GET /projects/if/status` returns a `git` object with
@@ -157,8 +159,9 @@ back to a static `display-popup` dismissed by any keystroke.
 #### Scenario: the active account's row includes SES
 - Given: the accounts popup is open
 - When: the active account's row renders
-- Then: it shows `SES:xx% 5H:xx% 7D:xx%`, with SES sourced identically to row 2's own gauge, plus
-  a 20-cell 3-metric braille glyph (rows 1-2 = SES, row 3 = 5H, row 4 = 7D)
+- Then: it shows `252.5k: 5H:xx% 7D:xx%` (SES's token-count label, sourced identically to row
+  2's own gauge, plus 5H/7D percentages), plus a 20-cell 3-metric braille glyph (rows 1-2 = SES,
+  row 3 = 5H, row 4 = 7D)
 
 #### Scenario: duplicate and orphaned credential rows collapse or drop before display
 - Given: nexus-agent's `/credentials` payload contains multiple historical rows for the same
