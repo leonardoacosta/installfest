@@ -76,12 +76,23 @@ underlying per-metric dot-fill helper is shared — only the bit-order tables di
 A single braille character can only carry one tmux `#[fg=...]` color for its whole cell, but the
 combined glyph encodes three independently-thresholded metrics per cell. Rather than invent a
 "worst-of-three" aggregate color rule (e.g. red if ANY metric is >80%), this proposal keeps color
-exclusively on the existing text numbers (`usage.color_for`'s RED/YELLOW/CYAN for 5H/7D text,
-`_context_color_pair`'s 6-tier ramp for the SES token-count label) and renders the glyph itself in
-a neutral/unstyled color. This mirrors an existing precedent in the same codebase: the popup's
-non-active-row 5H/7D text is already "deliberately uncolored — uniformly green"
-(`render.py:653-656`) — i.e. this plugin already accepts that some usage indicators are
-intentionally neutral where a combined/aggregate signal would mislead more than it helps.
+exclusively on the existing text numbers (`usage.color_for`'s RED/YELLOW/CYAN for 5H/7D text) and
+renders the glyph itself in a neutral/unstyled color. This mirrors an existing precedent in the
+same codebase: the popup's non-active-row 5H/7D text is already "deliberately uncolored —
+uniformly green" (`render.py:653-656`) — i.e. this plugin already accepts that some usage
+indicators are intentionally neutral where a combined/aggregate signal would mislead more than it
+helps.
+
+**Correction found during UI batch verification (task 3.4, if-4lxh.1)**: `_context_color_pair`'s
+6-tier severity ramp was NEVER applied to the SES token-count label before this proposal — it was
+applied exclusively to the shade-bar's fill color (`render_context_bar`'s `#[fg={color}]{bar}`).
+The label itself was always plain DIM. Retiring the bar without moving that ramp onto the label
+(the mistake the first UI batch pass made, following this section's original — inaccurate —
+claim that the label "already" carried it) silently drops the entire severity signal, including
+the pulsing-red near-context-exhaustion warning. The fix carries the ramp forward onto the label
+(`#[fg={color}]{label}:` instead of `#[fg={DIM}]{label}:`, reusing `resolve_context_color`/
+`_context_bar_parts` — no new logic), so the signal that used to live on the bar's color now
+lives on the label's color instead. 5H/7D's `color_for`-driven text colors are unaffected.
 
 ## Staleness: per-metric degrade
 

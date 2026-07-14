@@ -75,9 +75,34 @@
   currently render no glyph at all. [owner:general-purpose] [type:ui]
 - [x] [3.3] `apps/cc-tmux/src/cc_tmux/render.py`: remove `render_context_bar` and its [beads:if-kl8p]
   `CONTEXT_BAR_WIDTH`/`_BAR_FILLED`/`_BAR_EMPTY` constants once nothing calls it (confirm via
-  grep across `apps/cc-tmux/src/cc_tmux/` before deleting — `_context_color_pair`'s 6-tier ramp
-  is UNCHANGED and still used for the text label's color, only the shade-block bar itself is
-  retired). [owner:general-purpose] [type:ui]
+  grep across `apps/cc-tmux/src/cc_tmux/` before deleting — retired the shade-block bar itself;
+  see task 3.4 below for a correction on where its severity color goes).
+  [owner:general-purpose] [type:ui]
+- [ ] [3.4] CORRECTION (found during UI batch verification, not new scope): tasks 3.1/3.2 and [beads:if-4lxh.1]
+  design.md's original Color section both mistakenly assumed `_context_color_pair`'s 6-tier
+  severity ramp was already applied to the SES token-count label — it was NEVER on the label,
+  only on the now-retired shade-bar's fill color (`render_context_bar`'s `#[fg={color}]{bar}`).
+  The label was always plain DIM. As landed by tasks 3.1/3.2, this means the severity ramp
+  (including the pulsing-red near-context-exhaustion warning) currently renders NOWHERE — a real
+  regression, not this proposal's intent (design.md's stated intent was always "color stays on
+  text, glyph stays neutral" — the label IS that text, it just wasn't wired to the ramp before).
+  Fix in `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar`, change
+  `f"#[fg={DIM}]{ses_label}:#[default]{usage_glyph} "` to wrap `ses_label` in
+  `resolve_context_color(raw_tokens, t)` instead of `DIM` (reuse the existing function — `t` is
+  already computed in this function for the glyph/pulse timing, confirm it's in scope at this
+  point or hoist it earlier if needed). In `render_accounts_popup`'s active-row branch, change
+  `bar_label = format_context_tokens(active_raw_tokens)` + the plain `bar_str = f"{bar_label}:
+  {bar_glyphs}"` to wrap `bar_label` in `_hex_to_ansi_fg(resolve_context_color(active_raw_tokens,
+  t))` (ANSI, matching this function's escaping convention, NOT tmux `#[fg=...]`) — do not wrap
+  `bar_glyphs` (the glyph itself stays neutral, unchanged). Verify by running both functions with
+  a `raw_tokens` value in each of the 6 severity tiers (per `_context_color_pair`'s docstring:
+  <=100k, >100k, >200k, >300k, >500k, >600k, >750k) and confirming the label's color changes
+  tier-to-tier while the glyph stays unstyled. Run `cc-tmux self-test` and confirm still 92/94 (no
+  new regressions from this fix; the 2 pre-existing failures from tasks 3.1/3.2 are owned by task
+  4.4, not this one). Also apply the `design.md` § Color correction already written (the
+  "Correction found during UI batch verification" paragraph) — no further edit needed there,
+  just confirm it reads consistently with what you implement.
+  [owner:general-purpose] [type:ui]
 
 ## E2E Batch
 
