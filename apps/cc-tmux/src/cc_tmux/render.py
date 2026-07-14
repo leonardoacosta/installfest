@@ -210,6 +210,32 @@ def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> st
     return animated_icon(state, now)
 
 
+def resolve_tab_glyph(
+    state: str,
+    now: float,
+    fg_count: int,
+    bg_count: int,
+    raw_tokens: Optional[float] = None,
+) -> Tuple[str, str]:
+    """``(glyph, color)`` tab-icon pair, idle-usage-meter-aware
+    (cc-tmux-idle-tab-usage-meter overlay).
+
+    Pure additive wrapper — :func:`resolve_tab_icon` itself is untouched (legacy
+    :func:`cc_tmux.cli.cmd_window_icon` still calls it directly and must keep
+    rendering the plain, monochrome glyph unchanged). Precedence is IDENTICAL
+    to :func:`resolve_tab_icon`'s documented order: sub-agent overlays and the
+    waiting/active animations beat the meter — only the plain, un-overlaid idle
+    case (``fg_count == 0 and bg_count == 0 and state == "idle"``) swaps in
+    :func:`idle_usage_meter`'s ramp glyph + severity colour. Every other case
+    returns ``(resolve_tab_icon(...), "")`` — an empty colour, so callers never
+    wrap the existing waiting/active/sub-agent glyphs in a stray ``#[fg=...]``
+    (design.md § "API shape: additive wrapper, `resolve_tab_icon` untouched").
+    """
+    if fg_count == 0 and bg_count == 0 and state == "idle":
+        return idle_usage_meter(raw_tokens, now)
+    return resolve_tab_icon(state, now, fg_count, bg_count), ""
+
+
 def resolve_icons(get_option: Callable[[str], str]) -> Dict[str, str]:
     """Icon map with per-state ``@cc-icon-<state>`` overrides applied.
 
