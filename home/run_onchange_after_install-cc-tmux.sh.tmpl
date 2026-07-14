@@ -4,11 +4,18 @@
 # manually (symlink + run-shell load), same as tmux-which-key, since this repo
 # runs no TPM (see docs/audit/tmux.md N5).
 #
-# Two install actions:
+# Three install actions:
 #   (a) symlink apps/cc-tmux -> ~/.tmux/plugins/cc-tmux so tmux.conf's
 #       `run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` load line resolves.
 #   (b) register the Claude Code plugin from the local clone so its state hooks
 #       (waiting/idle/active) self-register WITHOUT editing cc's settings.json.
+#   (d) re-run `tmux run-shell` on any LIVE tmux server so keybinding changes
+#       in cc-tmux.tmux take effect immediately (if-8vqd) — editing/committing
+#       the file does not retroactively rebind an already-running server's key
+#       table, which has twice silently dropped bindings (MouseDown1Status)
+#       with no error until Leo noticed tabs stopped working. This script only
+#       re-runs when cc-tmux.tmux's own hash changes (see header), so (d) only
+#       fires on an actual binding-relevant change, not every chezmoi apply.
 #
 # Re-runs whenever the plugin's install-relevant surface changes (the tmux
 # entrypoint, the Claude hooks manifest, or the plugin manifest), so a fresh
@@ -84,4 +91,19 @@ if command -v python3 >/dev/null 2>&1; then
   success "cc-tmux: python3 present"
 else
   warning "cc-tmux: python3 not found — cc-tmux CLI will not run until it is installed"
+fi
+
+# --- (d) re-register keybindings on any live tmux server (if-8vqd) ----------
+# Bare `tmux.conf` edits/`run-shell` sourcing only take effect for NEW tmux
+# servers — an already-running server's key table is untouched until
+# `run-shell` is re-invoked against it. Fail open: never abort chezmoi apply
+# over a re-registration failure (bindings just stay stale until manually run).
+if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
+  if tmux run-shell "$PLUGIN_LINK/cc-tmux.tmux" >/dev/null 2>&1; then
+    success "cc-tmux: re-registered keybindings on live tmux server"
+  else
+    warning "cc-tmux: 'tmux run-shell $PLUGIN_LINK/cc-tmux.tmux' failed — keybindings may be stale. Run manually: tmux run-shell $PLUGIN_LINK/cc-tmux.tmux"
+  fi
+else
+  success "cc-tmux: no live tmux server — new servers will load current bindings"
 fi
