@@ -92,12 +92,12 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for `_account_label`'s [beads:if-nd28]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test case for `_account_label`'s [beads:if-nd28]
   new org-suffix format — a credential with a known `orgUuid` produces a label ending in the
   first 8 characters of that UUID, and this matches `_account_identity`'s `org_short` for the
   identical credential byte-for-byte. Run `cc-tmux self-test` and paste the passing stdout.
   [owner:general-purpose] [type:testing]
-- [ ] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-9y0t]
+- [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-9y0t]
   `render_accounts_popup`'s uniform 2-metric glyph — the active row's rendered line contains no
   SES-shaped 4-bit-per-cell dot pattern and no token-count label (`format_context_tokens`
   output), only `5H:xx% 7D:xx%` text plus the 20-cell 2-metric glyph identical in shape to a
@@ -107,14 +107,14 @@
   `cc-tmux-braille-usage-glyph` proposal's task 4.4 correction). Run `cc-tmux self-test` and
   paste the passing stdout with the full pass count (0 failures, no regressions from this batch).
   [owner:general-purpose] [type:testing]
-- [ ] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-k3uz]
+- [x] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-k3uz]
   `render_session_bar`'s new right-side composition — the rendered right side contains no
   account-label text and no `#[range=user|accounts]` marker; the combined glyph's characters
   appear strictly AFTER the `7D:` percentage substring in the rendered output (order assertion,
   not just presence). Update any PRE-EXISTING test asserting the old
   label-first/glyph-before-5H-7D order. Run `cc-tmux self-test` and paste the passing stdout.
   [owner:general-purpose] [type:testing]
-- [ ] [4.4] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-iphi]
+- [x] [4.4] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-iphi]
   `render_beads_bar`'s new account segment — (a) openspec/beads counts both present, account
   label present -> all three segments appear, `_BEADS_SEP`-joined, account segment last and
   wrapped in the range marker; (b) openspec/beads both absent (no cache), account label present

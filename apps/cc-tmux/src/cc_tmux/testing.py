@@ -694,10 +694,22 @@ def _test_usage_extract_util() -> None:
 
 
 def _test_usage_account_label() -> None:
+    # cc-tmux-status-bar-popup-polish task 4.1: _account_label's org suffix
+    # is the first 8 characters of orgUuid (not the last character) --
+    # unified with _account_identity's own org_short format.
+    cred = {
+        "accountName": "Leo",
+        "accountEmail": "leo@x.dev",
+        "orgUuid": "abc123f9-9999-9999-9999-999999999999",
+    }
     _check(
-        usage._account_label({"accountName": "Leo", "accountEmail": "leo@x.dev", "orgUuid": "abc123f"})
-        == "leo@x.dev·f",
-        "prefers full email + org-id last char over accountName",
+        usage._account_label(cred) == "leo@x.dev·abc123f9",
+        "prefers full email + first-8-char org-id suffix over accountName",
+    )
+    _, org_short = usage._account_identity(cred)
+    _check(
+        usage._account_label(cred) == f"leo@x.dev·{org_short}",
+        "_account_label's org suffix matches _account_identity's org_short byte-for-byte",
     )
     _check(usage._account_label({"accountEmail": "leo@x.dev"}) == "leo@x.dev", "email alone when no org id")
     _check(usage._account_label({"accountName": "Leo"}) == "Leo", "falls back to accountName when no email")
@@ -955,55 +967,53 @@ def _test_usage_dedupe_credentials() -> None:
 
 
 def _test_render_accounts_popup() -> None:
+    # cc-tmux-status-bar-popup-polish Decision 1: SES is dropped entirely --
+    # every row (active or not) uses the uniform 20-cell 2-metric glyph over
+    # 5H/7D only. render_accounts_popup no longer takes active_ses_pct/
+    # active_raw_tokens at all.
     accounts = [
-        ("leo@x.dev·f", 0.5, 0.85, None, None, "leo@x.dev", "abcd1234"),
-        ("other@x.dev·2", 0.1, 0.2, None, None, "other@x.dev", "efgh5678"),
+        ("leo@x.dev·abcd1234", 0.5, 0.85, None, None, "leo@x.dev", "abcd1234"),
+        ("other@x.dev·efgh5678", 0.1, 0.2, None, None, "other@x.dev", "efgh5678"),
     ]
-    out = render.render_accounts_popup(
-        accounts, "leo@x.dev·f", 0.42, active_raw_tokens=252_500
-    )
+    out = render.render_accounts_popup(accounts, "leo@x.dev·abcd1234")
     lines = out.splitlines()
     # Summary + identity line + closing border rule per account (no reset
     # data on either account -> no reset lines): 3 lines * 2 accounts.
     _check(len(lines) == 6, f"summary + identity + border per account: {lines!r}")
     plain_lines = [_strip_ansi(l) for l in lines]
-    active_line = next(l for l in plain_lines if "252.5k" in l)
-    # cc-tmux-braille-usage-glyph task 4.4 fix: the non-active row now has a
-    # 2-metric glyph PREPENDED ahead of its "5H:xx% 7D:xx%" text (task 3.2),
-    # so it no longer STARTS with a bare "5H:" percentage -- select by
-    # substring instead of the stale `startswith` anchor.
+    active_line = next(l for l in plain_lines if "5H:50%" in l)
     other_summary = next(l for l in plain_lines if "5H:10%" in l)
     active_identity = next(l for l in plain_lines if "leo@x.dev" in l and "abcd1234" in l)
     other_identity = next(l for l in plain_lines if "other@x.dev" in l and "efgh5678" in l)
     _check(
-        "252.5k:" in active_line, f"active row shows the raw-token bar label: {active_line!r}"
-    )
-    _check(
         "5H:50%" in active_line and "7D:85%" in active_line,
-        f"active row shows 5H/7D too: {active_line!r}",
+        f"active row shows 5H/7D text: {active_line!r}",
     )
-    # Active row carries the 20-cell 3-metric glyph (render_usage_glyph,
-    # active_ses_pct=0.42 per the render_accounts_popup call above).
-    expected_active_glyph = render.render_usage_glyph(0.42, 0.5, 0.85, n=20)
+    # Active row carries the SAME 20-cell 2-metric glyph shape a non-active
+    # row would for identical ratios -- no SES-shaped 4-bit-per-cell pattern,
+    # no separate 3-metric encoding for the starred row.
+    expected_active_glyph = render.render_usage_glyph_2metric(0.5, 0.85, n=20)
     _check(
         expected_active_glyph in active_line,
-        f"active row carries the 20-cell 3-metric glyph: {active_line!r}",
+        f"active row carries the uniform 20-cell 2-metric glyph: {active_line!r}",
     )
     _check(
         "5H:10%" in other_summary and "7D:20%" in other_summary,
         f"non-active row shows 5H/7D text unchanged: {other_summary!r}",
     )
-    _check(
-        "k:" not in other_summary, f"non-active row has no SES token-count label: {other_summary!r}"
-    )
-    # Non-active row now gets its own 20-cell 2-metric glyph prepended
-    # (design.md § Non-active popup rows) -- new behaviour, this row
-    # previously rendered no glyph at all.
     expected_other_glyph = render.render_usage_glyph_2metric(0.1, 0.2, n=20)
     _check(
         expected_other_glyph in other_summary,
-        f"non-active row carries the 20-cell 2-metric glyph: {other_summary!r}",
+        f"non-active row carries the identical-shape 20-cell 2-metric glyph: {other_summary!r}",
     )
+    # No SES-shaped dot pattern (a distinct 3-metric glyph) and no
+    # token-count label (format_context_tokens output, e.g. "252.5k") appear
+    # anywhere -- the popup is fully account-scoped now (Decision 1).
+    _check(
+        "k:" not in active_line and "k:" not in other_summary,
+        "no SES token-count label anywhere",
+    )
+    _check("SES:" not in out, f"SES text is fully gone: {out!r}")
     _check(active_line.startswith("*"), f"active row is marked: {active_line!r}")
     _check(
         not other_summary.startswith("*"), f"non-active row is not marked: {other_summary!r}"
@@ -1019,26 +1029,23 @@ def _test_render_accounts_popup() -> None:
     # No tmux status-format escaping leaks in (this popup uses real ANSI
     # instead — see the green checks below — never tmux's #[fg=...] tokens).
     _check("#[" not in out, "popup body carries no tmux #[...] style codes")
-    # Every number EXCEPT the bar (Leo's ask, 2026-07-13 — the bar carries
-    # its own severity colour, deliberately not uniform green) is wrapped in
-    # the popup's green.
+    # Every percentage is wrapped in the popup's green.
     _check(render._green("50%") in out, f"5H percentage is wrapped in green: {out!r}")
     _check(render._green("85%") in out, f"7D percentage is wrapped in green: {out!r}")
-    # "SES:" text is gone entirely — replaced by the bar.
-    _check("SES:" not in out, f"SES text fully replaced by the bar: {out!r}")
     # Each account block closes with a full-width '─' rule.
     border_lines = [l for l in lines if l and set(l) == {"─"}]
     _check(len(border_lines) == 2, f"one border rule per account: {lines!r}")
 
     # Unreachable nexus-agent / zero deduped credentials -> empty, fail-open.
-    _check(render.render_accounts_popup([], "leo@x.dev", 0.5) == "", "no accounts -> ''")
+    _check(render.render_accounts_popup([], "leo@x.dev") == "", "no accounts -> ''")
 
-    # No account matches active_label -> no row gets the bar (e.g. the active
-    # credential had no usable label and was dropped by the caller).
-    out_no_match = render.render_accounts_popup(accounts, "", None)
+    # No account matches active_label -> no row gets the `*` marker (e.g. the
+    # active credential had no usable label and was dropped by the caller).
+    out_no_match = render.render_accounts_popup(accounts, "")
+    plain_no_match = _strip_ansi(out_no_match)
     _check(
-        "SES:" not in _strip_ansi(out_no_match) and "k:" not in _strip_ansi(out_no_match),
-        "no active_label match -> no bar anywhere",
+        not any(l.startswith("*") for l in plain_no_match.splitlines()),
+        f"no active_label match -> no row marked: {out_no_match!r}",
     )
 
 
@@ -1062,7 +1069,7 @@ def _test_render_accounts_popup_reset_lines() -> None:
     expected_weekday = time.strftime("%a", time.localtime(seven_d_reset))
 
     accounts = [("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset, "leo@x.dev", "abcd1234")]
-    out = render.render_accounts_popup(accounts, "leo@x.dev·8", None, now=now)
+    out = render.render_accounts_popup(accounts, "leo@x.dev·8", now=now)
     lines = out.splitlines()
     # summary + identity + two reset lines + border.
     _check(len(lines) == 5, f"summary + identity + two reset lines + border: {lines!r}")
@@ -1105,7 +1112,7 @@ def _test_render_accounts_popup_reset_lines() -> None:
     # Missing reset data (window not yet polled) -> line omitted, not a
     # placeholder — same fail-open convention as an absent 5H/7D percentage.
     accounts_missing = [("leo@x.dev·8", 0.36, 0.71, None, None, "leo@x.dev", "abcd1234")]
-    out_missing = render.render_accounts_popup(accounts_missing, "leo@x.dev·8", None, now=now)
+    out_missing = render.render_accounts_popup(accounts_missing, "leo@x.dev·8", now=now)
     _check(
         len(out_missing.splitlines()) == 3,
         f"summary + identity + border only, no reset lines: {out_missing!r}",
@@ -1113,7 +1120,7 @@ def _test_render_accounts_popup_reset_lines() -> None:
 
     # Already-passed reset -> "now", not a negative/garbled countdown.
     accounts_past = [("leo@x.dev·8", 0.36, 0.71, now - 60, now - 60, "leo@x.dev", "abcd1234")]
-    out_past = render.render_accounts_popup(accounts_past, "leo@x.dev·8", None, now=now)
+    out_past = render.render_accounts_popup(accounts_past, "leo@x.dev·8", now=now)
     _check(render._green("now") in out_past, f"already-passed reset renders green 'now': {out_past!r}")
 
     # Reset lines render for a NON-active row too (Leo: "for both 5h and 7d
@@ -1122,7 +1129,7 @@ def _test_render_accounts_popup_reset_lines() -> None:
         ("leo@x.dev·8", 0.36, 0.71, five_h_reset, seven_d_reset, "leo@x.dev", "abcd1234"),
         ("other@x.dev·2", 0.1, 0.2, five_h_reset, None, "other@x.dev", "efgh5678"),
     ]
-    out_two = render.render_accounts_popup(accounts_two, "leo@x.dev·8", 0.5, now=now)
+    out_two = render.render_accounts_popup(accounts_two, "leo@x.dev·8", now=now)
     other_lines = [_strip_ansi(l) for l in out_two.splitlines()]
     other_idx = next(i for i, l in enumerate(other_lines) if "other@x.dev" in l)
     _check(
@@ -1408,68 +1415,57 @@ def _test_accounts_popup_click_dismiss_wiring() -> None:
     _check("read -n 1 -s" in content, "static any-keystroke fallback retained for no-fzf/old-tmux case")
 
 
-def _test_cli_accounts_popup_ses_from_nx_agent() -> None:
-    """if-hrbd fix: ``cmd_accounts_popup``'s SES comes from nx-agent
-    (:func:`cli._resolve_ses_pct`), not the legacy per-pane
-    ``session-context.<pane>.json`` file (:func:`cli._read_session_context`).
+def _test_cli_accounts_popup_no_session_state() -> None:
+    """cc-tmux-status-bar-popup-polish task 3.1 (supersedes the retired
+    if-hrbd ``ses_from_nx_agent`` case): the popup dropped SES entirely
+    (Decision 1), so ``cmd_accounts_popup`` no longer resolves ANY
+    per-session state at all -- no window/pane lookup
+    (:func:`tmux.current_window_id`/:func:`cli._resolve_session_pane`), no
+    nx-agent SES query (:func:`nx_agent.session_context`). The popup is
+    fully account-scoped now, independent of the nx-agent session-context
+    bugs (nx-22xz8 and the sibling context-push bug) filed the same session.
 
-    Monkeypatches ``cli._read_session_context`` to a value that would prove
-    the OLD path if it leaked through (a distinctive, wrong percentage), and
-    ``nx_agent.session_context`` to the value the NEW path should surface —
-    a wrong-source bug is visible in the rendered output either way, same
-    technique :func:`_test_cli_build_session_bar_dual_source` uses for row 2.
+    Monkeypatches all three to raise if ever called, proving
+    ``cmd_accounts_popup`` genuinely never touches them, and confirms the
+    popup still renders correctly (uniform 2-metric glyph, real 5H/7D, no
+    SES anywhere) from credential data alone.
     """
     saved_query = usage._query
     saved_current_window = tmux.current_window_id
     saved_resolve_pane = cli._resolve_session_pane
-    saved_get_pane_option = tmux.get_pane_option
     saved_session_context = nx_agent.session_context
-    saved_read_ctx = cli._read_session_context
+
+    def _must_not_be_called(*a, **k):
+        raise AssertionError("cmd_accounts_popup must not resolve per-session state")
 
     usage._query = lambda *a, **k: {  # type: ignore[assignment]
         "credentials": [
-            {"isActive": True, "accountEmail": "leo@x.dev", "orgUuid": "org1"},
+            {
+                "isActive": True,
+                "accountEmail": "leo@x.dev",
+                "orgUuid": "org12345999999999",
+                "usage5hUsed": 50.0,
+                "usage5hLimit": 100.0,
+                "usage7dUsed": 85.0,
+                "usage7dLimit": 100.0,
+            },
         ]
     }
-    tmux.current_window_id = lambda: "@1"  # type: ignore[assignment]
-    cli._resolve_session_pane = lambda window: "%1"  # type: ignore[assignment]
-    tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
-    # OLD path: if this were still read, SES would render as a 99%-full bar
-    # (the wrong value) — this legacy tuple's 2nd field was the old fraction.
-    cli._read_session_context = lambda pane: ("O", 0.99, "", False, 0)  # type: ignore[assignment]
-    # NEW path: nx-agent's real value (42% of a 200k window -> 84.0k raw tokens,
-    # cc-tmux-context-bar's bar label — see cli._resolve_ses_tokens).
-    nx_agent.session_context = lambda *a, **k: {  # type: ignore[assignment]
-        "usedPercentage": 42.0, "contextWindowSize": 200_000,
-    }
+    tmux.current_window_id = _must_not_be_called  # type: ignore[assignment]
+    cli._resolve_session_pane = _must_not_be_called  # type: ignore[assignment]
+    nx_agent.session_context = _must_not_be_called  # type: ignore[assignment]
     try:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             cli.cmd_accounts_popup(None)
         out = _strip_ansi(buf.getvalue())
-        _check(
-            "84.0k:" in out, f"bar label comes from nx-agent (84.0k), not the legacy file: {out!r}"
-        )
-        _check("SES:" not in out, f"SES text is fully replaced by the bar: {out!r}")
-
-        # nx-agent unreachable -> bar blank ('--:'), NOT a silent fall-back to
-        # the legacy file (that fall-back is exactly what if-hrbd removed).
-        nx_agent.session_context = lambda *a, **k: None  # type: ignore[assignment]
-        buf2 = io.StringIO()
-        with contextlib.redirect_stdout(buf2):
-            cli.cmd_accounts_popup(None)
-        out2 = _strip_ansi(buf2.getvalue())
-        _check(
-            "--:" in out2, f"nx-agent unreachable -> bar label blank, no legacy fallback: {out2!r}"
-        )
-        _check("99%" not in out2, f"legacy per-pane file's value must NOT leak through: {out2!r}")
+        _check("5H:50%" in out and "7D:85%" in out, f"popup shows real 5H/7D from credential data: {out!r}")
+        _check("SES:" not in out and "k:" not in out, f"no SES anywhere in the popup: {out!r}")
     finally:
         usage._query = saved_query  # type: ignore[assignment]
         tmux.current_window_id = saved_current_window  # type: ignore[assignment]
         cli._resolve_session_pane = saved_resolve_pane  # type: ignore[assignment]
-        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
         nx_agent.session_context = saved_session_context  # type: ignore[assignment]
-        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
 
 
 def _test_cli_resolve_model_letter() -> None:
@@ -1665,25 +1661,37 @@ def _test_tmux_get_window_tabs() -> None:
 
 def _test_render_session_bar() -> None:
     # Full render: model + project + branch on the left (no leading
-    # session-count glyph — cc-tmux-active-pane-resolution), usage gauges
-    # (account label + SES/5H/7D) on the right (restored post
-    # cc-tmux-bar-cleanup regression).
-    out = render.render_session_bar("O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
+    # session-count glyph — cc-tmux-active-pane-resolution), SES/5H/7D
+    # gauges + combined usage glyph on the right. The account-identity
+    # segment moved off this row entirely to row 3 (render_beads_bar) --
+    # render_session_bar no longer takes an account_label parameter
+    # (cc-tmux-status-bar-popup-polish design.md § Decision 2).
+    out = render.render_session_bar("O", "if", "main", 0.1, 0.5, 0.85)
     _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
     _check("if" in out, "project present on the left")
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
     _check("#[align=right]" in out, "left/right sides split via align=right")
-    _check("leo@x.dev" in out, "account label present on the right")
+    _check("#[range=user|accounts]" not in out, "no account-label range marker on row 2 (moved to row 3)")
     _check("SES:" not in out, "SES text is fully replaced by the context bar")
     _check("--:" in out and "5H:" in out and "7D:" in out, "context bar (no raw_tokens -> '--') + usage gauges render")
-    _check(out.endswith("#[default]"), "resets colour at end")
+    # Combined usage glyph renders strictly AFTER the 7D: percentage, as the
+    # LAST thing on the right side (design.md § Decision 2 — glyph moves to
+    # the end) — the colour reset now lands before the unstyled glyph, not
+    # at the very end of the string.
+    usage_glyph = render.render_usage_glyph(0.1, 0.5, 0.85, n=10)
+    _check(usage_glyph in out, f"combined usage glyph present: {out!r}")
+    _check(
+        out.index("7D:") < out.index(usage_glyph),
+        f"glyph renders strictly after the 7D: percentage: {out!r}",
+    )
+    _check(out.endswith(usage_glyph), "the unstyled usage glyph is the final element on the right")
 
     # None percentages -> '--' rendered in DIM for every gauge.
-    out_none = render.render_session_bar("", "if", "main", "leo@x.dev", None, None, None)
+    out_none = render.render_session_bar("", "if", "main", None, None, None)
     _check(out_none.count("--") == 3, "unpolled gauges all render '--'")
 
     # No model/project/branch -> fields fail-open, no leading glyph token either.
-    out3 = render.render_session_bar("", "", "", "", None, None, None)
+    out3 = render.render_session_bar("", "", "", None, None, None)
     _check("◉" not in out3 and "◌" not in out3, "no leading session-count glyph (removed)")
     _check(f"#[fg={render.CYAN}]" not in out3, "no model letter + no polled usage -> no CYAN segment (fail-open)")
     _check(render.BRANCH not in out3, "no branch -> no branch-colour segment")
@@ -1692,7 +1700,7 @@ def _test_render_session_bar() -> None:
     # each field at a representative nonzero count renders its exact glyph
     # string, in the fixed left-to-right order, with the spec-mandated color.
     gs_all = tmux.GitStatusCounts(modified=3, untracked=1, deleted=2, renamed=1, ahead=4, behind=1)
-    out_all = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=gs_all)
+    out_all = render.render_session_bar("F", "if", "main", None, None, None, git_status=gs_all)
     _check(f"#[fg={render.BRANCH}]main" in out_all, "branch still renders with indicators present")
     expected_run = (
         f"#[fg={render.GREEN}]3M "
@@ -1708,7 +1716,7 @@ def _test_render_session_bar() -> None:
     # specifically — proven by a partial case (only modified nonzero) so the
     # other five are confirmed cleanly omitted, not just the all-zero case.
     gs_partial = tmux.GitStatusCounts(modified=1)
-    out_partial = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=gs_partial)
+    out_partial = render.render_session_bar("F", "if", "main", None, None, None, git_status=gs_partial)
     _check(f"#[fg={render.GREEN}]1M" in out_partial, "modified=1 -> GREEN '1M' marker")
     # Anchored on colour codes (not bare letters) since "7D:" from the usage
     # gauges always contains a literal 'D' regardless of git status —
@@ -1724,7 +1732,7 @@ def _test_render_session_bar() -> None:
     # All-six-zero (explicit GitStatusCounts()) -> no working-tree-indicator
     # segment at all; branch renders alone with nothing appended after it.
     out_zero = render.render_session_bar(
-        "F", "if", "main", "", None, None, None, git_status=tmux.GitStatusCounts()
+        "F", "if", "main", None, None, None, git_status=tmux.GitStatusCounts()
     )
     _check(f"#[fg={render.BRANCH}]main#[default]" in out_zero, "all-zero -> branch renders with no indicator segment")
     _check(f"#[fg={render.GREEN}]" not in out_zero, "all-zero -> no GREEN 'M' marker")
@@ -1735,11 +1743,11 @@ def _test_render_session_bar() -> None:
     _check("⇣" not in out_zero, "all-zero -> no '⇣N' glyph")
 
     # git_status=None renders identically to an explicit all-zero instance.
-    out_none = render.render_session_bar("F", "if", "main", "", None, None, None, git_status=None)
+    out_none = render.render_session_bar("F", "if", "main", None, None, None, git_status=None)
     _check(out_none == out_zero, "git_status=None must match explicit GitStatusCounts() byte-for-byte")
 
     # No-kwargs call (git_status omitted entirely) -> same as explicit None.
-    out_default = render.render_session_bar("F", "if", "main", "", None, None, None)
+    out_default = render.render_session_bar("F", "if", "main", None, None, None)
     _check(out_default == out_zero, "no-kwargs call must match explicit git_status=GitStatusCounts()")
 
 
@@ -1861,6 +1869,59 @@ def _test_render_beads_bar() -> None:
         ),
         "stale beads age only -> (2h) marker on the beads segment, openspec segment unaffected",
     )
+
+
+def _test_render_beads_bar_account_segment() -> None:
+    """cc-tmux-status-bar-popup-polish task 4.4: render_beads_bar's new
+    ``account_label`` parameter adds a third, independent segment carrying
+    the active account's identity (design.md § Decision 3) -- the
+    ``#[range=user|accounts]`` click marker relocated here from
+    render_session_bar.
+    """
+    D = render.DIM
+    label = "leo@x.dev·bc7da511"
+
+    # (a) openspec + beads + account_label all present -> all three segments
+    # appear, _BEADS_SEP-joined, account segment LAST, wrapped in the range
+    # marker relocated from row 2.
+    out_all = render.render_beads_bar(12, 0, 5, 0, account_label=label)
+    _check(
+        out_all == (
+            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked"
+            f"{render._BEADS_SEP}"
+            f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
+        ),
+        f"all three segments present, account segment last, range-marker-wrapped: {out_all!r}",
+    )
+    _check(out_all.count(render._BEADS_SEP) == 2, "two separators join three segments")
+
+    # (b) openspec/beads BOTH absent (today's "no cache" case), account_label
+    # present -> row shows ONLY the account segment, not "".
+    out_account_only = render.render_beads_bar(None, None, None, None, account_label=label)
+    _check(
+        out_account_only == f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]",
+        f"no cache, account present -> account-only row, not empty: {out_account_only!r}",
+    )
+    _check("openspec:" not in out_account_only and "beads:" not in out_account_only, "no count segments leak in")
+
+    # (c) account_label absent, openspec/beads present -> unchanged
+    # two-segment behavior (regression guard for today's existing contract).
+    out_two_segment = render.render_beads_bar(12, 0, 5, 0)
+    _check(
+        out_two_segment == (
+            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"{render._BEADS_SEP}"
+            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+        ),
+        f"account_label omitted -> unchanged two-segment behavior: {out_two_segment!r}",
+    )
+    _check("range=user|accounts" not in out_two_segment, "no account segment when account_label is empty")
+
+    # (d) all three absent -> "" (unchanged empty-row contract).
+    _check(render.render_beads_bar(None, None, None, None) == "", "all three absent -> ''")
+    _check(render.render_beads_bar(None, None, None, None, account_label="") == "", "explicit empty account_label -> ''")
 
 
 def _test_render_tabs_row() -> None:
@@ -2205,10 +2266,11 @@ def _test_render_session_bar_no_glyph() -> None:
     # (◉/◌) must never appear, regardless of how many tracked panes exist
     # for the project, since the function no longer takes a pane count at
     # all. Left side is now purely model_letter/project/branch composition.
-    out_full = render.render_session_bar("O", "if", "main", "leo@x.dev", 0.1, 0.5, 0.85)
+    out_full = render.render_session_bar("O", "if", "main", 0.1, 0.5, 0.85)
     _check("◉" not in out_full and "◌" not in out_full, "populated call -> no glyph token")
+    _check("#[range=user|accounts]" not in out_full, "no account-label range marker (moved to row 3)")
 
-    out_empty = render.render_session_bar("", "", "", "", None, None, None)
+    out_empty = render.render_session_bar("", "", "", None, None, None)
     _check("◉" not in out_empty and "◌" not in out_empty, "empty call -> no glyph token")
 
 
@@ -2219,7 +2281,7 @@ def _test_render_session_bar_usage_glyph_wiring() -> None:
     bar (tasks 3.1/3.3); the SES label is severity-coloured, not DIM (task
     3.4 correction)."""
     out = render.render_session_bar(
-        "O", "if", "main", "leo@x.dev", 0.30, 0.88, 0.35, raw_tokens=252_500
+        "O", "if", "main", 0.30, 0.88, 0.35, raw_tokens=252_500
     )
     expected_glyph = render.render_usage_glyph(0.30, 0.88, 0.35, n=10)
     _check(expected_glyph in out, f"row 2 carries the 10-cell 3-metric glyph: {out!r}")
@@ -2240,6 +2302,14 @@ def _test_render_session_bar_usage_glyph_wiring() -> None:
     )
     _check(
         f"#[fg={render.DIM}]252.5k:" not in out, f"SES label no longer plain DIM: {out!r}"
+    )
+    # cc-tmux-status-bar-popup-polish: no account-label text/marker anywhere,
+    # and the glyph renders strictly AFTER the 7D: percentage (order
+    # assertion, design.md § Decision 2).
+    _check("#[range=user|accounts]" not in out, "no account-label range marker on row 2")
+    _check(
+        out.index("7D:") < out.index(expected_glyph),
+        f"glyph renders strictly after the 7D: percentage: {out!r}",
     )
 
 
@@ -3254,13 +3324,14 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("usage.account_identity", _test_account_identity),
     ("cli.resolve_ses_tokens", _test_cli_resolve_ses_tokens),
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
-    ("accounts_popup.ses_from_nx_agent", _test_cli_accounts_popup_ses_from_nx_agent),
+    ("accounts_popup.no_session_state", _test_cli_accounts_popup_no_session_state),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
     ("render.session_bar", _test_render_session_bar),
     ("render.beads_bar", _test_render_beads_bar),
+    ("render.beads_bar_account_segment", _test_render_beads_bar_account_segment),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
