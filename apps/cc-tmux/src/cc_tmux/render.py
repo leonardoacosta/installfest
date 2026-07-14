@@ -963,7 +963,12 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     ``fg``/``bg`` (duck-typed via ``getattr``, defaulting to ``0``/``[]``) are
     the window's sub-agent counts; ``bg`` MUST already be pruned by the caller
     (:func:`cc_tmux.cli._build_tabs_row`) before this is called — same
-    contract :func:`resolve_tab_icon` documents.
+    contract :func:`resolve_tab_icon` documents. ``raw_tokens`` (duck-typed
+    via ``getattr``, defaulting to ``None``) is set by the caller
+    (:func:`cc_tmux.cli._build_tabs_row`) only for plain idle windows (no
+    sub-agent overlay) and feeds :func:`resolve_tab_glyph` — a plain idle
+    window's icon is the idle-usage-meter ramp glyph (cc-tmux-idle-tab-usage-
+    meter) rather than the static :data:`IDLE_GLYPH`.
 
     The active window (``id == active_window_id``) renders bold CYAN; every
     other window renders DIM — the same semantic colour pair
@@ -971,6 +976,14 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     here rather than inventing a third convention. No wrapping bg colour is
     applied (theme ``.conf`` files wrap the whole row, same as
     ``status-format[1]``/``[2]`` — see :func:`render_session_bar`).
+
+    :func:`resolve_tab_glyph` returns a ``(glyph, color)`` pair. When
+    ``color`` is non-empty (the idle-usage-meter case), ONLY the glyph is
+    wrapped in it — ``#[fg={color}]{glyph}#[fg={label_colour}] `` — restoring
+    the segment's own active/inactive label colour immediately after, so the
+    trailing index/name text keeps rendering CYAN-bold/DIM exactly as before.
+    When ``color`` is empty, the composition is byte-identical to the prior
+    plain-icon rendering — no ``#[fg=]`` wrap is added.
 
     Each segment is wrapped in ``#[range=window|<index>]``/``#[norange]`` —
     the same range markup tmux's native window-status rendering emits, which
@@ -987,14 +1000,20 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
         state = getattr(w, "state", "") or ""
         fg_count = getattr(w, "fg", 0) or 0
         bg_count = len(getattr(w, "bg", None) or [])
-        icon = resolve_tab_icon(state, now, fg_count, bg_count)
-        icon_part = f"{icon} " if icon else ""
+        raw_tokens = getattr(w, "raw_tokens", None)
         index = getattr(w, "index", "")
         name = getattr(w, "name", "")
-        label = f"{index} {icon_part}{name}"
 
         is_active = active_window_id and getattr(w, "id", None) == active_window_id
         colour = f"{CYAN},bold" if is_active else DIM
+
+        glyph, meter_color = resolve_tab_glyph(state, now, fg_count, bg_count, raw_tokens)
+        if meter_color:
+            icon_part = f"#[fg={meter_color}]{glyph}#[fg={colour}] "
+        else:
+            icon_part = f"{glyph} " if glyph else ""
+        label = f"{index} {icon_part}{name}"
+
         segments.append(
             f"#[fg={colour}]#[range=window|{index}] {label} #[norange]#[default]"
         )
