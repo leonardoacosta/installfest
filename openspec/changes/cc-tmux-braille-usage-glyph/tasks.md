@@ -13,14 +13,14 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level braille bit-order constants: [beads:if-bz1f]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level braille bit-order constants: [beads:if-bz1f]
   `_BRAILLE_BASE = 0x2800`, `_SES_BITS = (0, 1, 3, 4)` (rows 1-2, 4 dots/cell), `_H5_BITS = (2, 5)`
   (row 3, 2 dots/cell), `_D7_BITS = (6, 7)` (row 4, 2 dots/cell), `_H5_BITS_WIDE = (0, 1, 3, 4)`
   (rows 1-2, 4 dots/cell, used only by the 2-metric popup encoding), `_D7_BITS_WIDE = (2, 5, 6, 7)`
   (rows 3-4, 4 dots/cell, ditto). Values and rationale per `design.md` § Encoding — cite that
   section in a comment rather than re-deriving the bit math inline.
   [owner:general-purpose] [type:api]
-- [ ] [1.2] `apps/cc-tmux/src/cc_tmux/render.py`: add `_apply_metric_dots(cells: List[int], ratio: [beads:if-cvfn]
+- [x] [1.2] `apps/cc-tmux/src/cc_tmux/render.py`: add `_apply_metric_dots(cells: List[int], ratio: [beads:if-cvfn]
   Optional[float], bits: Tuple[int, ...], n: int) -> None` — mutates `cells` (a list of `n` ints,
   one per braille cell, each accumulating OR'd bits) in place. `ratio` is 0..1 (matching the
   existing `_resolve_ses_pct`/`_extract_util` convention — NOT 0..100). `ratio is None` -> no-op

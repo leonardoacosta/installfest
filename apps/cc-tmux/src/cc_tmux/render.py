@@ -369,6 +369,57 @@ def render_context_bar_ansi(
 
 
 # ---------------------------------------------------------------------------
+# Combined braille usage glyph (cc-tmux-braille-usage-glyph)
+#
+# Bit-order constants and the shared per-metric dot-fill helper. See
+# openspec/changes/cc-tmux-braille-usage-glyph/design.md § Encoding for the
+# full bit-math derivation (dot-position table, shared-overlay vs
+# segmented-lanes rationale, width choice) — not re-derived here.
+# ---------------------------------------------------------------------------
+
+_BRAILLE_BASE = 0x2800
+_SES_BITS = (0, 1, 3, 4)  # rows 1-2, 4 dots/cell (3-metric glyph)
+_H5_BITS = (2, 5)  # row 3, 2 dots/cell (3-metric glyph)
+_D7_BITS = (6, 7)  # row 4, 2 dots/cell (3-metric glyph)
+_H5_BITS_WIDE = (0, 1, 3, 4)  # rows 1-2, 4 dots/cell (2-metric popup glyph)
+_D7_BITS_WIDE = (2, 5, 6, 7)  # rows 3-4, 4 dots/cell (2-metric popup glyph)
+
+
+def _apply_metric_dots(
+    cells: List[int],
+    ratio: Optional[float],
+    bits: Tuple[int, ...],
+    n: int,
+) -> None:
+    """OR this metric's proportional dot-fill into `cells` in place.
+
+    `ratio` is 0..1 (matching the existing `_resolve_ses_pct`/`_extract_util`
+    convention — NOT 0..100). `ratio is None` is a no-op: per-metric degrade
+    per design.md § Staleness — this metric contributes zero dots, other
+    metrics' already-OR'd bits in `cells` are unaffected.
+
+    Otherwise: `total = len(bits) * n` is this metric's full dot budget,
+    `dots = round(ratio * total)` (clamped to [0, 1] first) dots are filled
+    sequentially left to right, each cell taking `min(remaining, len(bits))`
+    dots from `bits` in order before moving to the next cell. This is the
+    exact algorithm validated live in the `/openspec:explore` mockup — reuse
+    verbatim, do not redesign the fill order.
+    """
+    if ratio is None:
+        return
+    total = len(bits) * n
+    dots = round(max(0.0, min(1.0, ratio)) * total)
+    remaining = dots
+    for i in range(n):
+        if remaining <= 0:
+            break
+        take = min(remaining, len(bits))
+        for bit in bits[:take]:
+            cells[i] |= 1 << bit
+        remaining -= take
+
+
+# ---------------------------------------------------------------------------
 # Session / beads status rows (row 2 + row 3 — cc-tmux-session-usage-bars,
 # corrected post cc-tmux-bar-cleanup)
 #
