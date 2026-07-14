@@ -78,7 +78,7 @@
   new network fetch) to get `account_label` (5H/7D from this call are unused here — row 3 needs
   only the label), and pass it through to `render.render_beads_bar(...)` as the new
   `account_label` argument from task 2.3. Update the docstring. [owner:general-purpose] [type:ui]
-- [ ] [3.4] `apps/cc-tmux/cc-tmux.tmux`: investigate why the `accounts_popup_cmd`'s fzf box [beads:if-s1yu]
+- [x] [3.4] `apps/cc-tmux/cc-tmux.tmux`: investigate why the `accounts_popup_cmd`'s fzf box [beads:if-s1yu]
   truncates the account list to roughly half the popup pane's actual height despite `-h 80%` on
   the outer `display-popup`. Per `design.md` Decision 5, try (in order, keep whichever actually
   closes the gap, verified live per task 4.5 — do not guess-and-ship without live confirmation):

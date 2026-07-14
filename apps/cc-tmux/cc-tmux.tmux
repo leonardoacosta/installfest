@@ -162,10 +162,34 @@ fi
 # a generous fixed percentage is both simpler and just as safe as computing
 # an exact line count live. Applied to both the fzf and the plain-fallback
 # branch — the same overflow applies to the `read -n 1 -s` popup too.
+#
+# `fzf --height=100%` (2026-07-14, cc-tmux-status-bar-popup-polish task 3.4,
+# beads if-s1yu): even with the above `-h 80%`, Leo confirmed live that the
+# rendered account list still truncates to roughly HALF the popup pane's
+# actual height — i.e. the outer `display-popup` dimension is not the
+# bottleneck here (already generous, already clamped to the real client size
+# by tmux). The remaining gap is fzf's OWN height auto-detection: with no
+# explicit `--height`, fzf tries to size itself from the controlling
+# terminal, and that detection is known to be unreliable inside a
+# `display-popup -E`-spawned pty (stale `$LINES`/`$COLUMNS` at fzf's startup,
+# possibly compounded by `--header-border` reserving rows fzf doesn't
+# re-measure against). `--height=100%` stops fzf from guessing and forces it
+# to fill 100% of whatever pty it's actually handed — which is already the
+# full 80%-of-client popup from the flag above. This is fix (a) from
+# design.md Decision 5 only; per that doc's own reasoning ("the outer tmux
+# popup dimension is not the bottleneck"), bumping `-h` further (fix (b))
+# would grow the box without addressing the real cause, so it is NOT applied
+# here. Still needs a real attached-tmux-client check (task 4.5) — this
+# reasoning is static, not an observed fix.
 # ---------------------------------------------------------------------------
 if supports_popup; then
-  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup | fzf --ansi --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
+  accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup | fzf --ansi --height=100% --no-input --header-border --header='[x] click here or press q to close' --prompt='' --pointer=' ' --bind 'click-header:abort' --bind 'q:abort' --bind 'enter:ignore' --bind 'left-click:ignore'\""
 else
+  # Plain fallback: no fzf, no inner box — `$CMD accounts-popup` writes
+  # directly to the popup pane and `read -n 1 -s` just waits for a keypress.
+  # There is no second sizing computation in this path (no auto-detected
+  # inner height to get wrong), so the fzf `--height` truncation bug above
+  # has no analogue here — left unchanged.
   accounts_popup_cmd="display-popup -y S -x M -h 80% -E \"$CMD accounts-popup; read -n 1 -s\""
 fi
 tmux bind-key -T root MouseDown1Status if-shell -F '#{==:#{mouse_status_range},accounts}' \
