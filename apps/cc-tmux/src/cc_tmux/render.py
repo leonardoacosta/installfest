@@ -251,7 +251,12 @@ def inbox_rows(
 # — both signals are useful together, not meant to agree.
 # ---------------------------------------------------------------------------
 
-CONTEXT_BAR_WIDTH = 10  # fill-bar segment count
+# _BAR_FILLED/_BAR_EMPTY: retained (unlike CONTEXT_BAR_WIDTH and the
+# render_context_bar tmux-format function, both retired by
+# cc-tmux-braille-usage-glyph task 3.3) — _context_bar_parts below still
+# builds the shade-block ``bar`` string from these, and is itself still a
+# live dependency of render_context_bar_ansi (the ANSI counterpart; no tmux
+# real caller today, but kept per the same change's task instructions).
 _BAR_FILLED = "▓"
 _BAR_EMPTY = "░"
 
@@ -329,21 +334,6 @@ def _context_bar_parts(
     return label, color, bar
 
 
-def render_context_bar(
-    raw_tokens: Optional[float],
-    used_pct: Optional[float],
-    now: float,
-    *,
-    width: int = CONTEXT_BAR_WIDTH,
-) -> str:
-    """tmux status-format token for the context bar (row 2 — real consumer is
-    tmux's own status-line renderer, hence ``#[fg=...]`` escaping, matching
-    every other segment in :func:`render_session_bar`).
-    """
-    label, color, bar = _context_bar_parts(raw_tokens, used_pct, now, width)
-    return f"#[fg={DIM}]{label}:#[fg={color}]{bar}#[default]"
-
-
 def _hex_to_ansi_fg(hex_color: str) -> str:
     """``\\x1b[38;2;R;G;Bm`` truecolor ANSI escape for a ``"#RRGGBB"`` hex string."""
     h = hex_color.lstrip("#")
@@ -356,7 +346,7 @@ def render_context_bar_ansi(
     used_pct: Optional[float],
     now: float,
     *,
-    width: int = CONTEXT_BAR_WIDTH,
+    width: int = 10,
 ) -> str:
     """ANSI-escaped counterpart to :func:`render_context_bar`, for the
     accounts-popup (a real terminal via fzf/display-popup, not tmux's own
@@ -518,21 +508,25 @@ def render_session_bar(
     whole indicator run is dropped (fail-open) when ``branch`` is empty, so a
     marker never appears without the branch it describes — same fail-open
     contract the prior ``dirty``/``ahead`` params had. Right side: account
-    label + a context-window bar (cc-tmux-context-bar, replaces the former
-    ``SES:xx%`` text — see :func:`render_context_bar`) + 5H:/7D: gauges, the
-    latter two still coloured via color_for and formatted via pct_for. The
-    two sides are joined with a #[align=right] directive so tmux fills the
-    gap between them. ``ses_pct`` is this session's own context-window
-    fraction (0..1, or ``None`` when unpolled) — it now drives the bar's FILL
-    rather than a printed percentage; ``raw_tokens`` (absolute context tokens
-    used this session, or ``None``) drives the bar's COLOUR tier
-    independently (see :func:`render_context_bar`'s module docstring for why
-    fill and colour are deliberately two different scales). ``now`` is the
-    caller-supplied wall-clock epoch for the bar's pulse-tier animation
-    (``time.time()`` in production, injectable for deterministic tests —
-    same DI pattern :func:`render_accounts_popup` uses; defaults to
-    ``time.time()`` when omitted). five_h_pct / seven_d_pct are utilization
-    ratios in 0..1 (or None when unpolled -> '--' in DIM).
+    label + the SES token-count label (``#[fg={DIM}]{label}:`` — text and
+    colour kept exactly as before, via :func:`format_context_tokens`)
+    followed by a combined 3-metric braille usage glyph
+    (cc-tmux-braille-usage-glyph, replaces the former shade-block fill bar —
+    see :func:`render_usage_glyph`, and ``design.md`` § Encoding for the
+    full bit-math rationale) + 5H:/7D: gauges, the latter two still coloured
+    via color_for and formatted via pct_for. The two sides are joined with a
+    #[align=right] directive so tmux fills the gap between them. ``ses_pct``
+    / ``five_h_pct`` / ``seven_d_pct`` (each 0..1, or ``None`` when unpolled
+    -> that metric's row(s) render blank in the glyph, per-metric degrade;
+    design.md § Staleness) feed the glyph directly at ``n=10``, which itself
+    renders in a neutral/unstyled colour (design.md § Color — no severity
+    ramp on the glyph). ``raw_tokens`` still selects the SES label's text via
+    :func:`format_context_tokens` (unchanged); ``now`` is accepted for
+    interface parity with :func:`render_accounts_popup`'s DI pattern (no
+    longer drives any visible animation on this row now that the
+    severity-coloured bar is retired — the label stays flat DIM). five_h_pct
+    / seven_d_pct are utilization ratios in 0..1 (or None when unpolled ->
+    '--' in DIM for the text; also feed the glyph).
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
@@ -577,15 +571,20 @@ def render_session_bar(
 
     c5, c7 = color_for(five_h_pct), color_for(seven_d_pct)
     p5, p7 = pct_for(five_h_pct), pct_for(seven_d_pct)
-    t = time.time() if now is None else now
     label_seg = (
         f"#[range=user|accounts]#[fg={DIM}]{account_label} #[norange]"
         if account_label
         else ""
     )
+    # SES label text/colour unchanged (cc-tmux-context-bar); only the
+    # shade-block bar is replaced, by the neutral combined usage glyph
+    # (cc-tmux-braille-usage-glyph — design.md § Color: glyph stays
+    # unstyled, severity colour lives on the text elsewhere, not here).
+    ses_label = format_context_tokens(raw_tokens)
+    usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=10)
     right = (
         f"{label_seg}"
-        f"{render_context_bar(raw_tokens, ses_pct, t)} "
+        f"#[fg={DIM}]{ses_label}:#[default]{usage_glyph} "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
     )
@@ -724,18 +723,25 @@ def render_accounts_popup(
 
     Every row's summary line renders ``5H:xx% 7D:xx%``; the row whose
     ``label`` equals ``active_label`` (exact match) additionally renders the
-    context-window bar (see :func:`render_context_bar_ansi` — replaces the
-    former ``SES:xx%`` text) ahead of the 5H/7D gauges, and is marked with a
-    leading ``*``. ``active_ses_pct`` (this session's own context-window
-    fraction, drives the bar's FILL) / ``active_raw_tokens`` (absolute
-    context tokens used, drives the bar's COLOUR tier — see
-    :func:`render_context_bar`'s module docstring for why these are two
-    independent scales) are properties of the currently-focused pane, not of
-    a credential in the abstract (proposal's "SES is not an account-level
-    metric"), so both are supplied by the caller rather than looked up
-    per-account here. Every percentage is wrapped in :func:`_green` — the
-    bar is the one deliberate exception, since it carries its own severity
-    colour and the whole point is severity-at-a-glance, not uniform green.
+    SES token-count label (unchanged text, see :func:`format_context_tokens`)
+    plus a combined 3-metric braille usage glyph at ``n=20``
+    (cc-tmux-braille-usage-glyph, replaces the former shade-block bar — see
+    :func:`render_usage_glyph`, and ``design.md`` § Encoding for the full
+    bit-math rationale) ahead of the 5H/7D gauges, and is marked with a
+    leading ``*``. Every OTHER (non-active) row now also gets a glyph — a
+    2-metric braille encoding at ``n=20`` (:func:`render_usage_glyph_2metric`,
+    design.md § Non-active popup rows) covering only 5H/7D, since a
+    non-active credential has no SES value to show at all; this is new,
+    those rows previously rendered no glyph. ``active_ses_pct`` (this
+    session's own context-window fraction) / ``active_raw_tokens`` (absolute
+    context tokens used, feeds only the SES label's text) are properties of
+    the currently-focused pane, not of a credential in the abstract
+    (proposal's "SES is not an account-level metric"), so both are supplied
+    by the caller rather than looked up per-account here. Every percentage
+    is wrapped in :func:`_green`; the usage glyph (active or non-active row)
+    is the one deliberate exception — it stays neutral/unstyled (design.md §
+    Color: a single braille cell can't carry three independent per-metric
+    severity colours, so colour lives exclusively on the text).
 
     Below EVERY account's identity row sit up to two indented, aligned,
     green-accented reset-time lines, one per window, each omitted
@@ -774,13 +780,23 @@ def render_accounts_popup(
         tail_plain = f"5H:{five_h_str} 7D:{seven_d_str}"
         tail = f"5H:{_green(five_h_str)} 7D:{_green(seven_d_str)}"
         if is_active:
-            bar_label, bar_color, bar_glyphs = _context_bar_parts(
-                active_raw_tokens, active_ses_pct, t, CONTEXT_BAR_WIDTH
-            )
-            bar_plain = f"{bar_label}:{bar_glyphs}"
-            bar_colored = f"{bar_label}:{_hex_to_ansi_fg(bar_color)}{bar_glyphs}{_ANSI_RESET}"
-            tail_plain = f"{bar_plain} {tail_plain}"
-            tail = f"{bar_colored} {tail}"
+            # SES label text unchanged (format_context_tokens); the former
+            # shade-block bar is replaced by the neutral 3-metric usage
+            # glyph — see design.md § Color (glyph stays unstyled, no
+            # _hex_to_ansi_fg wrap, unlike the old severity-coloured bar).
+            bar_label = format_context_tokens(active_raw_tokens)
+            bar_glyphs = render_usage_glyph(active_ses_pct, five_h, seven_d, n=20)
+            bar_str = f"{bar_label}:{bar_glyphs}"
+            tail_plain = f"{bar_str} {tail_plain}"
+            tail = f"{bar_str} {tail}"
+        else:
+            # Non-active rows have no SES value at all (session-scoped, not
+            # account-scoped) — new 2-metric glyph gives 5H/7D the full
+            # 4-dot-per-cell budget instead of leaving this permanently
+            # blank (design.md § Non-active popup rows).
+            glyph2 = render_usage_glyph_2metric(five_h, seven_d, n=20)
+            tail_plain = f"{glyph2} {tail_plain}"
+            tail = f"{glyph2} {tail}"
         identity = f"{email}  {org_short}" if org_short else email
         reset_5h_plain, reset_5h = _format_reset_line("5H", "at", five_h_reset, t, with_day=False)
         reset_7d_plain, reset_7d = _format_reset_line("7D", "on", seven_d_reset, t, with_day=True)

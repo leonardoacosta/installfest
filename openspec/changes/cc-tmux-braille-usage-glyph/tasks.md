@@ -49,7 +49,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar` (row 2), the current [beads:if-dxvy]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar` (row 2), the current [beads:if-dxvy]
   right-side line is `f"{render_context_bar(raw_tokens, ses_pct, t)} " f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] " f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"`
   (`render_context_bar` = SES token-count label `f"#[fg={DIM}]{label}:#[fg={color}]{bar}#[default]"`
   via `_context_bar_parts`). Replace ONLY the `bar` (shade-block ▓/░ glyphs) portion — keep the
@@ -63,7 +63,7 @@
   `5H:xx% 7D:xx%` text stays completely unchanged. Do NOT remove any existing text — the glyph is
   additive, appended after the SES label and before (or after — pick one, document it) the 5H/7D
   text. [owner:general-purpose] [type:ui]
-- [ ] [3.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_accounts_popup`, the active account's [beads:if-s6uh]
+- [x] [3.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_accounts_popup`, the active account's [beads:if-s6uh]
   row currently builds `bar_plain = f"{bar_label}:{bar_glyphs}"` / `bar_colored =
   f"{bar_label}:{_hex_to_ansi_fg(bar_color)}{bar_glyphs}{_ANSI_RESET}"` via `_context_bar_parts`
   (see the `is_active` branch). Replace `bar_glyphs` with `render_usage_glyph(ses_ratio, h5_ratio,
@@ -73,7 +73,7 @@
   `render_usage_glyph_2metric(h5_ratio, d7_ratio, n=20)` appended alongside its existing
   `5H:xx% 7D:xx%` text (no SES field, unchanged) — this is NEW for non-active rows, which
   currently render no glyph at all. [owner:general-purpose] [type:ui]
-- [ ] [3.3] `apps/cc-tmux/src/cc_tmux/render.py`: remove `render_context_bar` and its [beads:if-kl8p]
+- [x] [3.3] `apps/cc-tmux/src/cc_tmux/render.py`: remove `render_context_bar` and its [beads:if-kl8p]
   `CONTEXT_BAR_WIDTH`/`_BAR_FILLED`/`_BAR_EMPTY` constants once nothing calls it (confirm via
   grep across `apps/cc-tmux/src/cc_tmux/` before deleting — `_context_color_pair`'s 6-tier ramp
   is UNCHANGED and still used for the text label's color, only the shade-block bar itself is
