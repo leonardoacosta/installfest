@@ -52,7 +52,21 @@ case "$(uname -s)" in
       # new content. kickstart -k alone doesn't pick up plist edits
       # because launchd caches the schedule.
       launchctl bootout "gui/${UID_}/${label}" 2>/dev/null || true
-      launchctl bootstrap "gui/${UID_}" "$plist"
+      # bootout returns before the old process fully releases its resources
+      # (socket/port teardown is async) — an immediate bootstrap can race it
+      # and fail with "Bootstrap failed: 5: Input/output error" (reproduced
+      # live 2026-07-14: 0s gap fails, 1s gap succeeds). Retry with backoff
+      # instead of a single unconditional sleep, so the common no-race case
+      # stays instant.
+      local tries=0
+      until launchctl bootstrap "gui/${UID_}" "$plist" 2>/dev/null; do
+        tries=$((tries + 1))
+        if (( tries >= 5 )); then
+          echo "scheduler: ${label} bootstrap failed after ${tries} attempts" >&2
+          return 1
+        fi
+        sleep 1
+      done
       echo "scheduler: launchd loaded gui/${UID_}/${label}"
     }
     bootstrap_plist com.leonardoacosta.weekly-cleanup

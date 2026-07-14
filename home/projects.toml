@@ -160,6 +160,14 @@ tiers = ["remote", "local"]
 # =============================================================================
 
 [[projects]]
+code = "ap"
+name = "Apothecary"
+category = "personal"
+icon = "💊"
+path = "dev/personal/ap"
+tiers = ["remote"]
+
+[[projects]]
 code = "cl"
 name = "Central Leo"
 category = "personal"

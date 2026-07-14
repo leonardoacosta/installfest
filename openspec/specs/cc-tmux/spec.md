@@ -259,10 +259,21 @@ while top-level status-format jobs are proven to execute (row 2 and row 3 alread
 correctly via exactly this mechanism). No background process or timer SHALL be introduced by
 this plugin to achieve the animation — the row is re-evaluated on tmux's existing
 `status-interval` cadence, identical to how row 2/row 3 already refresh, just via a job placed
-where jobs actually run. Each tracked state SHALL use the same distinct motion language as
-before: `waiting` cycles a rising/falling shade pulse (`░▒▓█▓▒░`); `active` cycles a rotating
-block edge (`▁▏▔▕`); `idle` renders a single static glyph, never animated. A window with no
-tracked Claude pane MUST render no icon at all (not even the idle glyph).
+where jobs actually run. Each tracked state SHALL use a distinct visual language: `waiting`
+cycles a rising/falling shade pulse (`░▒▓█▓▒░`); `active` cycles a rotating block edge
+(`▁▏▔▕`); `idle` renders a single-cell session-usage meter (cc-tmux-idle-tab-usage-meter): a
+17-state ramp — `░` at state 0, braille fill `⡀⣀⣄⣤⣦⣶⣷` to `⣿` at 50%, braille drain
+`⢿⠿⠻⠛⠙⠉⠈` toward 93.75%, `▓` at the top state — indexed by `round(clamp(ratio, 0, 1) * 16)`
+where `ratio` is the session's absolute context-token burn over a fixed 1,000,000-token scale.
+The meter glyph's colour MUST come from the existing context-severity ramp
+(`resolve_context_color`) applied to the same raw token count — including its pulsing tiers —
+reused verbatim with no meter-specific colour logic. State 0 (nearly fresh) MUST flash by
+alternating `░` with a same-width blank on the same wall-clock parity the colour pulse uses;
+every other meter state renders a data-driven-static glyph that changes only when the
+underlying token count changes. When the session's raw token count is unavailable (`None`),
+the idle icon MUST fall back to the static glyph `█` with no meter colour applied — a data gap
+MUST NOT render as the fresh-session flash. A window with no tracked Claude pane MUST render
+no icon at all (not even the idle glyph).
 
 #### Scenario: waiting state pulses through the shade sequence
 - Given: a window's highest-priority tracked state is `waiting`
@@ -274,10 +285,30 @@ tracked Claude pane MUST render no icon at all (not even the idle glyph).
 - When: the live tabs row is captured at two different wall-clock seconds one second apart
 - Then: it shows two different frames from `▁▏▔▕` for that window, advancing by one position
 
-#### Scenario: idle state never animates
-- Given: a window's highest-priority tracked state is `idle`
+#### Scenario: idle meter reflects session usage on the 1M scale
+- Given: a window's highest-priority tracked state is `idle` with no sub-agent overlay, and its
+  session's raw token count resolves to 500,000
+- When: the tabs row renders
+- Then: that window's icon is `⣿` (state 8 of the ramp), coloured by `resolve_context_color`
+  for 500,000 tokens, and the index/name text keeps its unchanged active/inactive colouring
+
+#### Scenario: nearly fresh idle session flashes the light shade block
+- Given: an idle window whose session's raw token count resolves below ~31,250 tokens (meter
+  state 0)
+- When: the tabs row is captured at two wall-clock seconds of opposite parity
+- Then: the icon alternates between `░` and a same-width blank — the label column does not shift
+
+#### Scenario: high-burn idle meter pulses via the reused colour ramp
+- Given: an idle window whose session's raw token count resolves above 750,000 tokens
+- When: the tabs row is captured at two wall-clock seconds of opposite parity
+- Then: the meter glyph's colour alternates between the ramp's DARK_RED and RED pulse pair,
+  exactly as `resolve_context_color` dictates, with no meter-specific colour rule
+
+#### Scenario: unavailable usage data falls back to the static idle glyph
+- Given: an idle window whose session raw-token resolution returns `None` (e.g. nx-agent
+  unreachable or no session id)
 - When: the live tabs row is captured at any two different wall-clock times
-- Then: it shows the same static glyph for that window both times
+- Then: it shows the static glyph `█` both times, with no meter colour wrap and no flash
 
 #### Scenario: untracked window renders no icon
 - Given: a window with no tracked Claude pane (a plain shell)
@@ -572,18 +603,22 @@ current project's cached roadmap-pulse counts, read directly from
 `~/.claude/scripts/state/roadmap-pulse.<code>.line`, PLUS a third independent segment carrying
 the active nexus-agent credential's identity (email + 8-character org id, e.g.
 `leo@priceless.dev·bc7da511` — the same format used by the accounts popup's identity rows). The
-openspec/beads portion SHALL render in the form `openspec: {open} open {unarchived} unarchived
-({age}) | beads: {ready} ready {blocked} blocked ({age})`, where the beads half counts only
-"standalone" beads — issues that are NOT a transitive descendant, via a `parent-child`
-dependency, of any issue whose title starts with `[SPEC]` or `[CAPABILITY]` — so the two halves
-are additive rather than double-counting OpenSpec-tracked work. Any line in the cache starting
-with `next:` or `radar:` SHALL NOT be rendered on this row — only the openspec/beads counts
-render, regardless of what else the cache file contains (defense against a stale or rolled-back
-cache carrying either token). Each half's numeric values SHALL be coloured by semantic threshold
-(DIM for a healthy zero/low count, YELLOW when `unarchived > 0` or `standalone_blocked > 0`, RED
-above a documented high-count threshold). No new data production mechanism SHALL be introduced
-for the openspec/beads portion — it reads the cache nexus-statusline's own `getRoadmapPulse()`
-already maintains, extended upstream to carry the beads fields.
+openspec/beads portion SHALL render in cc's abbreviated form `op: {open}o {in_progress}ip {ua}ua
+({age}) | bd: {open}o {ready}r {blocked}b ({age})` (if-bqw.1, cc commit `b6b9a234` / cc-w83ov.4),
+where `ua` is the closure-debt count — specs that are done but not yet archived — and the `bd:`
+half counts only "standalone" beads — issues that are NOT a transitive descendant, via a
+`parent-child` dependency, of any issue whose title starts with `[SPEC]` or `[CAPABILITY]` — so
+the two halves are additive rather than double-counting OpenSpec-tracked work. The `bd:` half's
+`open` count is the total standalone beads currently open/in_progress/blocked, alongside the
+pre-existing `ready`/`blocked` counts. Any line in the cache starting with `next:` or `radar:`
+SHALL NOT be rendered on this row — only the `op:`/`bd:` counts (and, if applicable, the account
+segment) render, regardless of what else the cache file contains (defense against a stale or
+rolled-back cache carrying either token). Each half's numeric values SHALL be coloured by
+semantic threshold (DIM for a healthy zero/low count on `open`/`in_progress`/`ready`, YELLOW when
+`ua > 0` or `standalone_blocked > 0`, RED above a documented high-count threshold). No new data
+production mechanism SHALL be introduced for the openspec/beads portion — it reads the cache
+nexus-statusline's own `getRoadmapPulse()` already maintains, extended upstream to carry the
+beads fields.
 
 **Account identity segment**: the plugin SHALL append the active credential's identity as a
 third segment, independent of the openspec/beads pair — present whenever an active nexus-agent
@@ -593,13 +628,13 @@ previously bound to row 2 — see the popup requirement below), via the same
 `#[range=user|accounts]` mouse-range marker mechanism.
 
 #### Scenario: row 3 renders both halves with independent staleness ages, plus the account identity
-- Given: a cached roadmap-pulse file whose counts are `2 open, 1 unarchived` (openspec) and `3
-  ready, 0 blocked` (standalone beads), and an active nexus-agent credential
-  `leo@priceless.dev` / org `bc7da511-...`
+- Given: a cached roadmap-pulse file whose counts are `1o 0ip 0ua` (openspec) and `1o 1r 0b`
+  (standalone beads), and an active nexus-agent credential `leo@priceless.dev` / org
+  `bc7da511-...`
 - When: the beads-bar row renders
-- Then: it shows `openspec: 2 open 1 unarchived (<age>) | beads: 3 ready 0 blocked (<age>) |
-  leo@priceless.dev·bc7da511` with `1 unarchived` coloured YELLOW, the rest DIM/CYAN, and the
-  account segment clickable via the same mouse-range marker row 2 used to carry
+- Then: it shows `op: 1o 0ip 0ua (<age>) | bd: 1o 1r 0b (<age>) | leo@priceless.dev·bc7da511`
+  with all counts coloured DIM (nothing above zero to escalate), and the account segment
+  clickable via the same mouse-range marker row 2 used to carry
 
 #### Scenario: no roadmap-pulse cache, but an active account resolves
 - Given: no roadmap-pulse cache file exists yet for the current project, and an active
@@ -612,22 +647,22 @@ previously bound to row 2 — see the popup requirement below), via the same
 - Given: a cached roadmap-pulse file with real counts, and nexus-agent is unreachable (no active
   credential resolves)
 - When: the beads-bar row renders
-- Then: the row shows only the openspec/beads segments, unchanged from the prior requirement
+- Then: the row shows only the `op:`/`bd:` segments, unchanged from the prior requirement
   version — no empty account segment, no error
 
 #### Scenario: a stray next: or radar: line never renders
 - Given: a cached roadmap-pulse file containing a `next: …` line, a `radar:stale` line (stale
   pre-fix content), and a counts line
 - When: the beads-bar row renders
-- Then: only the openspec/beads counts (and, if applicable, the account segment) render —
-  neither the `next:` nor the `radar:` line appears anywhere on the row
+- Then: only the `op:`/`bd:` counts (and, if applicable, the account segment) render — neither
+  the `next:` nor the `radar:` line appears anywhere on the row
 
 #### Scenario: standalone beads exclude OpenSpec-tracked work
 - Given: 5 open beads total, 3 of which are tasks under a `[SPEC] some-proposal` feature (itself
   under a `[CAPABILITY]` epic), and 2 of which have no epic ancestor at all
 - When: the standalone-beads count is computed
-- Then: only the 2 unparented beads count toward `beads: {ready}/{blocked}` — the 3
-  OpenSpec-tracked tasks do not, since they're already represented by the openspec half
+- Then: only the 2 unparented beads count toward `bd: {open}o {ready}r {blocked}b` — the 3
+  OpenSpec-tracked tasks do not, since they're already represented by the `op:` half
 
 #### Scenario: counts-only cache renders as-is
 - Given: a cached roadmap-pulse file containing only the openspec/beads counts (no `next:` or

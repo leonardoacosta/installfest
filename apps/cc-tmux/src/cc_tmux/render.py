@@ -76,6 +76,76 @@ IDLE_GLYPH = "█"
 FRAME_PERIOD_SEC = 1.0
 
 
+# ---------------------------------------------------------------------------
+# Idle-tab usage meter (cc-tmux-idle-tab-usage-meter)
+#
+# Replaces the static IDLE_GLYPH with a 17-state ramp driven by absolute
+# context tokens burned this session. See
+# openspec/changes/cc-tmux-idle-tab-usage-meter/design.md § "The 17-state
+# ramp" for the full boundary math (round-to-nearest-16th rationale, fill/
+# drain glyph shape derivation) — not re-derived here.
+# ---------------------------------------------------------------------------
+
+# Absolute-token scale the ramp index is computed against (design.md §
+# "The 17-state ramp" § Scale) — deliberately the SAME domain as
+# resolve_context_color's absolute-burn colour tiers, not window-relative.
+IDLE_METER_SCALE_TOKENS = 1_000_000
+
+IDLE_METER_RAMP: Tuple[str, ...] = (
+    "░",  # 0   — 0%      (flash: alternates with U+2800 blank on FRAME_PERIOD_SEC parity)
+    "⡀",  # 1   — 6.25%
+    "⣀",  # 2   — 12.5%
+    "⣄",  # 3   — 18.75%
+    "⣤",  # 4   — 25%
+    "⣦",  # 5   — 31.25%
+    "⣶",  # 6   — 37.5%
+    "⣷",  # 7   — 43.75%
+    "⣿",  # 8   — 50%
+    "⢿",  # 9   — 56.25%
+    "⠿",  # 10  — 62.5%
+    "⠻",  # 11  — 68.75%
+    "⠛",  # 12  — 75%
+    "⠙",  # 13  — 81.25%
+    "⠉",  # 14  — 87.5%
+    "⠈",  # 15  — 93.75%
+    "▓",  # 16  — 100%
+)
+
+
+def _idle_meter_index(ratio: float) -> int:
+    """Ramp index (0-16) for `ratio` (0..1), clamped then rounded to the
+    nearest 16th — see design.md § "The 17-state ramp" § Index function.
+    """
+    return round(max(0.0, min(1.0, ratio)) * 16)
+
+
+def idle_usage_meter(raw_tokens: Optional[float], now: float) -> Tuple[str, str]:
+    """``(glyph, color)`` for the idle-tab usage meter at wall-clock ``now``.
+
+    ``raw_tokens is None`` renders byte-identical to today's static idle glyph
+    — :data:`IDLE_GLYPH` with an empty color string (no ``#[fg=...]`` wrap) —
+    never the flash glyph, since missing data is not the same as a fresh
+    session (design.md § "`None` fallback: static `█`, never `░`").
+
+    Otherwise the glyph is :data:`IDLE_METER_RAMP` indexed by
+    :func:`_idle_meter_index` against :data:`IDLE_METER_SCALE_TOKENS`; index 0
+    additionally flashes between the ramp glyph and a blank braille cell
+    (U+2800, same column width) on :data:`FRAME_PERIOD_SEC` parity
+    (design.md § "Flash"). Color is always :func:`resolve_context_color`
+    reused verbatim — no meter-specific color logic (locked decision,
+    design.md § "Color + pulse").
+    """
+    if raw_tokens is None:
+        return IDLE_GLYPH, ""
+    ratio = raw_tokens / IDLE_METER_SCALE_TOKENS
+    idx = _idle_meter_index(ratio)
+    if idx == 0:
+        glyph = IDLE_METER_RAMP[0] if int(now / FRAME_PERIOD_SEC) % 2 else "⠀"
+    else:
+        glyph = IDLE_METER_RAMP[idx]
+    return glyph, resolve_context_color(raw_tokens, now)
+
+
 def animated_icon(state: str, now: float) -> str:
     """The tab-icon glyph for ``state`` at wall-clock ``now``.
 
@@ -138,6 +208,32 @@ def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> st
     if bg_count == 1:
         return SUBAGENT_BG_1
     return animated_icon(state, now)
+
+
+def resolve_tab_glyph(
+    state: str,
+    now: float,
+    fg_count: int,
+    bg_count: int,
+    raw_tokens: Optional[float] = None,
+) -> Tuple[str, str]:
+    """``(glyph, color)`` tab-icon pair, idle-usage-meter-aware
+    (cc-tmux-idle-tab-usage-meter overlay).
+
+    Pure additive wrapper — :func:`resolve_tab_icon` itself is untouched (legacy
+    :func:`cc_tmux.cli.cmd_window_icon` still calls it directly and must keep
+    rendering the plain, monochrome glyph unchanged). Precedence is IDENTICAL
+    to :func:`resolve_tab_icon`'s documented order: sub-agent overlays and the
+    waiting/active animations beat the meter — only the plain, un-overlaid idle
+    case (``fg_count == 0 and bg_count == 0 and state == "idle"``) swaps in
+    :func:`idle_usage_meter`'s ramp glyph + severity colour. Every other case
+    returns ``(resolve_tab_icon(...), "")`` — an empty colour, so callers never
+    wrap the existing waiting/active/sub-agent glyphs in a stray ``#[fg=...]``
+    (design.md § "API shape: additive wrapper, `resolve_tab_icon` untouched").
+    """
+    if fg_count == 0 and bg_count == 0 and state == "idle":
+        return idle_usage_meter(raw_tokens, now)
+    return resolve_tab_icon(state, now, fg_count, bg_count), ""
 
 
 def resolve_icons(get_option: Callable[[str], str]) -> Dict[str, str]:
@@ -851,7 +947,12 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     ``fg``/``bg`` (duck-typed via ``getattr``, defaulting to ``0``/``[]``) are
     the window's sub-agent counts; ``bg`` MUST already be pruned by the caller
     (:func:`cc_tmux.cli._build_tabs_row`) before this is called — same
-    contract :func:`resolve_tab_icon` documents.
+    contract :func:`resolve_tab_icon` documents. ``raw_tokens`` (duck-typed
+    via ``getattr``, defaulting to ``None``) is set by the caller
+    (:func:`cc_tmux.cli._build_tabs_row`) only for plain idle windows (no
+    sub-agent overlay) and feeds :func:`resolve_tab_glyph` — a plain idle
+    window's icon is the idle-usage-meter ramp glyph (cc-tmux-idle-tab-usage-
+    meter) rather than the static :data:`IDLE_GLYPH`.
 
     The active window (``id == active_window_id``) renders bold CYAN; every
     other window renders DIM — the same semantic colour pair
@@ -859,6 +960,14 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     here rather than inventing a third convention. No wrapping bg colour is
     applied (theme ``.conf`` files wrap the whole row, same as
     ``status-format[1]``/``[2]`` — see :func:`render_session_bar`).
+
+    :func:`resolve_tab_glyph` returns a ``(glyph, color)`` pair. When
+    ``color`` is non-empty (the idle-usage-meter case), ONLY the glyph is
+    wrapped in it — ``#[fg={color}]{glyph}#[fg={label_colour}] `` — restoring
+    the segment's own active/inactive label colour immediately after, so the
+    trailing index/name text keeps rendering CYAN-bold/DIM exactly as before.
+    When ``color`` is empty, the composition is byte-identical to the prior
+    plain-icon rendering — no ``#[fg=]`` wrap is added.
 
     Each segment is wrapped in ``#[range=window|<index>]``/``#[norange]`` —
     the same range markup tmux's native window-status rendering emits, which
@@ -875,14 +984,20 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
         state = getattr(w, "state", "") or ""
         fg_count = getattr(w, "fg", 0) or 0
         bg_count = len(getattr(w, "bg", None) or [])
-        icon = resolve_tab_icon(state, now, fg_count, bg_count)
-        icon_part = f"{icon} " if icon else ""
+        raw_tokens = getattr(w, "raw_tokens", None)
         index = getattr(w, "index", "")
         name = getattr(w, "name", "")
-        label = f"{index} {icon_part}{name}"
 
         is_active = active_window_id and getattr(w, "id", None) == active_window_id
         colour = f"{CYAN},bold" if is_active else DIM
+
+        glyph, meter_color = resolve_tab_glyph(state, now, fg_count, bg_count, raw_tokens)
+        if meter_color:
+            icon_part = f"#[fg={meter_color}]{glyph}#[fg={colour}] "
+        else:
+            icon_part = f"{glyph} " if glyph else ""
+        label = f"{index} {icon_part}{name}"
+
         segments.append(
             f"#[fg={colour}]#[range=window|{index}] {label} #[norange]#[default]"
         )
@@ -920,23 +1035,29 @@ def _threshold_color(n: int, high: int) -> str:
 def _pulse_segment(
     label: str,
     n1: int,
-    word1: str,
+    suffix1: str,
     n2: int,
-    word2: str,
+    suffix2: str,
+    n3: int,
+    suffix3: str,
     age_sec: Optional[float],
     high: int,
 ) -> str:
-    """One ``"label: N word1 M word2 (age)"`` segment, ``n2`` threshold-colored.
+    """One ``"label: N1suffix1 N2suffix2 N3suffix3 (age)"`` segment.
 
-    ``n1`` (open/ready) is purely informational and stays DIM. ``n2``
-    (unarchived/blocked) is a health signal, colored via
-    :func:`_threshold_color`. ``age_sec`` beyond ``BEADS_STALE_AFTER_SEC``
-    appends a DIM trailing ``" (<duration>)"`` marker, independent per segment.
+    Renders cc's abbreviated roadmap-pulse shape (if-bqw.1) — e.g.
+    ``"op: 1o 0ip 0ua"`` or ``"bd: 1o 1r 0b"`` — where each count's suffix is
+    glued directly onto the number (no space) and only groups are
+    space-separated. ``n1``/``n2`` are purely informational and stay DIM.
+    ``n3`` (closure-debt ``ua`` / ``blocked``) is the health signal, colored
+    via :func:`_threshold_color`; its suffix reverts to DIM immediately
+    after. ``age_sec`` beyond ``BEADS_STALE_AFTER_SEC`` appends a DIM
+    trailing ``" (<duration>)"`` marker, independent per segment.
     """
-    n2_color = _threshold_color(n2, high)
+    n3_color = _threshold_color(n3, high)
     seg = (
-        f"#[fg={DIM}]{label}: {n1} {word1} "
-        f"#[fg={n2_color}]{n2}#[fg={DIM}] {word2}"
+        f"#[fg={DIM}]{label}: {n1}{suffix1} {n2}{suffix2} "
+        f"#[fg={n3_color}]{n3}#[fg={DIM}]{suffix3}"
     )
     if age_sec is not None and age_sec > BEADS_STALE_AFTER_SEC:
         seg += f" ({format_duration(age_sec)})"
@@ -945,7 +1066,9 @@ def _pulse_segment(
 
 def render_beads_bar(
     openspec_open: Optional[int],
-    openspec_unarchived: Optional[int],
+    openspec_in_progress: Optional[int],
+    openspec_ua: Optional[int],
+    beads_open: Optional[int],
     beads_ready: Optional[int],
     beads_blocked: Optional[int],
     openspec_age_sec: Optional[float] = None,
@@ -954,31 +1077,38 @@ def render_beads_bar(
 ) -> str:
     """Row-3 status-format string from parsed roadmap-pulse counts, or ``''``.
 
-    Renders up to three ``|``-separated segments:
-    ``openspec: {open} open {unarchived} unarchived ({age})``,
-    ``beads: {ready} ready {blocked} blocked ({age})`` (cc-tmux-row3-openspec-
-    beads-format task 2.3), and — when ``account_label`` is non-empty — a
-    third account-identity segment (``email·orgid8char``, see
-    :func:`cc_tmux.usage._account_label`) appended LAST and wrapped in the
+    Renders up to three ``|``-separated segments in cc's abbreviated format
+    (if-bqw.1, cc commit b6b9a234 / cc-w83ov.4):
+    ``op: {open}o {in_progress}ip {ua}ua ({age})`` and
+    ``bd: {open}o {ready}r {blocked}b ({age})``, replacing the prior
+    ``openspec: {open} open {unarchived} unarchived`` / ``beads: {ready}
+    ready {blocked} blocked`` two-number form. ``ua`` is the closure-debt
+    count (done-but-unarchived specs); ``bd:`` carries a third, new number —
+    ``open`` — the total standalone beads open/in_progress/blocked, alongside
+    the pre-existing ``ready``/``blocked``. When ``account_label`` is
+    non-empty, a third account-identity segment (``email·orgid8char``, see
+    :func:`cc_tmux.usage._account_label`) is appended LAST and wrapped in the
     ``#[range=user|accounts]``/``#[norange]`` click marker relocated here from
     :func:`render_session_bar` (design.md § Decision 3). The
     ``MouseDown1Status`` binding in ``cc-tmux.tmux`` keys off
     ``#{mouse_status_range}`` globally across the whole status line, so moving
     which row emits the marker needs no binding change.
-    Each segment is independent and fail-open: a half whose pair of counts is
-    not BOTH present (``None`` from an absent/malformed cache line — see
-    :func:`cc_tmux.cli._parse_roadmap_pulse_counts`) is omitted entirely
-    rather than rendered with a placeholder, so a broken ``beads:`` line never
-    blanks a valid ``openspec:`` half and vice versa. The account segment is
-    likewise independent: when BOTH openspec/beads pairs are absent (no cache)
-    but ``account_label`` is non-empty, the row renders ONLY the account
-    segment, not ``""``. All three omitted (no cache and no account label) ->
-    ``""``, matching the row's original "no cache -> empty" contract.
 
-    ``unarchived``/``blocked`` are colored by semantic threshold
+    Each of the three segments is independent and fail-open: a half whose
+    triple of counts is not ALL present (``None`` from an absent/malformed
+    cache line — see :func:`cc_tmux.cli._parse_roadmap_pulse_counts`) is
+    omitted entirely rather than rendered with a placeholder, so a broken
+    ``bd:`` line never blanks a valid ``op:`` half and vice versa. The
+    account segment is likewise independent: when BOTH ``op:``/``bd:``
+    triples are absent (no cache) but ``account_label`` is non-empty, the row
+    renders ONLY the account segment, not ``""``. All three omitted (no
+    cache and no account label) -> ``""``, matching the row's original
+    "no cache -> empty" contract.
+
+    ``ua``/``blocked`` are colored by semantic threshold
     (:func:`_threshold_color`; DIM healthy, YELLOW above 0, RED at/above
     :data:`BEADS_UNARCHIVED_HIGH`/:data:`BEADS_BLOCKED_HIGH`); ``open``/
-    ``ready`` stay DIM (informational, not a health signal).
+    ``in_progress``/``ready`` stay DIM (informational, not a health signal).
     ``openspec_age_sec``/``beads_age_sec`` are each independent cache-file
     ages in seconds — both halves read the SAME cache file's single mtime
     today (so callers typically pass the same value for both), but the
@@ -991,17 +1121,21 @@ def render_beads_bar(
     Pure function of its inputs (no tmux/subprocess).
     """
     segments = []
-    if openspec_open is not None and openspec_unarchived is not None:
+    if (
+        openspec_open is not None
+        and openspec_in_progress is not None
+        and openspec_ua is not None
+    ):
         segments.append(
             _pulse_segment(
-                "openspec", openspec_open, "open", openspec_unarchived, "unarchived",
+                "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
                 openspec_age_sec, BEADS_UNARCHIVED_HIGH,
             )
         )
-    if beads_ready is not None and beads_blocked is not None:
+    if beads_open is not None and beads_ready is not None and beads_blocked is not None:
         segments.append(
             _pulse_segment(
-                "beads", beads_ready, "ready", beads_blocked, "blocked",
+                "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
                 beads_age_sec, BEADS_BLOCKED_HIGH,
             )
         )

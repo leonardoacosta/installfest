@@ -595,6 +595,183 @@ def _test_render_animated_icon() -> None:
     _check(render.animated_icon("bogus-state", 0.0) == "", "unknown state -> ''")
 
 
+# ---------------------------------------------------------------------------
+# render.py idle-tab usage meter tests (cc-tmux-idle-tab-usage-meter)
+# ---------------------------------------------------------------------------
+
+def _test_render_idle_meter_ramp_sweep() -> None:
+    scale = render.IDLE_METER_SCALE_TOKENS
+    cases = [
+        (0.0625, "⡀"),
+        (0.5, "⣿"),
+        (0.75, "⠛"),
+        (0.9375, "⠈"),
+        (1.0, "▓"),
+        (1.5, "▓"),  # above 1.0 also clamps to the top glyph
+    ]
+    for ratio, expected_glyph in cases:
+        idx = render._idle_meter_index(ratio)
+        _check(
+            render.IDLE_METER_RAMP[idx] == expected_glyph,
+            f"ratio {ratio} -> idx {idx} -> {render.IDLE_METER_RAMP[idx]!r}, expected {expected_glyph!r}",
+        )
+        raw_tokens = ratio * scale
+        glyph, _color = render.idle_usage_meter(raw_tokens, now=0.0)
+        _check(
+            glyph == expected_glyph,
+            f"idle_usage_meter ratio={ratio} (raw_tokens={raw_tokens}) glyph {glyph!r}, expected {expected_glyph!r}",
+        )
+
+
+def _test_render_idle_meter_index0_flash() -> None:
+    # raw_tokens near-zero -> ratio ~0.001 -> idx 0.
+    raw_tokens = 1000
+    _check(render._idle_meter_index(raw_tokens / render.IDLE_METER_SCALE_TOKENS) == 0, "sanity: lands in index 0")
+    glyph_even, _ = render.idle_usage_meter(raw_tokens, now=0.0)  # int(0/1) % 2 == 0
+    glyph_odd, _ = render.idle_usage_meter(raw_tokens, now=1.0)  # int(1/1) % 2 == 1
+    _check(glyph_even == "⠀", f"even FRAME_PERIOD_SEC parity -> blank U+2800, got {glyph_even!r}")
+    _check(glyph_odd == render.IDLE_METER_RAMP[0] == "░", f"odd parity -> ramp[0] '░', got {glyph_odd!r}")
+
+
+def _test_render_idle_meter_none_fallback() -> None:
+    for now in (0.0, 1.0, 42.5):
+        glyph, color = render.idle_usage_meter(None, now)
+        _check(glyph == render.IDLE_GLYPH, f"None raw_tokens -> IDLE_GLYPH at now={now}, got {glyph!r}")
+        _check(color == "", f"None raw_tokens -> empty color at now={now}, got {color!r}")
+
+
+def _test_render_idle_meter_color_matches_resolve_context_color() -> None:
+    # One raw_tokens value per severity tier (design.md § Color + pulse),
+    # including the >750k pulse tier checked at BOTH FRAME_PERIOD_SEC parities.
+    tier_values = [
+        50_000,   # DIM (<=100k)
+        150_000,  # GREEN (>100k)
+        250_000,  # YELLOW (>200k)
+        400_000,  # ORANGE (>300k)
+        550_000,  # RED steady (>500k)
+        650_000,  # RED<->BRIGHT_RED pulse (>600k)
+        800_000,  # DARK_RED<->RED pulse (>750k)
+    ]
+    for raw_tokens in tier_values:
+        for now in (0.0, 1.0):
+            _, color = render.idle_usage_meter(raw_tokens, now)
+            expected = render.resolve_context_color(raw_tokens, now)
+            _check(
+                color == expected,
+                f"raw_tokens={raw_tokens} now={now}: idle meter color {color!r} != resolve_context_color {expected!r}",
+            )
+
+
+def _test_render_resolve_tab_glyph_precedence() -> None:
+    """resolve_tab_glyph precedence (task 4.2): waiting, active, fg=1 (foreground
+    sub-agent), and bg=2 (background sub-agent) ALL return
+    ``(resolve_tab_icon(state, now, fg_count, bg_count), "")`` byte-identical to
+    calling resolve_tab_icon directly with an empty colour — the meter is never
+    reached in those cases. ONLY the plain-idle case (fg=0, bg=0, state=="idle")
+    routes to :func:`render.idle_usage_meter`."""
+    # waiting state, no subagents -> plain resolve_tab_icon passthrough.
+    icon = render.resolve_tab_icon("waiting", 0.0, 0, 0)
+    _check(
+        render.resolve_tab_glyph("waiting", 0.0, 0, 0) == (icon, ""),
+        "waiting: byte-identical to resolve_tab_icon, empty colour",
+    )
+
+    # active state, no subagents -> plain resolve_tab_icon passthrough.
+    icon = render.resolve_tab_icon("active", 2.0, 0, 0)
+    _check(
+        render.resolve_tab_glyph("active", 2.0, 0, 0) == (icon, ""),
+        "active: byte-identical to resolve_tab_icon, empty colour",
+    )
+
+    # fg=1 (foreground sub-agent), even with state=="idle" -> subagent overlay
+    # wins, never the meter.
+    icon = render.resolve_tab_icon("idle", 0.0, 1, 0)
+    _check(icon == render.SUBAGENT_FG_1, "sanity: fg=1 -> hollow ring")
+    _check(
+        render.resolve_tab_glyph("idle", 0.0, 1, 0) == (icon, ""),
+        "fg=1: byte-identical to resolve_tab_icon, empty colour, not the meter",
+    )
+
+    # bg=2 (background sub-agents), fg=0, state=="idle" -> subagent overlay
+    # wins, never the meter.
+    icon = render.resolve_tab_icon("idle", 0.0, 0, 2)
+    _check(icon == render.SUBAGENT_BG_2PLUS, "sanity: fg=0,bg=2 -> filled diamond")
+    _check(
+        render.resolve_tab_glyph("idle", 0.0, 0, 2) == (icon, ""),
+        "bg=2: byte-identical to resolve_tab_icon, empty colour, not the meter",
+    )
+
+    # ONLY fg=0, bg=0, state=="idle" routes to the meter: with raw_tokens set,
+    # the result diverges from resolve_tab_icon's static glyph and matches
+    # idle_usage_meter directly.
+    plain_icon = render.resolve_tab_icon("idle", 0.0, 0, 0)
+    _check(plain_icon == render.IDLE_GLYPH, "sanity: fg=0,bg=0,idle -> static IDLE_GLYPH via resolve_tab_icon")
+    meter_result = render.resolve_tab_glyph("idle", 0.0, 0, 0, raw_tokens=500_000)
+    _check(
+        meter_result == render.idle_usage_meter(500_000, 0.0),
+        "plain idle + raw_tokens: routes to idle_usage_meter, not resolve_tab_icon",
+    )
+    _check(meter_result[0] != plain_icon, "plain idle + raw_tokens: meter glyph differs from resolve_tab_icon's static glyph")
+    _check(meter_result[1] != "", "plain idle + raw_tokens: non-empty meter colour")
+
+
+def _test_render_render_tabs_row_idle_meter_wiring() -> None:
+    """render_tabs_row wiring (task 4.2): a plain-idle window with raw_tokens set
+    renders the idle-usage-meter ramp glyph wrapped in its own #[fg=...] colour,
+    with the segment's own label colour (CYAN-bold active / DIM inactive)
+    restored immediately after — #[range=window|...] markup unchanged. The same
+    window WITHOUT raw_tokens (None, or the attribute absent entirely) renders
+    byte-identical to today's static-icon segment: no #[fg=] wrap around the
+    icon at all."""
+    idle_window = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    idle_window.raw_tokens = 500_000  # type: ignore[attr-defined]  # 500K/1M -> ratio 0.5 -> ramp idx 8
+
+    expected_glyph, expected_color = render.idle_usage_meter(500_000, 0.0)
+    _check(expected_glyph == "⣿", f"sanity: 500K/1M ratio 0.5 -> index 8 -> '⣿', got {expected_glyph!r}")
+    _check(expected_color != "", "sanity: meter colour non-empty at 500K tokens")
+
+    # Inactive window (DIM label colour): glyph wrapped in meter colour, DIM
+    # restored immediately after for the trailing name.
+    out = render.render_tabs_row([idle_window], "@2", now=0.0)
+    _check(
+        out == (
+            f"#[fg={render.DIM}]#[range=window|1] "
+            f"1 #[fg={expected_color}]{expected_glyph}#[fg={render.DIM}] work "
+            f"#[norange]#[default]"
+        ),
+        f"inactive idle window w/ raw_tokens: meter glyph + colour, DIM restored, range markup intact: {out!r}",
+    )
+
+    # Active window (CYAN-bold label colour): same wiring, CYAN-bold restored
+    # instead of DIM.
+    active_colour = f"{render.CYAN},bold"
+    out_active = render.render_tabs_row([idle_window], "@1", now=0.0)
+    _check(
+        out_active == (
+            f"#[fg={active_colour}]#[range=window|1] "
+            f"1 #[fg={expected_color}]{expected_glyph}#[fg={active_colour}] work "
+            f"#[norange]#[default]"
+        ),
+        f"active idle window w/ raw_tokens: meter glyph + colour, CYAN-bold restored, range markup intact: {out_active!r}",
+    )
+
+    # Same window with raw_tokens explicitly None -> byte-identical to the
+    # prior plain-icon rendering (no colour wrap around the icon at all).
+    static_expected = f"#[fg={render.DIM}]#[range=window|1] 1 {render.IDLE_GLYPH} work #[norange]#[default]"
+    idle_window_none = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    idle_window_none.raw_tokens = None  # type: ignore[attr-defined]
+    out_none = render.render_tabs_row([idle_window_none], "@2", now=0.0)
+    _check(out_none == static_expected, f"idle window, raw_tokens=None: byte-identical to static glyph, no wrap: {out_none!r}")
+    _check(f"#[fg={expected_color}]" not in out_none, "raw_tokens=None: meter colour never appears")
+
+    # Same window with the raw_tokens attribute absent entirely (getattr
+    # default) -> identical to the explicit-None case — the real shape
+    # cli._build_tabs_row emits for a window it never resolved tokens for.
+    idle_window_no_attr = _FakeWindow(id="@1", index="1", name="work", state="idle")
+    out_no_attr = render.render_tabs_row([idle_window_no_attr], "@2", now=0.0)
+    _check(out_no_attr == static_expected, "getattr default (no raw_tokens attribute) matches explicit raw_tokens=None")
+
+
 def _test_tmux_get_window_top_state() -> None:
     saved = tmux._run_tmux
     try:
@@ -1772,122 +1949,124 @@ def _test_render_session_bar() -> None:
 
 
 def _test_render_beads_bar() -> None:
-    # cc-tmux-row3-openspec-beads-format task 2.3: render_beads_bar now takes
-    # structured (openspec_open, openspec_unarchived, beads_ready,
-    # beads_blocked) counts + independent per-half ages, rather than a raw
-    # pulse-line string.
+    # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): render_beads_bar now takes
+    # structured (openspec_open, openspec_in_progress, openspec_ua,
+    # beads_open, beads_ready, beads_blocked) counts + independent per-half
+    # ages, rendering the abbreviated `op:`/`bd:` format.
     D = render.DIM
     Y = render.YELLOW
     R = render.RED
 
     # No counts at all (no cache, or nothing parsed from either line) -> ''.
-    _check(render.render_beads_bar(None, None, None, None) == "", "all None -> ''")
+    _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all None -> ''")
 
-    # A half is "present" only when BOTH its counts are non-None — a
-    # partially-present half (one count set, the other None, e.g. from a
-    # malformed line) renders as fully absent, same as fully-None (task 2.2's
-    # fail-open contract: a broken half never leaks a placeholder value).
-    out_partial = render.render_beads_bar(12, None, 5, 2)
-    _check("openspec:" not in out_partial, "partial openspec half (unarchived=None) omitted entirely")
+    # A half is "present" only when ALL THREE of its counts are non-None — a
+    # partially-present half (one count set, the others None, e.g. from a
+    # malformed line) renders as fully absent, same as fully-None (fail-open
+    # contract: a broken half never leaks a placeholder value).
+    out_partial = render.render_beads_bar(12, 1, None, 1, 5, 2)
+    _check("op:" not in out_partial, "partial openspec half (ua=None) omitted entirely")
     _check(
-        out_partial == f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]",
-        "partial openspec half omitted -> only the valid beads half renders",
+        out_partial == f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]",
+        "partial openspec half omitted -> only the valid bd half renders",
     )
 
     # Openspec-only (beads half fully absent) -> single segment, no
-    # separator, no beads text anywhere.
-    out_openspec_only = render.render_beads_bar(12, 0, None, None)
+    # separator, no bd text anywhere.
+    out_openspec_only = render.render_beads_bar(12, 1, 0, None, None, None)
     _check(
-        out_openspec_only == f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived#[default]",
-        "openspec-only: single segment, zero unarchived -> DIM",
+        out_openspec_only == f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua#[default]",
+        "openspec-only: single segment, zero ua -> DIM",
     )
     _check(
-        "beads:" not in out_openspec_only and "|" not in out_openspec_only,
-        "openspec-only: no beads segment, no separator",
+        "bd:" not in out_openspec_only and "|" not in out_openspec_only,
+        "openspec-only: no bd segment, no separator",
     )
 
     # Beads-only (openspec half fully absent) -> single segment.
-    out_beads_only = render.render_beads_bar(None, None, 5, 0)
+    out_beads_only = render.render_beads_bar(None, None, None, 1, 5, 0)
     _check(
-        out_beads_only == f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]",
+        out_beads_only == f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]",
         "beads-only: single segment, zero blocked -> DIM",
     )
-    _check("openspec:" not in out_beads_only, "beads-only: no openspec segment")
+    _check("op:" not in out_beads_only, "beads-only: no openspec segment")
 
-    # Both halves present, zero unarchived/blocked -> DIM throughout, joined
-    # by the DIM ' | ' separator, single trailing reset (mirrors the old
+    # Both halves present, zero ua/blocked -> DIM throughout, joined by the
+    # DIM ' | ' separator, single trailing reset (mirrors the old
     # multi-line-join shape, now built from two structured segments).
-    out_both_zero = render.render_beads_bar(12, 0, 5, 0)
+    out_both_zero = render.render_beads_bar(12, 1, 0, 1, 5, 0)
     _check(
         out_both_zero == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
         ),
-        "both halves, zero unarchived/blocked -> DIM, joined by separator",
+        "both halves, zero ua/blocked -> DIM, joined by separator",
     )
     _check(out_both_zero.count("#[default]") == 1, "single trailing reset, not per-segment")
 
-    # Nonzero-but-below-threshold unarchived/blocked -> YELLOW; open/ready
+    # Nonzero-but-below-threshold ua/blocked -> YELLOW; open/in_progress/ready
     # counts always stay DIM regardless of their own value (informational,
     # not a health signal).
-    out_yellow = render.render_beads_bar(12, 3, 5, 2)
+    out_yellow = render.render_beads_bar(12, 1, 3, 1, 5, 2)
     _check(
         out_yellow == (
-            f"#[fg={D}]openspec: 12 open #[fg={Y}]3#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={Y}]3#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={Y}]2#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]"
         ),
-        "unarchived/blocked > 0 and < high threshold -> YELLOW",
+        "ua/blocked > 0 and < high threshold -> YELLOW",
     )
 
     # At/above the documented high-count threshold -> RED.
     hi_u, hi_b = render.BEADS_UNARCHIVED_HIGH, render.BEADS_BLOCKED_HIGH
-    out_red = render.render_beads_bar(12, hi_u, 5, hi_b)
+    out_red = render.render_beads_bar(12, 1, hi_u, 1, 5, hi_b)
     _check(
         out_red == (
-            f"#[fg={D}]openspec: 12 open #[fg={R}]{hi_u}#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={R}]{hi_u}#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={R}]{hi_b}#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={R}]{hi_b}#[fg={D}]b#[default]"
         ),
-        "unarchived/blocked >= documented high threshold -> RED",
+        "ua/blocked >= documented high threshold -> RED",
     )
     _check(render._threshold_color(hi_u - 1, hi_u) == Y, "one below threshold -> still YELLOW, not RED")
 
     # Staleness markers (plan 006 / BEADS-01, extended to independent
-    # per-segment ages by task 2.3): fresh/unknown age -> unchanged; age
-    # beyond BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)"
-    # marker on that segment only, the other segment unaffected.
+    # per-segment ages): fresh/unknown age -> unchanged; age beyond
+    # BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)" marker
+    # on that segment only, the other segment unaffected.
     base = (
-        f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+        f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
         f"{render._BEADS_SEP}"
-        f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+        f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
     )
-    _check(render.render_beads_bar(12, 0, 5, 0, None, None) == base, "both ages None -> no markers")
-    _check(render.render_beads_bar(12, 0, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
+    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, None, None) == base, "both ages None -> no markers")
+    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
     _check(
-        render.render_beads_bar(12, 0, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC) == base,
+        render.render_beads_bar(
+            12, 1, 0, 1, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC
+        ) == base,
         "age exactly at threshold -> not yet stale (strict >)",
     )
 
-    out_stale_openspec = render.render_beads_bar(12, 0, 5, 0, 901.0, None)
+    out_stale_openspec = render.render_beads_bar(12, 1, 0, 1, 5, 0, 901.0, None)
     _check(
         out_stale_openspec == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived (15m)"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua (15m)"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
         ),
-        "stale openspec age only -> (15m) marker on the openspec segment, beads segment unaffected",
+        "stale openspec age only -> (15m) marker on the op segment, bd segment unaffected",
     )
 
-    out_stale_beads = render.render_beads_bar(12, 0, 5, 0, None, 7500.0)
+    out_stale_beads = render.render_beads_bar(12, 1, 0, 1, 5, 0, None, 7500.0)
     _check(
         out_stale_beads == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked (2h)#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b (2h)#[default]"
         ),
-        "stale beads age only -> (2h) marker on the beads segment, openspec segment unaffected",
+        "stale beads age only -> (2h) marker on the bd segment, op segment unaffected",
     )
 
 
@@ -1903,13 +2082,16 @@ def _test_render_beads_bar_account_segment() -> None:
 
     # (a) openspec + beads + account_label all present -> all three segments
     # appear, _BEADS_SEP-joined, account segment LAST, wrapped in the range
-    # marker relocated from row 2.
-    out_all = render.render_beads_bar(12, 0, 5, 0, account_label=label)
+    # marker relocated from row 2. Openspec/beads values mirror
+    # _test_render_beads_bar's "both halves, zero ua/blocked" case (12, 1, 0,
+    # 1, 5, 0) — the new in_progress/open slots are just non-None
+    # placeholders here, not what this test is about.
+    out_all = render.render_beads_bar(12, 1, 0, 1, 5, 0, account_label=label)
     _check(
         out_all == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b"
             f"{render._BEADS_SEP}"
             f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
         ),
@@ -1918,30 +2100,36 @@ def _test_render_beads_bar_account_segment() -> None:
     _check(out_all.count(render._BEADS_SEP) == 2, "two separators join three segments")
 
     # (b) openspec/beads BOTH absent (today's "no cache" case), account_label
-    # present -> row shows ONLY the account segment, not "".
-    out_account_only = render.render_beads_bar(None, None, None, None, account_label=label)
+    # present -> row shows ONLY the account segment, not "". All 6 count
+    # positionals stay None here — the "absent" case doesn't need placeholders.
+    out_account_only = render.render_beads_bar(
+        None, None, None, None, None, None, account_label=label
+    )
     _check(
         out_account_only == f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]",
         f"no cache, account present -> account-only row, not empty: {out_account_only!r}",
     )
-    _check("openspec:" not in out_account_only and "beads:" not in out_account_only, "no count segments leak in")
+    _check("op:" not in out_account_only and "bd:" not in out_account_only, "no count segments leak in")
 
     # (c) account_label absent, openspec/beads present -> unchanged
     # two-segment behavior (regression guard for today's existing contract).
-    out_two_segment = render.render_beads_bar(12, 0, 5, 0)
+    out_two_segment = render.render_beads_bar(12, 1, 0, 1, 5, 0)
     _check(
         out_two_segment == (
-            f"#[fg={D}]openspec: 12 open #[fg={D}]0#[fg={D}] unarchived"
+            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]beads: 5 ready #[fg={D}]0#[fg={D}] blocked#[default]"
+            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
         ),
         f"account_label omitted -> unchanged two-segment behavior: {out_two_segment!r}",
     )
     _check("range=user|accounts" not in out_two_segment, "no account segment when account_label is empty")
 
     # (d) all three absent -> "" (unchanged empty-row contract).
-    _check(render.render_beads_bar(None, None, None, None) == "", "all three absent -> ''")
-    _check(render.render_beads_bar(None, None, None, None, account_label="") == "", "explicit empty account_label -> ''")
+    _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all three absent -> ''")
+    _check(
+        render.render_beads_bar(None, None, None, None, None, None, account_label="") == "",
+        "explicit empty account_label -> ''",
+    )
 
 
 def _test_render_tabs_row() -> None:
@@ -2091,20 +2279,20 @@ def _test_cli_read_roadmap_pulse_radar_strip() -> None:
 
         # A stray radar: line is stripped entirely; the other lines survive.
         with open(pulse_file, "w") as f:
-            f.write("radar:stale (1d)\nopenspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+            f.write("radar:stale (1d)\nop: 12o 3ip 1ua\nbd: 4o 5r 2b\n")
         content, _age = cli._read_roadmap_pulse("%1")
         _check(
-            content == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            content == "op: 12o 3ip 1ua\nbd: 4o 5r 2b",
             "radar: line stripped, other lines preserved",
         )
         _check("radar:" not in content, "no radar: content survives the read")
 
         # Content with no radar: line at all is unaffected.
         with open(pulse_file, "w") as f:
-            f.write("openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked\n")
+            f.write("op: 12o 3ip 1ua\nbd: 4o 5r 2b\n")
         content2, _age2 = cli._read_roadmap_pulse("%1")
         _check(
-            content2 == "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked",
+            content2 == "op: 12o 3ip 1ua\nbd: 4o 5r 2b",
             "content without a radar: line is unaffected",
         )
 
@@ -2125,51 +2313,59 @@ def _test_cli_read_roadmap_pulse_radar_strip() -> None:
 
 
 def _test_cli_parse_roadmap_pulse_counts() -> None:
-    # cc-tmux-row3-openspec-beads-format task 2.2: parse the two-line
-    # "openspec: N open, M unarchived" / "beads: N ready, M blocked" cache
-    # format into structured counts, each half independent and fail-open.
-    both = "openspec: 12 open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): parse the abbreviated
+    # "op: {N}o {M}ip {K}ua" / "bd: {N}o {M}r {K}b" cache format into
+    # structured counts, each half independent and fail-open.
+    both = "op: 12o 3ip 1ua\nbd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(both) == (12, 3, 5, 2),
+        cli._parse_roadmap_pulse_counts(both) == (12, 3, 1, 4, 5, 2),
         "well-formed two-line content -> both halves parsed",
     )
 
-    reordered = "beads: 5 ready, 2 blocked\nopenspec: 12 open, 3 unarchived"
+    # Real-world sample verified live against
+    # ~/.claude/scripts/state/roadmap-pulse.if.line (if-bqw.1 task text).
+    live_sample = "op: 1o 0ip 0ua\nbd: 1o 1r 0b"
     _check(
-        cli._parse_roadmap_pulse_counts(reordered) == (12, 3, 5, 2),
+        cli._parse_roadmap_pulse_counts(live_sample) == (1, 0, 0, 1, 1, 0),
+        "live-sample two-line content -> both halves parsed exactly",
+    )
+
+    reordered = "bd: 4o 5r 2b\nop: 12o 3ip 1ua"
+    _check(
+        cli._parse_roadmap_pulse_counts(reordered) == (12, 3, 1, 4, 5, 2),
         "line order doesn't affect parsing",
     )
 
-    openspec_only = "openspec: 12 open, 3 unarchived"
+    openspec_only = "op: 12o 3ip 1ua"
     _check(
-        cli._parse_roadmap_pulse_counts(openspec_only) == (12, 3, None, None),
-        "missing beads line -> beads half absent (None, None), openspec half intact",
+        cli._parse_roadmap_pulse_counts(openspec_only) == (12, 3, 1, None, None, None),
+        "missing bd line -> beads half absent (None, None, None), openspec half intact",
     )
 
-    malformed_beads = "openspec: 12 open, 3 unarchived\nbeads: garbage"
+    malformed_beads = "op: 12o 3ip 1ua\nbd: garbage"
     _check(
-        cli._parse_roadmap_pulse_counts(malformed_beads) == (12, 3, None, None),
-        "malformed beads line -> beads half absent, openspec half intact",
+        cli._parse_roadmap_pulse_counts(malformed_beads) == (12, 3, 1, None, None, None),
+        "malformed bd line -> beads half absent, openspec half intact",
     )
 
-    beads_only = "beads: 5 ready, 2 blocked"
+    beads_only = "bd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(beads_only) == (None, None, 5, 2),
-        "missing openspec line -> openspec half absent (None, None), beads half intact",
+        cli._parse_roadmap_pulse_counts(beads_only) == (None, None, None, 4, 5, 2),
+        "missing op line -> openspec half absent (None, None, None), beads half intact",
     )
 
-    malformed_openspec = "openspec: not-a-number open, 3 unarchived\nbeads: 5 ready, 2 blocked"
+    malformed_openspec = "op: not-a-number ip 1ua\nbd: 4o 5r 2b"
     _check(
-        cli._parse_roadmap_pulse_counts(malformed_openspec) == (None, None, 5, 2),
-        "malformed openspec line -> openspec half absent, beads half intact",
+        cli._parse_roadmap_pulse_counts(malformed_openspec) == (None, None, None, 4, 5, 2),
+        "malformed op line -> openspec half absent, beads half intact",
     )
 
     _check(
-        cli._parse_roadmap_pulse_counts("") == (None, None, None, None),
+        cli._parse_roadmap_pulse_counts("") == (None, None, None, None, None, None),
         "empty content -> both halves absent",
     )
     _check(
-        cli._parse_roadmap_pulse_counts("some unrelated line") == (None, None, None, None),
+        cli._parse_roadmap_pulse_counts("some unrelated line") == (None, None, None, None, None, None),
         "unrelated content -> both halves absent",
     )
 
@@ -3349,6 +3545,12 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.render_status", _test_render_status),
     ("render.resolve_icons", _test_render_resolve_icons),
     ("render.animated_icon", _test_render_animated_icon),
+    ("render.idle_meter_ramp_sweep", _test_render_idle_meter_ramp_sweep),
+    ("render.idle_meter_index0_flash", _test_render_idle_meter_index0_flash),
+    ("render.idle_meter_none_fallback", _test_render_idle_meter_none_fallback),
+    ("render.idle_meter_color_matches_resolve_context_color", _test_render_idle_meter_color_matches_resolve_context_color),
+    ("render.resolve_tab_glyph_precedence", _test_render_resolve_tab_glyph_precedence),
+    ("render.tabs_row_idle_meter_wiring", _test_render_render_tabs_row_idle_meter_wiring),
     ("tmux.get_window_top_state", _test_tmux_get_window_top_state),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
