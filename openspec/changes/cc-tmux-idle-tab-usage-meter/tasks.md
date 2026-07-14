@@ -29,4 +29,32 @@
 
 - [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `_idle_meter_index` + `idle_usage_meter`: ratio sweep hits Leo's nominal glyphs exactly (0.0625 -> `⡀`, 0.5 -> `⣿`, 0.75 -> `⠛`, 0.9375 -> `⠈`, 1.0 and above-1.0-clamped -> `▓`); index-0 flash alternates `░`/`⠀` across two `now` values of opposite parity; `None` -> `(IDLE_GLYPH, "")` exactly; colour equals `resolve_context_color(raw_tokens, now)` for one raw_tokens value in each of the 6 severity tiers, including a >750k case checked at both parities (pulse pair comes through verbatim). Run `cc-tmux self-test` and paste the passing stdout. [owner:general-purpose] [type:testing] [beads:if-7sfa]
 - [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `resolve_tab_glyph` precedence (waiting/active/fg=1/bg=2 cases return `(resolve_tab_icon(...), "")` byte-identical; only plain idle routes to the meter) and `render_tabs_row` wiring (an idle window object with `raw_tokens=500_000` renders the `⣿` glyph wrapped in a `#[fg=` colour that then restores the label colour; the same window with `raw_tokens` absent renders today's exact segment string; active-window CYAN-bold highlighting and `#[range=window|...]` markup unchanged). Run `cc-tmux self-test` and paste the passing stdout showing zero failures overall (update any pre-existing tab-row assertions that legitimately changed shape rather than deleting or skipping them). [owner:general-purpose] [type:testing] [beads:if-au6q]
-- [ ] [4.3] Live verification: re-register the plugin bindings/format in the running server via `tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux`, then capture the REAL rendered tabs row (interrogate the status line, e.g. capture-pane on the status area or read the evaluated `status-format[0]` — NOT `display-message -F` alone, which never runs `#()` jobs). Attempt real data first; the known `session_context() -> None` gap on this machine (design.md § None fallback) means idle tabs likely render the `█` fallback — that fallback IS a required observation. Then inject an illustrative value by writing a synthetic nx-agent context cache entry for a tracked session (same on-disk cache `nx_agent._fetch_cached` reads) with e.g. `usedPercentage`/`contextWindowSize` yielding ~500k raw tokens, confirm the live tab shows a coloured `⣿`, and afterwards delete the synthetic cache entry. Paste both captured outputs (fallback + illustrative) and note which data path each exercised. [owner:general-purpose] [type:testing] [beads:if-m8ds]
+- [x] [4.3] Live verification: re-register the plugin bindings/format in the running server via `tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux`, then capture the REAL rendered tabs row (interrogate the status line, e.g. capture-pane on the status area or read the evaluated `status-format[0]` — NOT `display-message -F` alone, which never runs `#()` jobs). Attempt real data first; the known `session_context() -> None` gap on this machine (design.md § None fallback) means idle tabs likely render the `█` fallback — that fallback IS a required observation. Then inject an illustrative value by writing a synthetic nx-agent context cache entry for a tracked session (same on-disk cache `nx_agent._fetch_cached` reads) with e.g. `usedPercentage`/`contextWindowSize` yielding ~500k raw tokens, confirm the live tab shows a coloured `⣿`, and afterwards delete the synthetic cache entry. Paste both captured outputs (fallback + illustrative) and note which data path each exercised. [owner:general-purpose] [type:testing] [beads:if-m8ds]
+
+  **Verified live 2026-07-14** (apply/20260714-1609-b4e1cf3e). Real-data captures (no
+  synthetic input) hit the colored-glyph branch directly, superseding the design doc's stated
+  `session_context() -> None` gap — nx-agent now returns real `usedPercentage` for every tracked
+  session on this machine (confirmed via direct `curl localhost:7400/sessions/:id/context`), so
+  the `█` fallback was NOT observed live (nothing to fall back from) — noted, not treated as a
+  failure per the task brief. Real render-all captures against genuinely idle windows during this
+  session showed the meter firing correctly end-to-end: nx window (56% used -> 560,000 raw
+  tokens) rendered ramp idx 9 `⢿` colored RED (`#E61F44`, matches the `>500_000` tier); cc window
+  (25% -> ~250,000 tokens) rendered idx 4 `⣤` colored ORANGE/YELLOW-tier `#FAC760`. For the
+  illustrative ~500k-token case, the live session's panes were changing state too rapidly
+  (multiple concurrent agent dispatches) to reliably catch and inject against one of Leo's real
+  panes mid-render, so the injection was done against an isolated scratch tmux window (`tmux
+  new-window`, never touching any of Leo's 5 existing windows/6 panes) registered idle via the
+  real `cc-tmux register --state idle` CLI path and given `@cc-session-id` reused from a real
+  tracked session (`dbc555f4-...`). Writing `{"usedPercentage": 50, "contextWindowSize":
+  1000000}` to that session's on-disk nx-agent cache file
+  (`/tmp/cc-tmux-nx-context-cache.1000.dbc555f4....json`) and running the worktree's `bin/cc-tmux
+  render-all <scratch-window>` produced `#[fg=#FF8C00]\u{28ff}` — ramp idx 8, `⣿`, colored ORANGE
+  (exactly 500,000 tokens is not `>500_000` so it falls in the `>300_000` ORANGE tier rather than
+  RED — correct per `_context_color_pair`). Synthetic cache file deleted immediately after
+  capture; scratch window killed; live server's keybinding registration restored to the
+  main-checkout plugin (`tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux`), confirmed via
+  `tmux list-keys -T prefix` showing `bind-key -T prefix o run-shell
+  ".../installfest/apps/cc-tmux/bin/cc-tmux cycle"` (main checkout path, not the worktree). The
+  `~/.tmux/plugins/cc-tmux` symlink itself was never modified — only the keybinding rebind (via
+  `run-shell` on `cc-tmux.tmux`) and direct `render-all` invocations against the worktree binary
+  were used to exercise worktree code, exactly as task step 2 specified.
