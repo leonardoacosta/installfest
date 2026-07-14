@@ -23,7 +23,7 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_accounts_popup`, delete the [beads:if-dg45]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_accounts_popup`, delete the [beads:if-dg45]
   `is_active` branch's SES/3-metric-glyph construction (`bar_label`, `bar_color`, `bar_glyphs`,
   `bar_str_plain`, `bar_str`, and the `tail_plain`/`tail` prefixing that used them). Every row
   (active and non-active alike) now falls through to the existing `else` branch's logic:
@@ -33,7 +33,7 @@
   = None` parameters from the function signature entirely (no longer referenced anywhere in the
   body) — update the docstring accordingly (delete the SES-related paragraphs, keep the
   `*`-marker and per-account-identity-row documentation). [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar`, remove `label_seg` [beads:if-w0tc]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_session_bar`, remove `label_seg` [beads:if-w0tc]
   (the `#[range=user|accounts]...#[norange]` account-label segment) and its construction from the
   `right` string entirely. Reorder the remaining right-side content so the combined usage glyph
   renders LAST, after `7D:xx%` — i.e. `right = f"#[fg={ses_color}]{ses_label}:#[default] "
@@ -45,7 +45,7 @@
   do NOT leave a vestigial unused parameter). Update the docstring to drop every SES-label-glyph
   ordering claim and the account-label paragraph, and to state the new right-side order and the
   removed parameter. [owner:general-purpose] [type:api]
-- [ ] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_beads_bar`, add a new parameter [beads:if-wgrj]
+- [x] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_beads_bar`, add a new parameter [beads:if-wgrj]
   (e.g. `account_label: str = ""`) and, when non-empty, append a THIRD independent segment to
   `segments` (same `_BEADS_SEP`-joined convention already used for the openspec/beads pair) —
   wrap it in the SAME `#[range=user|accounts]...#[norange]` click marker `render_session_bar`

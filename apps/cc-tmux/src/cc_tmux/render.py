@@ -484,7 +484,6 @@ def render_session_bar(
     model_letter: str,
     project: str,
     branch: str,
-    account_label: str,
     ses_pct: Optional[float],
     five_h_pct: Optional[float],
     seven_d_pct: Optional[float],
@@ -507,16 +506,20 @@ def render_session_bar(
     branch segment's own styling rather than getting a distinct colour. The
     whole indicator run is dropped (fail-open) when ``branch`` is empty, so a
     marker never appears without the branch it describes — same fail-open
-    contract the prior ``dirty``/``ahead`` params had. Right side: account
-    label + the SES token-count label (``#[fg={resolve_context_color(...)}]
-    {label}:`` — text via :func:`format_context_tokens`, colour via
-    :func:`resolve_context_color`'s 6-tier severity ramp, cc-tmux-braille-
-    usage-glyph task 3.4 correction) followed by a combined 3-metric braille
-    usage glyph
+    contract the prior ``dirty``/``ahead`` params had. Right side, in this
+    order (design.md § Decision 2): the SES token-count label
+    (``#[fg={resolve_context_color(...)}]{label}:`` — text via
+    :func:`format_context_tokens`, colour via :func:`resolve_context_color`'s
+    6-tier severity ramp, cc-tmux-braille-usage-glyph task 3.4 correction),
+    then the 5H:/7D: gauges (coloured via color_for, formatted via pct_for),
+    then a combined 3-metric braille usage glyph LAST
     (cc-tmux-braille-usage-glyph, replaces the former shade-block fill bar —
     see :func:`render_usage_glyph`, and ``design.md`` § Encoding for the
-    full bit-math rationale) + 5H:/7D: gauges, the latter two still coloured
-    via color_for and formatted via pct_for. The two sides are joined with a
+    full bit-math rationale) — target composition ``85.0K 5H:50% 7D:9%
+    [glyph]``. The account-identity segment that previously led this row (and
+    its ``#[range=user|accounts]`` click marker) moved off row 2 entirely to
+    row 3 (:func:`render_beads_bar`); ``render_session_bar`` no longer takes
+    an ``account_label`` parameter. The two sides are joined with a
     #[align=right] directive so tmux fills the gap between them. ``ses_pct``
     / ``five_h_pct`` / ``seven_d_pct`` (each 0..1, or ``None`` when unpolled
     -> that metric's row(s) render blank in the glyph, per-metric degrade;
@@ -534,17 +537,6 @@ def render_session_bar(
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
-
-    The account-label token on the right side is wrapped in
-    ``#[range=user|accounts]``/``#[norange]`` (cc-tmux-account-switcher-popup
-    task 3.1) — the same range-marker mechanism :func:`cmd_status_inbox`
-    already uses for its ``#[range=pane|<id>]`` badges, confirmed via task
-    1.1's spike to be the only way to bind a NON-default ``MouseDown1Status``
-    action to a specific status-bar segment on this tmux version (3.6a): all
-    ranges share one ``MouseDown1Status`` key, distinguished at click time via
-    ``#{mouse_status_range}`` — see ``cc-tmux.tmux``'s override. Dropped
-    entirely (no range wrapper) when ``account_label`` is empty, so an
-    unlabeled right side never emits a dead click target.
     """
     left_parts: List[str] = []
     if model_letter:
@@ -575,11 +567,6 @@ def render_session_bar(
 
     c5, c7 = color_for(five_h_pct), color_for(seven_d_pct)
     p5, p7 = pct_for(five_h_pct), pct_for(seven_d_pct)
-    label_seg = (
-        f"#[range=user|accounts]#[fg={DIM}]{account_label} #[norange]"
-        if account_label
-        else ""
-    )
     # SES label text unchanged (cc-tmux-context-bar); the shade-block bar is
     # replaced by the neutral combined usage glyph (cc-tmux-braille-usage-
     # glyph — design.md § Color: glyph stays unstyled). The 6-tier severity
@@ -590,11 +577,14 @@ def render_session_bar(
     t = now if now is not None else time.time()
     ses_color = resolve_context_color(raw_tokens, t)
     usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=10)
+    # Right side: SES label, then 5H, then 7D, then the combined usage glyph
+    # LAST (design.md § Decision 2). The account-identity segment + its
+    # #[range=user|accounts] click marker moved off this row to row 3
+    # (render_beads_bar).
     right = (
-        f"{label_seg}"
-        f"#[fg={ses_color}]{ses_label}:#[default]{usage_glyph} "
+        f"#[fg={ses_color}]{ses_label}:#[default] "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
-        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
+        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]{usage_glyph}"
     )
     return f"{left}#[align=right]{right}"
 
@@ -703,10 +693,7 @@ def render_accounts_popup(
         Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], str, str]
     ],
     active_label: str,
-    active_ses_pct: Optional[float],
     now: Optional[float] = None,
-    *,
-    active_raw_tokens: Optional[float] = None,
 ) -> str:
     """Aligned, ANSI-green-accented popup body: one row per deduped account.
 
@@ -729,27 +716,21 @@ def render_accounts_popup(
     (active or not) — matching the existing reset-time lines' "every
     account, not just the starred one" convention.
 
-    Every row's summary line renders ``5H:xx% 7D:xx%``; the row whose
-    ``label`` equals ``active_label`` (exact match) additionally renders the
-    SES token-count label (unchanged text, see :func:`format_context_tokens`)
-    plus a combined 3-metric braille usage glyph at ``n=20``
-    (cc-tmux-braille-usage-glyph, replaces the former shade-block bar — see
-    :func:`render_usage_glyph`, and ``design.md`` § Encoding for the full
-    bit-math rationale) ahead of the 5H/7D gauges, and is marked with a
-    leading ``*``. Every OTHER (non-active) row now also gets a glyph — a
-    2-metric braille encoding at ``n=20`` (:func:`render_usage_glyph_2metric`,
-    design.md § Non-active popup rows) covering only 5H/7D, since a
-    non-active credential has no SES value to show at all; this is new,
-    those rows previously rendered no glyph. ``active_ses_pct`` (this
-    session's own context-window fraction) / ``active_raw_tokens`` (absolute
-    context tokens used, feeds only the SES label's text) are properties of
-    the currently-focused pane, not of a credential in the abstract
-    (proposal's "SES is not an account-level metric"), so both are supplied
-    by the caller rather than looked up per-account here. Every percentage
-    is wrapped in :func:`_green`; the usage glyph (active or non-active row)
-    is the one deliberate exception — it stays neutral/unstyled (design.md §
-    Color: a single braille cell can't carry three independent per-metric
-    severity colours, so colour lives exclusively on the text).
+    EVERY row (active and non-active alike) renders an identical summary
+    line: a 2-metric braille usage glyph at ``n=20``
+    (:func:`render_usage_glyph_2metric`, design.md § Decision 1) covering
+    only 5H/7D, followed by ``5H:xx% 7D:xx%`` text. The popup is
+    account-scoped, and SES (context-window-used %) is a property of the
+    currently-focused pane's session, not of an account in the abstract, so
+    it is not shown here at all — no per-row SES label or 3-metric glyph, no
+    ``active_ses_pct``/``active_raw_tokens`` inputs. The row whose ``label``
+    equals ``active_label`` (exact match) is distinguished ONLY by a leading
+    ``*`` marker (Leo confirmed this is the sole active-account indicator
+    wanted); its usage glyph is byte-identical in shape to a non-active
+    row's. Every percentage is wrapped in :func:`_green`; the usage glyph is
+    the one deliberate exception — it stays neutral/unstyled (design.md §
+    Color: a single braille cell can't carry independent per-metric severity
+    colours, so colour lives exclusively on the text).
 
     Below EVERY account's identity row sit up to two indented, aligned,
     green-accented reset-time lines, one per window, each omitted
@@ -757,7 +738,7 @@ def render_accounts_popup(
     :func:`_format_reset_line`), followed by a full-width ``─`` rule
     separating this account's block from the next:
 
-        * 252.5k:▓▓▓░░░░░░░  5H:36% 7D:71%
+        * ⣿⣶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠀  5H:36% 7D:71%
              leo@x.dev        37a74420
              5H Resets at      03:45 pm  in 02:14
              7D Resets on  Sat 03:45 pm  in 03:14:22
@@ -785,31 +766,13 @@ def render_accounts_popup(
     for label, five_h, seven_d, five_h_reset, seven_d_reset, email, org_short in accounts:
         is_active = bool(active_label) and label == active_label
         five_h_str, seven_d_str = pct_for(five_h), pct_for(seven_d)
-        tail_plain = f"5H:{five_h_str} 7D:{seven_d_str}"
-        tail = f"5H:{_green(five_h_str)} 7D:{_green(seven_d_str)}"
-        if is_active:
-            # SES label text unchanged (format_context_tokens); the former
-            # shade-block bar is replaced by the neutral 3-metric usage
-            # glyph — see design.md § Color (glyph stays unstyled, no
-            # _hex_to_ansi_fg wrap, unlike the old severity-coloured bar).
-            # The 6-tier severity ramp that used to colour the bar's fill
-            # now moves onto the label itself (task 3.4 correction — the
-            # label was never actually wired to the ramp before).
-            bar_label = format_context_tokens(active_raw_tokens)
-            bar_color = _hex_to_ansi_fg(resolve_context_color(active_raw_tokens, t))
-            bar_glyphs = render_usage_glyph(active_ses_pct, five_h, seven_d, n=20)
-            bar_str_plain = f"{bar_label}:{bar_glyphs}"
-            bar_str = f"{bar_color}{bar_label}{_ANSI_RESET}:{bar_glyphs}"
-            tail_plain = f"{bar_str_plain} {tail_plain}"
-            tail = f"{bar_str} {tail}"
-        else:
-            # Non-active rows have no SES value at all (session-scoped, not
-            # account-scoped) — new 2-metric glyph gives 5H/7D the full
-            # 4-dot-per-cell budget instead of leaving this permanently
-            # blank (design.md § Non-active popup rows).
-            glyph2 = render_usage_glyph_2metric(five_h, seven_d, n=20)
-            tail_plain = f"{glyph2} {tail_plain}"
-            tail = f"{glyph2} {tail}"
+        # Every row (active or not) renders the same account-scoped 2-metric
+        # glyph over 5H/7D (design.md § Decision 1) — SES is session-scoped
+        # and no longer shown in this account popup. The active row is
+        # distinguished solely by the leading `*` marker below.
+        glyph2 = render_usage_glyph_2metric(five_h, seven_d, n=20)
+        tail_plain = f"{glyph2} 5H:{five_h_str} 7D:{seven_d_str}"
+        tail = f"{glyph2} 5H:{_green(five_h_str)} 7D:{_green(seven_d_str)}"
         identity = f"{email}  {org_short}" if org_short else email
         reset_5h_plain, reset_5h = _format_reset_line("5H", "at", five_h_reset, t, with_day=False)
         reset_7d_plain, reset_7d = _format_reset_line("7D", "on", seven_d_reset, t, with_day=True)
@@ -966,20 +929,30 @@ def render_beads_bar(
     beads_blocked: Optional[int],
     openspec_age_sec: Optional[float] = None,
     beads_age_sec: Optional[float] = None,
+    account_label: str = "",
 ) -> str:
     """Row-3 status-format string from parsed roadmap-pulse counts, or ``''``.
 
-    Renders up to two ``|``-separated segments:
-    ``openspec: {open} open {unarchived} unarchived ({age})`` and
+    Renders up to three ``|``-separated segments:
+    ``openspec: {open} open {unarchived} unarchived ({age})``,
     ``beads: {ready} ready {blocked} blocked ({age})`` (cc-tmux-row3-openspec-
-    beads-format task 2.3), replacing the prior raw-pulse-line passthrough.
-    Each half is independent and fail-open: a half whose pair of counts is not
-    BOTH present (``None`` from an absent/malformed cache line — see
+    beads-format task 2.3), and — when ``account_label`` is non-empty — a
+    third account-identity segment (``email·orgid8char``, see
+    :func:`cc_tmux.usage._account_label`) appended LAST and wrapped in the
+    ``#[range=user|accounts]``/``#[norange]`` click marker relocated here from
+    :func:`render_session_bar` (design.md § Decision 3). The
+    ``MouseDown1Status`` binding in ``cc-tmux.tmux`` keys off
+    ``#{mouse_status_range}`` globally across the whole status line, so moving
+    which row emits the marker needs no binding change.
+    Each segment is independent and fail-open: a half whose pair of counts is
+    not BOTH present (``None`` from an absent/malformed cache line — see
     :func:`cc_tmux.cli._parse_roadmap_pulse_counts`) is omitted entirely
     rather than rendered with a placeholder, so a broken ``beads:`` line never
-    blanks a valid ``openspec:`` half and vice versa. Both halves omitted (no
-    cache, or nothing parsed) -> ``""``, matching the row's original
-    "no cache -> empty" contract.
+    blanks a valid ``openspec:`` half and vice versa. The account segment is
+    likewise independent: when BOTH openspec/beads pairs are absent (no cache)
+    but ``account_label`` is non-empty, the row renders ONLY the account
+    segment, not ``""``. All three omitted (no cache and no account label) ->
+    ``""``, matching the row's original "no cache -> empty" contract.
 
     ``unarchived``/``blocked`` are colored by semantic threshold
     (:func:`_threshold_color`; DIM healthy, YELLOW above 0, RED at/above
@@ -1010,6 +983,14 @@ def render_beads_bar(
                 "beads", beads_ready, "ready", beads_blocked, "blocked",
                 beads_age_sec, BEADS_BLOCKED_HIGH,
             )
+        )
+    if account_label:
+        # Third independent segment: the active account's identity, wrapped in
+        # the #[range=user|accounts] click marker relocated from row 2
+        # (render_session_bar). Independent of the two count halves above — it
+        # renders even when neither openspec nor beads counts are present.
+        segments.append(
+            f"#[range=user|accounts]#[fg={DIM}]{account_label}#[norange]"
         )
 
     if not segments:
