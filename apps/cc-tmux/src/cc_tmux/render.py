@@ -70,6 +70,12 @@ IDLE_GLYPH = "█"
 # mean some frames are silently skipped, which is harmless.
 FRAME_PERIOD_SEC = 1.0
 
+# Row-3 next-cycle (cc-tmux-row3-next-cycle) — see
+# openspec/changes/cc-tmux-row3-next-cycle/design.md for the full rationale
+# (swap cadence choice). Not re-derived here. (The companion _COUNTDOWN_RAMP
+# constant lives below, after IDLE_METER_RAMP, since it slices that tuple.)
+SWAP_PERIOD_SEC = 8.0
+
 
 # ---------------------------------------------------------------------------
 # Idle-tab usage meter (cc-tmux-idle-tab-usage-meter)
@@ -105,6 +111,13 @@ IDLE_METER_RAMP: Tuple[str, ...] = (
     "⠈",  # 15  — 93.75%
     "▓",  # 16  — 100%
 )
+
+
+# Row-3 next-cycle (cc-tmux-row3-next-cycle) — countdown-to-swap glyph ramp,
+# reusing IDLE_METER_RAMP's drain half rather than a new glyph table. See
+# openspec/changes/cc-tmux-row3-next-cycle/design.md § "Countdown glyph" for
+# the rationale. Not re-derived here.
+_COUNTDOWN_RAMP: Tuple[str, ...] = IDLE_METER_RAMP[8:16]
 
 
 def _idle_meter_index(ratio: float) -> int:
