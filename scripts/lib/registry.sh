@@ -8,7 +8,7 @@
 # in 3 more. One sourced lib, one fix.
 #
 # Sourced by: wsenv, generate-profiles, wk-ready, cmux-workspaces.sh,
-# generate-raycast.sh, mux-remote.sh, copen.
+# generate-raycast.sh, mux-remote.sh, copen, scripts/lib/open-core.sh.
 (return 0 2>/dev/null) || set -euo pipefail
 
 _REGISTRY_PY=""

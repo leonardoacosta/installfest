@@ -16,6 +16,11 @@ the sole source of truth for this family lives in `if`.
 
 All five share one engine, `scripts/lib/open-core.sh`:
 
+`gopen`/`sopen`/`mopen`/`iopen` are a single script, `scripts/viewopen.sh`,
+dispatched by basename behind their symlinks (the same pattern `ideopen.sh`
+uses for `vopen`/`zopen`); `ropen` keeps its own script because it also owns
+the server lifecycle (`--serve`/`--mount`/`--list`).
+
 | Command | Behavior |
 | --- | --- |
 | `ropen <target>` | Refresh/open a browser tab (tries Chrome, falls back to Safari) |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # open-core.sh — shared engine for the VIEW-family *open commands (ropen,
-# sopen, gopen, mopen). Portal-aware: before falling back to the live-mount
+# plus gopen/sopen/mopen/iopen via viewopen.sh). Portal-aware: before falling back to the live-mount
 # HTTP server, checks whether Atlas (docs portal) already has a durable URL
 # for the target path — see at/docs/INDEX-CONTRACT.md for the manifest
 # contract this implements against.
@@ -8,7 +8,7 @@
 # EDIT-family commands (copen/vopen/zopen) do NOT source this — they always
 # want the real source file open in an IDE, never a rendered portal copy.
 #
-# Sourced by: scripts/ropen.sh, scripts/mopen.sh, scripts/sopen.sh, scripts/gopen.sh
+# Sourced by: scripts/ropen.sh, scripts/viewopen.sh (as gopen/sopen/mopen/iopen)
 (return 0 2>/dev/null) || set -euo pipefail
 
 ROPEN_PORT="${ROPEN_PORT:-8889}"

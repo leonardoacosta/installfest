@@ -19,7 +19,7 @@ Ledger rule: when a row moves to DONE/BLOCKED/REJECTED, append a
 | 006 | [beads/roadmap row staleness marker](006-cc-tmux-beads-row-staleness.md) | P3 | S | DONE | — | if-mx9w |
 | 007 | [conductor dispatch hardening (disabled-by-default feature)](007-cc-tmux-conductor-hardening.md) | P3 | M | DONE | — | if-x0qg |
 | 008 | [dead scripts/ sweep: cmux-debug, ani-cli, dbpro, youtube-transcript, setup-az-wrapper](008-dead-scripts-sweep.md) | P2 | S | OPEN | — | if-qmrl |
-| 009 | [open-family: ropen ~/dev/if fallback fix (live defect) + basename-dispatch consolidation](009-open-family-consolidation.md) | P1 | M | OPEN | — | if-fq6t |
+| 009 | [open-family: ropen ~/dev/if fallback fix (live defect) + basename-dispatch consolidation](009-open-family-consolidation.md) | P1 | M | DONE | — | if-fq6t |
 | 010 | [workspace pkg: wk-doctor gate, check.sh coverage, ado-ready stdin-loss bugfix, README drift](010-workspace-pkg-hygiene.md) | P2 | M | OPEN | — | if-js82 |
 | 011 | [zsh + dot_local: dead aliases, broken proxied trio, editor-wrapper dupes, chezmoiignore gap](011-shell-and-dotlocal-hygiene.md) | P2 | M | OPEN | 008 | if-zzl4 |
 | 012 | [deploy-hook integrity: post-commit dead under beads hooksPath + IF-POSTMERGE drift](012-deploy-hook-integrity.md) | P1 | S | DONE | — | if-th0d |
