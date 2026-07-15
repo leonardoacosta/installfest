@@ -22,7 +22,7 @@ Ledger rule: when a row moves to DONE/BLOCKED/REJECTED, append a
 | 009 | [open-family: ropen ~/dev/if fallback fix (live defect) + basename-dispatch consolidation](009-open-family-consolidation.md) | P1 | M | OPEN | — | if-fq6t |
 | 010 | [workspace pkg: wk-doctor gate, check.sh coverage, ado-ready stdin-loss bugfix, README drift](010-workspace-pkg-hygiene.md) | P2 | M | OPEN | — | if-js82 |
 | 011 | [zsh + dot_local: dead aliases, broken proxied trio, editor-wrapper dupes, chezmoiignore gap](011-shell-and-dotlocal-hygiene.md) | P2 | M | OPEN | 008 | if-zzl4 |
-| 012 | [deploy-hook integrity: post-commit dead under beads hooksPath + IF-POSTMERGE drift](012-deploy-hook-integrity.md) | P1 | S | OPEN | — | if-th0d |
+| 012 | [deploy-hook integrity: post-commit dead under beads hooksPath + IF-POSTMERGE drift](012-deploy-hook-integrity.md) | P1 | S | DONE | — | if-th0d |
 | 013 | [ssh-mesh + platform: superseded playbooks, config drift, stale published key, wezterm](013-ssh-mesh-platform-staleness.md) | P2 | M | OPEN | — | if-zf42 |
 | 014 | [cc-tmux dead-code sweep: session-context reader, ANSI bar, paths.py, legacy segments](014-cc-tmux-dead-code-sweep.md) | P2 | M | OPEN | — | if-z44k |
 

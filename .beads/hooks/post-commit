@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+# --- BEGIN IF-POSTCOMMIT v1 ---
+# Managed by chezmoi (home/run_onchange_set-git-hooks.sh.tmpl).
+# Delegates to scripts/hooks/post-commit (beads import + `chezmoi init
+# --apply` local deploy). `|| true`: post-commit must never fail the commit.
+_if_postc_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_if_postc_root" ] && [ -x "$_if_postc_root/scripts/hooks/post-commit" ]; then
+    "$_if_postc_root/scripts/hooks/post-commit" "$@" || true
+fi
+unset _if_postc_root
+# --- END IF-POSTCOMMIT v1 ---

@@ -23,9 +23,15 @@ if command -v bd >/dev/null 2>&1; then
 fi
 # --- END BEADS INTEGRATION v0.63.3 ---
 
-# --- BEGIN IF-POSTMERGE v1 ---
-if command -v chezmoi >/dev/null 2>&1; then
-    chezmoi apply --no-tty 2>/dev/null && echo "chezmoi: applied dotfiles" || \
-        echo "chezmoi: apply failed (run 'chezmoi apply' manually)" >&2
+
+# --- BEGIN IF-POSTMERGE v2 ---
+# Managed by chezmoi (home/run_onchange_set-git-hooks.sh.tmpl).
+# Delegates to scripts/hooks/post-merge (symlink to post-commit): beads
+# import + `chezmoi init --apply` local deploy (init --apply re-renders
+# .chezmoi.toml.tmpl [data]; plain apply does not).
+_if_pm_root=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$_if_pm_root" ] && [ -x "$_if_pm_root/scripts/hooks/post-merge" ]; then
+    "$_if_pm_root/scripts/hooks/post-merge" "$@" || true
 fi
-# --- END IF-POSTMERGE v1 ---
+unset _if_pm_root
+# --- END IF-POSTMERGE v2 ---
