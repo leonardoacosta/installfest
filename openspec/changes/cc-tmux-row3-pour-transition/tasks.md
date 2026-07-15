@@ -41,7 +41,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-w6ye]
+- [x] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-w6ye]
   `pour_transition_text`: at `tick_in_phase=0` every character (first, middle, last) renders as
   `POUR_FRAMES[0]`; at `tick_in_phase=1` the first character has advanced to `POUR_FRAMES[1]`
   while the last character is still at `POUR_FRAMES[0]` (confirms the left-to-right stagger
@@ -51,7 +51,7 @@
   empty-string input returns `""` at any `tick_in_phase` with no exception; a very short string
   (1-2 chars) never raises (guards the `max(1, n-1)` division). [owner:general-purpose]
   [type:testing]
-- [ ] [3.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the [beads:if-0azy]
+- [x] [3.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for the [beads:if-0azy]
   `render_beads_bar` wiring: at a `now` landing exactly on a phase-0 swap boundary
   (`tick_in_phase=0`), the rendered `op:`/`bd:` content shows the transition glyphs, not the real
   counts text, with the countdown-glyph prefix unaffected; at a `now` landing exactly on a
@@ -62,10 +62,10 @@
   omitted) is BYTE-IDENTICAL to `render_beads_bar`'s existing pre-transition self-tests — run the
   full self-test suite and confirm every pre-existing assertion for `now=None` still passes
   unmodified. [owner:general-purpose] [type:testing]
-- [ ] [3.3] Run `./apps/cc-tmux/bin/cc-tmux self-test` from the repo root and paste the full [beads:if-3tgz]
+- [x] [3.3] Run `./apps/cc-tmux/bin/cc-tmux self-test` from the repo root and paste the full [beads:if-3tgz]
   passing output (baseline before this spec was 101/101 — confirm the new count and zero
   failures). [owner:general-purpose] [type:testing]
-- [ ] [3.4] Live verification: re-register the plugin bindings/format in the running server via [beads:if-82fa]
+- [x] [3.4] Live verification: re-register the plugin bindings/format in the running server via [beads:if-82fa]
   `tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` if needed (or use the lower-risk direct
   `bin/cc-tmux render-all <window-id>` path against a real tracked window, per this session's own
   established safe pattern for cc-tmux live verification — read-only render calls are safe, never
