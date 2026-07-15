@@ -21,18 +21,18 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `beads_bar_phase(now: float) -> int` [beads:if-lf3a]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `beads_bar_phase(now: float) -> int` [beads:if-lf3a]
   returning `int(now / SWAP_PERIOD_SEC) % 2` (0 = counts, 1 = next), and
   `beads_bar_countdown_glyph(now: float) -> str` returning `_COUNTDOWN_RAMP[idx]` where
   `idx = min(7, int((now % SWAP_PERIOD_SEC) / SWAP_PERIOD_SEC * 8))` — both pure functions of
   `now`, no tmux/subprocess. [owner:general-purpose] [type:ui]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: add `_parse_roadmap_pulse_next(content: str) -> [beads:if-oc8u]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py`: add `_parse_roadmap_pulse_next(content: str) -> [beads:if-oc8u]
   Optional[str]` — returns the first line in `content` starting with `"next:"`, or `None` if no
   such line exists. Operates on the SAME `content` string `_parse_roadmap_pulse_counts` already
   receives from `_read_roadmap_pulse` — no new fetch, no new cache file. `radar:` lines are
   already stripped upstream by `_read_roadmap_pulse` before `content` reaches this function; do
   not re-implement that stripping here. [owner:general-purpose] [type:api]
-- [ ] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: extend `render_beads_bar`'s signature with two [beads:if-82ih]
+- [x] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: extend `render_beads_bar`'s signature with two [beads:if-82ih]
   new optional trailing parameters, `next_text: Optional[str] = None` and `now: Optional[float] =
   None`. `now is None` (the default) MUST render byte-identical to today's exact output — no
   phase logic engages, no countdown glyph appears (protects existing callers/tests that don't
