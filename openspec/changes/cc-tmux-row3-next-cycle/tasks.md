@@ -56,19 +56,19 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `beads_bar_phase` + [beads:if-a58k]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `beads_bar_phase` + [beads:if-a58k]
   `beads_bar_countdown_glyph`: phase flips exactly at `SWAP_PERIOD_SEC` boundaries (e.g. `now=7.9`
   -> phase 0, `now=8.0` -> phase 1, `now=15.9` -> phase 1, `now=16.0` -> phase 0); countdown glyph
   sweeps all 8 `_COUNTDOWN_RAMP` frames across one full `SWAP_PERIOD_SEC` window and wraps
   correctly at the phase boundary (glyph resets to frame 0 at the start of each new phase, not
   just each new `SWAP_PERIOD_SEC` multiple). [owner:general-purpose] [type:testing]
  
-- [ ] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-4hm4]
+- [x] [4.2] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for [beads:if-4hm4]
   `_parse_roadmap_pulse_next`: extracts a `next:` line verbatim from multi-line content
   regardless of line position; returns `None` when no `next:` line is present; ignores `bd:`/
   `op:`/`radar:` lines (does not mistake them for `next:`). [owner:general-purpose] [type:testing]
  
-- [ ] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `render_beads_bar`'s [beads:if-uh8x]
+- [x] [4.3] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test cases for `render_beads_bar`'s [beads:if-uh8x]
   extended contract: `now=None` (or omitted) renders byte-identical to a captured pre-change
   reference string for the same counts/account inputs; `now` at phase 0 renders counts + countdown
   glyph; `now` at phase 1 with `next_text` set renders ONLY `next_text` + countdown glyph (no
