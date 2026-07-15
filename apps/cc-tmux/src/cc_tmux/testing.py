@@ -2104,42 +2104,47 @@ def _test_render_beads_bar() -> None:
 
 def _test_render_beads_bar_account_segment() -> None:
     """cc-tmux-status-bar-popup-polish task 4.4: render_beads_bar's new
-    ``account_label`` parameter adds a third, independent segment carrying
-    the active account's identity (design.md § Decision 3) -- the
+    ``account_label`` parameter adds an independent segment carrying the
+    active account's identity (design.md § Decision 3) -- the
     ``#[range=user|accounts]`` click marker relocated here from
-    render_session_bar.
+    render_session_bar. Right-aligned (Leo's ask: identity moved off the
+    inline ``|``-joined count segments to a distinct right-hand strip, same
+    ``#[align=right]`` mechanism render_session_bar uses).
     """
     D = render.DIM
     label = "leo@x.dev·bc7da511"
 
-    # (a) openspec + beads + account_label all present -> all three segments
-    # appear, _BEADS_SEP-joined, account segment LAST, wrapped in the range
-    # marker relocated from row 2. Openspec/beads values mirror
-    # _test_render_beads_bar's "both halves, zero ua/blocked" case (12, 1, 0,
-    # 1, 5, 0) — the new in_progress/open slots are just non-None
-    # placeholders here, not what this test is about.
+    # (a) openspec + beads + account_label all present -> op:/bd: stay
+    # _BEADS_SEP-joined on the left; account segment is pushed right via
+    # #[align=right], wrapped in the range marker relocated from row 2.
+    # Openspec/beads values mirror _test_render_beads_bar's "both halves,
+    # zero ua/blocked" case (12, 1, 0, 1, 5, 0) — the new in_progress/open
+    # slots are just non-None placeholders here, not what this test is about.
     out_all = render.render_beads_bar(12, 1, 0, 1, 5, 0, account_label=label)
     _check(
         out_all == (
             f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
             f"{render._BEADS_SEP}"
             f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b"
-            f"{render._BEADS_SEP}"
+            f"#[default]#[align=right]"
             f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
         ),
-        f"all three segments present, account segment last, range-marker-wrapped: {out_all!r}",
+        f"op:/bd: left, account segment right-aligned via #[align=right]: {out_all!r}",
     )
-    _check(out_all.count(render._BEADS_SEP) == 2, "two separators join three segments")
+    _check(out_all.count(render._BEADS_SEP) == 1, "one separator joins the two left segments")
 
     # (b) openspec/beads BOTH absent (today's "no cache" case), account_label
-    # present -> row shows ONLY the account segment, not "". All 6 count
-    # positionals stay None here — the "absent" case doesn't need placeholders.
+    # present -> row shows ONLY the (right-aligned) account segment, not "".
+    # All 6 count positionals stay None here — the "absent" case doesn't need
+    # placeholders.
     out_account_only = render.render_beads_bar(
         None, None, None, None, None, None, account_label=label
     )
     _check(
-        out_account_only == f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]",
-        f"no cache, account present -> account-only row, not empty: {out_account_only!r}",
+        out_account_only == (
+            f"#[default]#[align=right]#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
+        ),
+        f"no cache, account present -> right-aligned account-only row, not empty: {out_account_only!r}",
     )
     _check("op:" not in out_account_only and "bd:" not in out_account_only, "no count segments leak in")
 

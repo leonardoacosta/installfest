@@ -1086,13 +1086,23 @@ def render_beads_bar(
     count (done-but-unarchived specs); ``bd:`` carries a third, new number —
     ``open`` — the total standalone beads open/in_progress/blocked, alongside
     the pre-existing ``ready``/``blocked``. When ``account_label`` is
-    non-empty, a third account-identity segment (``email·orgid8char``, see
-    :func:`cc_tmux.usage._account_label`) is appended LAST and wrapped in the
+    non-empty, an account-identity segment (``email·orgid8char``, see
+    :func:`cc_tmux.usage._account_label`) is appended, wrapped in the
     ``#[range=user|accounts]``/``#[norange]`` click marker relocated here from
     :func:`render_session_bar` (design.md § Decision 3). The
     ``MouseDown1Status`` binding in ``cc-tmux.tmux`` keys off
     ``#{mouse_status_range}`` globally across the whole status line, so moving
     which row emits the marker needs no binding change.
+
+    Unlike the ``op:``/``bd:`` pair (left-flowing, ``_BEADS_SEP``-joined),
+    the account segment is pushed to the right edge of the row via a
+    ``#[align=right]`` directive — the same mechanism
+    :func:`render_session_bar` uses to separate its identity/usage halves
+    (Leo's ask: email+org-id reads as a distinct identity strip, not a third
+    inline ``|``-joined count segment). It renders right-aligned even when
+    ``op:``/``bd:`` are both absent — matching :func:`render_session_bar`'s
+    contract of always emitting ``#[align=right]`` before its right-side
+    content regardless of whether the left side is empty.
 
     Each of the three segments is independent and fail-open: a half whose
     triple of counts is not ALL present (``None`` from an absent/malformed
@@ -1101,9 +1111,9 @@ def render_beads_bar(
     ``bd:`` line never blanks a valid ``op:`` half and vice versa. The
     account segment is likewise independent: when BOTH ``op:``/``bd:``
     triples are absent (no cache) but ``account_label`` is non-empty, the row
-    renders ONLY the account segment, not ``""``. All three omitted (no
-    cache and no account label) -> ``""``, matching the row's original
-    "no cache -> empty" contract.
+    renders ONLY the (right-aligned) account segment, not ``""``. All three
+    omitted (no cache and no account label) -> ``""``, matching the row's
+    original "no cache -> empty" contract.
 
     ``ua``/``blocked`` are colored by semantic threshold
     (:func:`_threshold_color`; DIM healthy, YELLOW above 0, RED at/above
@@ -1120,34 +1130,37 @@ def render_beads_bar(
 
     Pure function of its inputs (no tmux/subprocess).
     """
-    segments = []
+    left_segments = []
     if (
         openspec_open is not None
         and openspec_in_progress is not None
         and openspec_ua is not None
     ):
-        segments.append(
+        left_segments.append(
             _pulse_segment(
                 "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
                 openspec_age_sec, BEADS_UNARCHIVED_HIGH,
             )
         )
     if beads_open is not None and beads_ready is not None and beads_blocked is not None:
-        segments.append(
+        left_segments.append(
             _pulse_segment(
                 "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
                 beads_age_sec, BEADS_BLOCKED_HIGH,
             )
         )
-    if account_label:
-        # Third independent segment: the active account's identity, wrapped in
-        # the #[range=user|accounts] click marker relocated from row 2
-        # (render_session_bar). Independent of the two count halves above — it
-        # renders even when neither openspec nor beads counts are present.
-        segments.append(
-            f"#[range=user|accounts]#[fg={DIM}]{account_label}#[norange]"
-        )
+    left = _BEADS_SEP.join(left_segments)
 
-    if not segments:
+    # Account-identity segment: the active account's identity, wrapped in the
+    # #[range=user|accounts] click marker relocated from row 2
+    # (render_session_bar). Independent of the two count halves above — it
+    # renders even when neither openspec nor beads counts are present. Pushed
+    # to the right edge via #[align=right] rather than joined inline with
+    # _BEADS_SEP (Leo's ask: identity reads as a distinct right-hand strip).
+    right = f"#[range=user|accounts]#[fg={DIM}]{account_label}#[norange]" if account_label else ""
+
+    if not left and not right:
         return ""
-    return _BEADS_SEP.join(segments) + "#[default]"
+    if right:
+        return f"{left}#[default]#[align=right]{right}#[default]"
+    return f"{left}#[default]"
