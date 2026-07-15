@@ -1630,6 +1630,12 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     fetch) and passes it through as ``account_label``, the third independent
     segment :func:`render.render_beads_bar` now renders (task 2.3) — the 5H/7D
     values from that call are unused here, row 3 needs only the label.
+    ``next_text`` — the ``next:``-prefixed line parsed out of the SAME
+    already-fetched ``content`` via :func:`_parse_roadmap_pulse_next` (no new
+    fetch), passed through with the real wall-clock ``now`` so
+    :func:`render.render_beads_bar` can cycle row 3 between the ``op:``/``bd:``
+    counts and this next-action line on the ``SWAP_PERIOD_SEC`` cadence
+    (cc-tmux-row3-next-cycle, task 3.1).
     Fail-open: nothing pending -> ``""``.
     """
     if pane is None:
@@ -1641,12 +1647,14 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,
     ) = _parse_roadmap_pulse_counts(content)
+    next_text = _parse_roadmap_pulse_next(content)
     account_label, _five_h_pct, _seven_d_pct = _active_usage()
     return render.render_beads_bar(
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,
         openspec_age_sec=age_sec, beads_age_sec=age_sec,
         account_label=account_label,
+        next_text=next_text, now=time.time(),
     )
 
 
