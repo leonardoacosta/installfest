@@ -18,12 +18,13 @@ mkdir -p "$HOME/.azure-bbadmin" "$HOME/.azure-o365"
 success "Created ~/.azure-bbadmin and ~/.azure-o365"
 
 # --- 2. Verify real az binary ---
+# Candidate order MUST match home/dot_local/bin/executable_az (the deployed wrapper).
 REAL_AZ=""
 for candidate in \
     "$HOME/.local/share/pipx/venvs/azure-cli/bin/az" \
-    "/opt/homebrew/bin/az" \
+    "/usr/bin/az" \
     "/usr/local/bin/az" \
-    "/usr/bin/az"; do
+    "/opt/homebrew/bin/az"; do
     [ -x "$candidate" ] && REAL_AZ="$candidate" && break
 done
 

@@ -82,7 +82,7 @@ const SURFACES = [
   },
   {
     key: 'launchers',
-    prompt: `Surface: launcher generators and cmux/mux. Files: scripts/generate-raycast.sh, scripts/cmux-workspaces.sh, scripts/mux-remote.sh, scripts/cmux-debug.sh, packages/workspace/integrations/. Known constraints: mux/cmux are Mac-only (cmux socket is ancestry-gated - only cmux-descendant processes can drive it; not driveable over SSH); generators write but never clean (prune gap). Judge: registry-consumption consistency across the three scripts, dead code (cmux-debug.sh has no callers), and whether the prune gap has other instances beyond raycast.`,
+    prompt: `Surface: launcher generators and cmux/mux. Files: scripts/generate-raycast.sh, scripts/cmux-workspaces.sh, scripts/mux-remote.sh, packages/workspace/integrations/. Known constraints: mux/cmux are Mac-only (cmux socket is ancestry-gated - only cmux-descendant processes can drive it; not driveable over SSH); generators write but never clean (prune gap). Judge: registry-consumption consistency across the three scripts, and whether the prune gap has other instances beyond raycast.`,
   },
   {
     key: 'workspace-pkg',
