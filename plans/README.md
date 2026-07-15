@@ -18,13 +18,13 @@ Ledger rule: when a row moves to DONE/BLOCKED/REJECTED, append a
 | 005 | [render consolidation: one spawn per tick + trace-write gating](005-cc-tmux-render-consolidation.md) | P2 | M | DONE | 001, 003 | if-pw0g |
 | 006 | [beads/roadmap row staleness marker](006-cc-tmux-beads-row-staleness.md) | P3 | S | DONE | — | if-mx9w |
 | 007 | [conductor dispatch hardening (disabled-by-default feature)](007-cc-tmux-conductor-hardening.md) | P3 | M | DONE | — | if-x0qg |
-| 008 | [dead scripts/ sweep: cmux-debug, ani-cli, dbpro, youtube-transcript, setup-az-wrapper](008-dead-scripts-sweep.md) | P2 | S | OPEN | — | if-qmrl |
+| 008 | [dead scripts/ sweep: cmux-debug, ani-cli, dbpro, youtube-transcript, setup-az-wrapper](008-dead-scripts-sweep.md) | P2 | S | DONE (spec-impact: none) | — | if-qmrl |
 | 009 | [open-family: ropen ~/dev/if fallback fix (live defect) + basename-dispatch consolidation](009-open-family-consolidation.md) | P1 | M | DONE | — | if-fq6t |
 | 010 | [workspace pkg: wk-doctor gate, check.sh coverage, ado-ready stdin-loss bugfix, README drift](010-workspace-pkg-hygiene.md) | P2 | M | DONE (spec-impact: none) | — | if-js82 |
-| 011 | [zsh + dot_local: dead aliases, broken proxied trio, editor-wrapper dupes, chezmoiignore gap](011-shell-and-dotlocal-hygiene.md) | P2 | M | OPEN | 008 | if-zzl4 |
+| 011 | [zsh + dot_local: dead aliases, broken proxied trio, editor-wrapper dupes, chezmoiignore gap](011-shell-and-dotlocal-hygiene.md) | P2 | M | DONE (spec-impact: none) | 008 | if-zzl4 |
 | 012 | [deploy-hook integrity: post-commit dead under beads hooksPath + IF-POSTMERGE drift](012-deploy-hook-integrity.md) | P1 | S | DONE | — | if-th0d |
-| 013 | [ssh-mesh + platform: superseded playbooks, config drift, stale published key, wezterm](013-ssh-mesh-platform-staleness.md) | P2 | M | OPEN | — | if-zf42 |
-| 014 | [cc-tmux dead-code sweep: session-context reader, ANSI bar, paths.py, legacy segments](014-cc-tmux-dead-code-sweep.md) | P2 | M | OPEN | — | if-z44k |
+| 013 | [ssh-mesh + platform: superseded playbooks, config drift, stale published key, wezterm](013-ssh-mesh-platform-staleness.md) | P2 | M | DONE (spec-impact: none) | — | if-zf42 |
+| 014 | [cc-tmux dead-code sweep: session-context reader, ANSI bar, paths.py, legacy segments](014-cc-tmux-dead-code-sweep.md) | P2 | M | DONE (spec-impact: none) | — | if-z44k |
 
 ## Wave 2 — 2026-07-14 `/improve:entropy deep` (HEAD 9399b92)
 
@@ -65,6 +65,30 @@ cc-tmux C, dot-local B.
 - 014: notify/windows.py keep-vs-delete; plugin version bump 0.1.2 -> 0.1.3
   (snapshot propagation gate); pre-existing self-test failure
   cli.beads_pane_fallback (105/106 baseline, NOT caused by this work).
+
+### Execution results (2026-07-15)
+
+All four remaining OPEN rows (008, 011, 013, 014) executed via parallel
+worktree-isolated agents, merged clean (zero conflicts, `git merge-tree`
+confirmed before each real merge), verified on the fully-merged tree:
+`scripts/check.sh` ALL CHECKS PASSED (terraform no longer skipped — 013's
+G4 now tracks `.terraform.lock.hcl`), `cc-tmux self-test` 98/98. Operator
+gates resolved: 008 kept+documented dbpro.sh/youtube-transcript.sh instead
+of deleting (synced setup-az-wrapper.sh as recommended); 011 deleted all
+three (proxied-trio, vercel-trim, cspell dict — plus their already-deployed
+`~/.local/bin`/`~/.config` copies, since chezmoi does not retroactively
+remove entries whose source was deleted); 013 deleted the legacy lane (G1),
+kept `.ps1` over `.sh` (G2), deleted the tf.sh write-only block (G3), started
+tracking `.terraform.lock.hcl` (G4) — **G5 was NOT applied**: the plan's own
+assumption that `leo@leonardoacosta.dev` "diverges from canonical" was
+wrong (corrected by Leo; `leo@priceless.dev` is the Claude Code account
+email, not a git identity) — `platform/windows/setup.ps1`'s git identity
+was left untouched, and this doc should not be re-litigated by a future
+sweep. Known residual gap (014, self-reported, not swept under the rug):
+3 "Body of the former cmd_*" docstring lines in `cli.py` remain past the
+plan's one documented exception, per Step 7's explicit "check, not a
+change" instruction — a future doc pass may clean these up but it is not
+a regression.
 
 ### Known pre-existing defects surfaced (escalated as beads, not plan-created)
 
