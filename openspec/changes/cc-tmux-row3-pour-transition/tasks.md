@@ -12,7 +12,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `POUR_FRAMES: Tuple[str, ...] = [beads:if-c9q7]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `POUR_FRAMES: Tuple[str, ...] = [beads:if-c9q7]
   ("▁", "▄", "▇")` (three stdlib Unicode block-height glyphs: low, mid, high) and
   `POUR_STAGGER_TICKS = 2` (extra delay, in ticks, the LAST character carries vs. the FIRST;
   earlier characters interpolate linearly — see design.md § Algorithm). Cite design.md rather
