@@ -46,7 +46,7 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/cli.py`: in `_build_beads_bar`, after computing `content, [beads:if-djsl]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/cli.py`: in `_build_beads_bar`, after computing `content, [beads:if-djsl]
   age_sec = _read_roadmap_pulse(pane)` and the existing counts parse, call `next_text =
   _parse_roadmap_pulse_next(content)` and pass `next_text=next_text, now=time.time()` through to
   `render.render_beads_bar(...)` alongside the existing arguments. Update the function's
