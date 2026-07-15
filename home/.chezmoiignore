@@ -14,6 +14,12 @@ projects.toml
 Library
 {{ end }}
 
+{{ if ne .chezmoi.os "linux" }}
+# Skip Linux-only files on macOS (patterns match TARGET paths, not source)
+.config/hypr
+.config/systemd
+{{ end }}
+
 # NOTE: .config/{Code,Cursor} deploy on BOTH macOS and Linux for path symmetry.
 # On macOS, the apps actually read from ~/Library/Application Support/{Code,Cursor}/User/,
 # but mirroring at ~/.config/ makes scripts and CLI access identical across OSes.

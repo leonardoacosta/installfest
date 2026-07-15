@@ -37,6 +37,7 @@ install_arch_packages() {
         shellcheck        # static analysis for shell scripts (scripts/check.sh)
         git
         tmux
+        zellij            # terminal multiplexer — ws-claude hard-depends on it (packages/workspace/bin/ws-claude)
         neovim
         # Container tools
         docker

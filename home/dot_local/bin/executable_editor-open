@@ -1,0 +1,48 @@
+#!/usr/bin/env zsh
+# editor-open — shared remote-editor wrapper for code / cursor / zed.
+# ~/.local/bin/{code,cursor,zed} are chezmoi-managed symlinks to this file;
+# behavior dispatches on the invoked name (${0:t}).
+#
+# This dotfile is chezmoi-applied on every machine (Mac client AND the
+# Linux/homelab remote target), so it must behave differently on each:
+#   - On the machine with the real editor install (the client), delegate
+#     straight to the real binary — this file must never shadow the native CLI.
+#   - On a remote host with no local install, ssh back to the client and
+#     trigger the editor's remote-open there (VS Code/Cursor: Remote-SSH
+#     `--remote ssh-remote+<host>`; Zed: `zed ssh://<host>/<path>`) — the
+#     editor auto-starts its remote server, no manual "Connect" step needed.
+
+name="${0:t}"
+case "$name" in
+  code|cursor|zed) ;;
+  *) echo "editor-open: invoked as unsupported name '$name' (expected code|cursor|zed)" >&2; exit 2 ;;
+esac
+
+# Skip-self MUST resolve symlinks on BOTH sides: $0 is the symlink
+# (~/.local/bin/code) but whence lists it unresolved — comparing unresolved
+# candidate against resolved self would exec the symlink again (infinite loop).
+self="${0:A}"
+for candidate in ${(f)"$(whence -ap "$name" 2>/dev/null)"}; do
+  [[ "${candidate:A}" == "$self" ]] && continue
+  exec "$candidate" "$@"
+done
+
+# No local install — trigger the client's real editor over SSH.
+CLIENT_HOST="${EDITOR_REMOTE_CLIENT:-mac}"
+REMOTE_ALIAS="${EDITOR_REMOTE_ALIAS:-$(hostname)}"
+
+target_path="$PWD"
+for a in "$@"; do
+  [[ "$a" != -* ]] && { target_path="${a:A}"; break; }
+done
+
+if [[ "$name" == "zed" ]]; then
+  ssh -o BatchMode=yes -o ConnectTimeout=5 "$CLIENT_HOST" \
+    "zed ssh://$REMOTE_ALIAS$target_path"
+else
+  ssh -o BatchMode=yes -o ConnectTimeout=5 "$CLIENT_HOST" \
+    "$name --remote ssh-remote+$REMOTE_ALIAS '$target_path'"
+fi
+rc=$?
+[[ $rc -ne 0 ]] && echo "error: could not reach $CLIENT_HOST to auto-open $name" >&2
+exit $rc

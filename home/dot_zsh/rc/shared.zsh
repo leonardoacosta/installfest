@@ -48,7 +48,7 @@ bindkey -e
 # ============================================================
 
 alias claude="claude --dangerously-skip-permissions"
-alias cs="~/dev/ccswitch.sh --switch"
+[[ -f "$HOME/dev/ccswitch.sh" ]] && alias cs="$HOME/dev/ccswitch.sh --switch"
 alias ll="ls -lah"
 alias la="ls -A"
 alias l="ls -CF"
@@ -155,16 +155,6 @@ ssh() {
       | socat - UNIX-CONNECT:/tmp/nexus-agent.sock 2>/dev/null
   fi
   return $rc
-}
-
-# Vercel CLI — per-project token routing
-vercel() {
-  case "$PWD" in
-    */dev/ct|*/dev/ct/*)
-      command vercel --token "$VERCEL_TOKEN_PRICELESS_" "$@" ;;
-    *)
-      command vercel "$@" ;;
-  esac
 }
 
 # GitKraken CLI — (re)attach the GitHub provider token from the env.

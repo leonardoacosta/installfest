@@ -42,9 +42,6 @@ alias pacss="pacman -Ss"
 alias pacqi="pacman -Qi"
 alias yayup="yay -Syu"
 
-# Project switching
-[[ -f "$HOME/dev/ccswitch.sh" ]] && alias cs="$HOME/dev/ccswitch.sh --switch"
-
 # Clipboard (xclip/xsel fallback)
 if command -v xclip &>/dev/null; then
   alias pbcopy="xclip -selection clipboard"
@@ -65,9 +62,6 @@ if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]] && command -v mac-open &
 else
   alias open="xdg-open"
 fi
-
-# Nexus CLI shortcut
-alias nx="nexus"
 
 # ============================================================
 # File server (cmux embedded browser)
