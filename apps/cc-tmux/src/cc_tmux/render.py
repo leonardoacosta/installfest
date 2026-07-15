@@ -76,6 +76,9 @@ FRAME_PERIOD_SEC = 1.0
 # constant lives below, after IDLE_METER_RAMP, since it slices that tuple.)
 SWAP_PERIOD_SEC = 8.0
 
+POUR_FRAMES: Tuple[str, ...] = ("▁", "▄", "▇")  # low, mid, high — stdlib Unicode block elements
+POUR_STAGGER_TICKS = 2  # extra delay (in ticks) the LAST character carries vs. the FIRST
+
 
 # ---------------------------------------------------------------------------
 # Idle-tab usage meter (cc-tmux-idle-tab-usage-meter)
