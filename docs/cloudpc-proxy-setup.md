@@ -81,15 +81,7 @@ Or import inline:
 proxychains-ng is installed by `scripts/install-arch.sh`. Config deployed to
 `~/.config/proxychains/proxychains.conf`.
 
-**Use wrapper scripts** (deployed to `~/.local/bin/`):
-
-```bash
-edge-proxied              # Launch Edge through CloudPC
-teams-proxied             # Launch Teams through CloudPC
-outlook-proxied           # Launch Outlook through CloudPC
-```
-
-**Or wrap any command manually:**
+Wrap any command manually:
 
 ```bash
 proxychains4 -f ~/.config/proxychains/proxychains.conf <command>

@@ -1,4 +1,0 @@
-#!/bin/sh
-# Launch Microsoft Teams with TCP routed through CloudPC SOCKS5 tunnel
-# UDP (calls/video) goes direct — no latency penalty
-exec proxychains4 -f "$HOME/.config/proxychains/proxychains.conf" "/Applications/Microsoft Teams.app/Contents/MacOS/MSTeams" "$@"
