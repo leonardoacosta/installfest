@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install-arch.sh - Arch Linux specific installation
-# Sourced by install.sh on Linux
+# Sourced by home/run_once_install-packages.sh.tmpl on Linux (chezmoi run_once)
 #
 # ~/.env keys consumed by downstream tooling (harden.sh, services, drizzle):
 #   POSTGRES_URL=             # Postgres URL for nexus drizzle migrations (homelab)

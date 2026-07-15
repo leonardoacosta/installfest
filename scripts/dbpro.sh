@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # dbpro.sh - Install DB Pro database client
 # https://www.dbpro.app/
+# Manual optional tool — run directly: bash scripts/dbpro.sh (macOS only)
 
 set -euo pipefail
 

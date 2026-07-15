@@ -2,6 +2,7 @@
 # youtube-transcript.sh - Install youtube_transcript CLI tool
 # Fetches YouTube video transcripts without API keys
 # https://github.com/Zibri/youtube_transcript
+# Manual optional tool — run directly: bash scripts/youtube-transcript.sh
 
 set -euo pipefail
 
