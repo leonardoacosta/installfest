@@ -574,7 +574,6 @@ def render_session_bar(
     *,
     git_status: Optional["tmux.GitStatusCounts"] = None,
     raw_tokens: Optional[float] = None,
-    now: Optional[float] = None,
 ) -> str:
     """Row-2 status-format string: model/project/git on the left, usage on the right.
 
@@ -592,9 +591,10 @@ def render_session_bar(
     marker never appears without the branch it describes — same fail-open
     contract the prior ``dirty``/``ahead`` params had. Right side, in this
     order (design.md § Decision 2): the SES token-count label
-    (``#[fg={resolve_context_color(...)}]{label}:`` — text via
-    :func:`format_context_tokens`, colour via :func:`resolve_context_color`'s
-    6-tier severity ramp, cc-tmux-braille-usage-glyph task 3.4 correction),
+    (``#[fg={_context_color_pair(...)[0]}]{label}:`` — text via
+    :func:`format_context_tokens`, colour via :func:`_context_color_pair`'s
+    6-tier severity ramp (base colour only, no wall-clock pulse),
+    cc-tmux-braille-usage-glyph task 3.4 correction),
     then the 5H:/7D: gauges (coloured via color_for, formatted via pct_for),
     then a combined 3-metric braille usage glyph LAST
     (cc-tmux-braille-usage-glyph, replaces the former shade-block fill bar —
@@ -609,13 +609,12 @@ def render_session_bar(
     -> that metric's row(s) render blank in the glyph, per-metric degrade;
     design.md § Staleness) feed the glyph directly at ``n=10``, which itself
     renders in a neutral/unstyled colour (design.md § Color — no severity
-    ramp on the glyph). ``raw_tokens`` still selects the SES label's text via
-    :func:`format_context_tokens` (unchanged); ``now`` (or, when omitted, a
-    local ``time.time()`` fallback — same DI pattern as
-    :func:`render_accounts_popup`'s ``t``) now drives the SES label's
-    severity-colour pulse tiers via :func:`resolve_context_color`, taking
-    over the animation the retired shade-bar used to carry on its fill
-    colour (cc-tmux-braille-usage-glyph task 3.4 correction). five_h_pct
+    ramp on the glyph). ``raw_tokens`` selects both the SES label's text via
+    :func:`format_context_tokens` and its colour via
+    :func:`_context_color_pair`'s 6-tier severity ramp — base colour only,
+    the pulse variant is deliberately ignored, so the label is a STATIC
+    per-tier colour that swaps as ``raw_tokens`` crosses thresholds and
+    never blinks on the wall clock. five_h_pct
     / seven_d_pct are utilization ratios in 0..1 (or None when unpolled ->
     '--' in DIM for the text; also feed the glyph).
 
@@ -658,8 +657,7 @@ def render_session_bar(
     # itself (task 3.4 correction — the label was never actually wired to
     # the ramp before, despite the original design.md text assuming it was).
     ses_label = format_context_tokens(raw_tokens)
-    t = now if now is not None else time.time()
-    ses_color = resolve_context_color(raw_tokens, t)
+    ses_color, _ = _context_color_pair(raw_tokens)
     usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=10)
     # Right side: SES label, then 5H, then 7D, then the combined usage glyph
     # LAST (design.md § Decision 2). The account-identity segment + its
