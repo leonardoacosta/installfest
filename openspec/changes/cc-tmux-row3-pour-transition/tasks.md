@@ -20,7 +20,7 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `pour_transition_text(text: str, [beads:if-s6eg]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: add `pour_transition_text(text: str, [beads:if-s6eg]
   tick_in_phase: int) -> str` exactly per design.md § Algorithm — for each character at index
   `i` of `text` (length `n`), compute `local_progress = i / max(1, n - 1)`, `stagger =
   round(local_progress * POUR_STAGGER_TICKS)`, `char_tick = tick_in_phase - stagger`; if
@@ -28,7 +28,7 @@
   `POUR_FRAMES[char_tick]`; else emit the real character. Empty `text` returns `text` unchanged
   (no-op, no IndexError from the `max(1, n-1)` guard). Pure function, no tmux/subprocess, no
   randomness — deterministic given `(text, tick_in_phase)`. [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_beads_bar`, at the point [beads:if-9azk]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in `render_beads_bar`, at the point [beads:if-9azk]
   `phase_content` is selected (the existing `cc-tmux-row3-next-cycle` logic — either the
   `op:`/`bd:` counts string or the `next:` line, per the current phase), when `now is not None`
   compute `tick_in_phase = int((now % SWAP_PERIOD_SEC) / FRAME_PERIOD_SEC)` and reassign
