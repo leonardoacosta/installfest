@@ -45,6 +45,7 @@ ssh-mesh/keys/
 
 # Terraform
 infra/.secrets.env
+infra/.tf-outputs.env
 .terraform/
 *.tfstate
 *.tfstate.backup
