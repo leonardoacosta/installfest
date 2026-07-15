@@ -13,7 +13,7 @@
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `SWAP_PERIOD_SEC = 8.0` beside [beads:if-7ulw]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/render.py`: add module-level `SWAP_PERIOD_SEC = 8.0` beside [beads:if-7ulw]
   the existing `FRAME_PERIOD_SEC`, and `_COUNTDOWN_RAMP: Tuple[str, ...] = IDLE_METER_RAMP[8:16]`
   (the existing drain-half glyphs `⣿ ⢿ ⠿ ⠻ ⠛ ⠙ ⠉ ⠈` — no new glyph table, see design.md § Countdown
   glyph). Cite design.md rather than re-deriving the ramp slice inline. [owner:general-purpose]
