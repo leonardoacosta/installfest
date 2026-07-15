@@ -6,7 +6,7 @@
 # wrapper PATH) or the `claude` launch flags that layer org-specific config on
 # top of the global ~/.claude.
 #
-# Source of truth: projects.toml `category` field (b-and-b / client / personal).
+# Source of truth: projects.toml `category` field (b-and-b / priceless / personal).
 # Profile artifacts (generated separately): ~/.config/workspace/<org>/
 #   env.sh        sourced for env vars (e.g. AZURE_CONFIG_DIR)
 #   wrappers/     prepended to PATH
@@ -22,7 +22,7 @@
 # Usage:
 #   wsenv <code>            # print eval-able shell to activate the workspace
 #   wsenv                   # same, resolving code from $PWD
-#   wsenv --org <code>      # print just the org slug (b-and-b|client|personal)
+#   wsenv --org <code>      # print just the org slug (b-and-b|priceless|personal)
 #   wsenv --code <code>     # print the resolved short code (echoes arg, or resolves from $PWD)
 #   wsenv --flags <code>    # print the `claude` launch flags for the org
 #   wsenv --activate <code> # alias for default (eval-able shell)
@@ -39,7 +39,7 @@
 #   eval "$(wsenv ws)"               # activate b-and-b workspace
 #   eval "$(wsenv)"                  # activate based on cwd
 #   claude $(wsenv --flags ws)       # launch claude with b-and-b profile
-#   wsenv --org oo                   # -> client
+#   wsenv --org oo                   # -> priceless
 #   claude $(wsenv --profile bootstrap --flags)  # launch claude with the bootstrap profile
 #
 # Environment overrides:
@@ -198,7 +198,6 @@ case "$MODE" in
     # First STRIP any previously-activated workspace wrappers from PATH so switching
     # orgs in one shell never leaves a prior org's wrapper winning (wrong-identity bug).
     echo "export WS_WORKSPACE=$ORG"
-    echo "export WS_CODE=$CODE"
     echo "export PATH=\"\$(printf '%s' \"\$PATH\" | tr ':' '\\n' | grep -vF '$PROFILE_ROOT/' | paste -sd: -)\""
     [[ -f "$PROFILE/env.sh" ]]   && echo "source $PROFILE/env.sh"
     [[ -d "$PROFILE/wrappers" ]] && echo "export PATH=\"$PROFILE/wrappers:\$PATH\""

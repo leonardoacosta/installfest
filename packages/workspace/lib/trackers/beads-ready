@@ -42,14 +42,11 @@ ORG="${1:?beads-ready: missing org argument (usage: beads-ready <org>)}"
 REGISTRY="${WSENV_REGISTRY:-${DOTFILES:-$HOME/dev/personal/installfest}/home/projects.toml}"
 [[ -f "$REGISTRY" ]] || { echo "beads-ready: registry not found: $REGISTRY" >&2; exit 1; }
 
-# Resolve python3 with tomllib (>=3.11). Same probe pattern as wsenv.
-PY=""
-for _py in python3.14 python3.13 python3.12 python3.11 python3; do
-  if command -v "$_py" >/dev/null 2>&1 && "$_py" -c 'import tomllib' 2>/dev/null; then
-    PY="$_py"; break
-  fi
-done
-[[ -n "$PY" ]] || { echo "beads-ready: need python3 with tomllib (>=3.11)" >&2; exit 1; }
+# Resolve python3 with tomllib (>=3.11) via the shared registry lib
+# (docs/plans/005 maintenance note: registry consumers MUST source it).
+# shellcheck source=../../../../scripts/lib/registry.sh
+source "${DOTFILES:-$HOME/dev/personal/installfest}/scripts/lib/registry.sh"
+PY=$(registry_python) || exit 1
 
 # ----- inline python scripts captured via heredocs --------------------------
 # Captured into vars so we can pass them with `-c "$VAR"` while keeping stdin

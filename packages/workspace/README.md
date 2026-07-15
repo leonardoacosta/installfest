@@ -137,16 +137,17 @@ cc's own release cadence, since they're meant to be a stable, rarely-touched uti
 than something that tracks cc HEAD). It is still validated by the same cc-owned contract described
 below.
 
-## Per-org profiles (generated)
+## Per-org profiles
 
 `~/.config/workspace/<org>/` — `env.sh` (sourced), `wrappers/` (prepended to PATH),
-`claude/` (`--add-dir` skills), plus `mcp.json` / `prompt.txt` when present. Machine-local
-output (not committed); regenerated from the registry.
+`claude/` (`--add-dir` skills), plus `mcp.json` / `prompt.txt` when present. Each is a
+chezmoi **symlink to the committed** `packages/workspace/profiles/<org>/` tree (see
+§ How it deploys) — edit in place, review in git.
 
 - **b-and-b:** `AZURE_CONFIG_DIR=~/.azure-bbadmin` + the SOCKS-proxy `az` wrapper.
 - **priceless / personal:** native `az` (global), no org overlay yet.
 
-## Profile contract (cc-owned, validated at generation)
+## Profile contract (cc-owned, validated on demand)
 
 The Claude-Code injection surface of each profile (plugin manifest, agent/skill symlinks,
 `*.mcp.json`, `settings.json` keys, prompt file) is governed by a **versioned contract owned by
@@ -158,10 +159,11 @@ cc** — the narrow waist that keeps this generator and cc's injector from drift
 
 Two enforcement seams in this package call it:
 
-- **`generate-profiles`** stages each org, validates the staged dir, and **promotes only on
-  pass** — a failing org is never finalized (existing profile left intact), other orgs still
-  generate. Aggregate exit: `0` all-ok / `1` all-fail / `2` partial (so chezmoi/CI can tell
-  "nothing worked" from "one org drifted").
+- **`wk doctor`** runs the validator against the resolved org's profile and reports the
+  result as its CONTRACT row (`valid` / `INVALID — <reason>`); a missing validator or
+  profile is reported, never fatal (fail-soft). `generate-profiles` is a **scaffolder
+  only** — it never validates (see its header; the pre-rehome staged-generation model
+  was retired 2026-07-05).
 - **`wsenv --validate <code>`** resolves the org and runs the validator without launching — an
   explicit, opt-in launch-time safety net for hand-edited profiles. The default
   `--flags`/`--activate` path is **never** gated by validation (fail-open at launch).

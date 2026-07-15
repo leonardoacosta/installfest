@@ -58,6 +58,8 @@ mapfile -d '' SH_FILES < <(
     find scripts -name '*.sh' -type f -print0
     find ssh-mesh/scripts -name '*.sh' -type f \
         -not -path 'ssh-mesh/scripts/remote/cmux-bridge/*' -print0
+    find packages/workspace/bin packages/workspace/lib/trackers \
+        -type f -not -name '*.md' -print0
 )
 for f in platform/*.sh; do [ -f "$f" ] && SH_FILES+=("$f"); done
 
