@@ -1589,6 +1589,27 @@ def _parse_roadmap_pulse_counts(
     )
 
 
+def _parse_roadmap_pulse_next(content: str) -> Optional[str]:
+    """The first ``next:``-prefixed line from roadmap-pulse ``content``, or ``None``.
+
+    ``content`` is the SAME (already ``radar:``-stripped, per
+    :func:`_read_roadmap_pulse`) cache text :func:`_parse_roadmap_pulse_counts`
+    already receives — no new fetch, no new cache file
+    (cc-tmux-row3-next-cycle design.md § "next: extraction"). Returns the
+    matching line verbatim (including its ``next:`` prefix), or ``None`` when
+    no line in ``content`` starts with ``next:`` — the common case, since most
+    sessions never write a next-action line at all. ``radar:`` lines are
+    already stripped upstream by :func:`_read_roadmap_pulse` before ``content``
+    reaches this function, so no line here is ever mistaken for a ``next:``
+    line by virtue of prefix alone; a ``bd:``/``op:`` line likewise never
+    matches since neither starts with ``next:``.
+    """
+    for line in content.splitlines():
+        if line.startswith("next:"):
+            return line
+    return None
+
+
 def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-3 beads/roadmap status-format string for a window (Req rows 3).
 

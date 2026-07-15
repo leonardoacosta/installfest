@@ -120,6 +120,26 @@ IDLE_METER_RAMP: Tuple[str, ...] = (
 _COUNTDOWN_RAMP: Tuple[str, ...] = IDLE_METER_RAMP[8:16]
 
 
+def beads_bar_phase(now: float) -> int:
+    """Row-3 next-cycle phase at wall-clock ``now``: ``0`` = ``op:``/``bd:``
+    counts, ``1`` = the ``next:`` action line. Pure function of ``now`` — same
+    ``int(now / period) % ...`` wall-clock-framing idiom :func:`animated_icon`
+    already establishes, applied to :data:`SWAP_PERIOD_SEC` instead of
+    :data:`FRAME_PERIOD_SEC` (design.md § "Phase selection").
+    """
+    return int(now / SWAP_PERIOD_SEC) % 2
+
+
+def beads_bar_countdown_glyph(now: float) -> str:
+    """8-frame drain glyph for how far ``now`` has progressed through the
+    current :data:`SWAP_PERIOD_SEC` phase (full at the phase's start, empty at
+    its end). Pure function of ``now``, indexing :data:`_COUNTDOWN_RAMP`
+    (design.md § "Countdown glyph").
+    """
+    idx = min(7, int((now % SWAP_PERIOD_SEC) / SWAP_PERIOD_SEC * 8))
+    return _COUNTDOWN_RAMP[idx]
+
+
 def _idle_meter_index(ratio: float) -> int:
     """Ramp index (0-16) for `ratio` (0..1), clamped then rounded to the
     nearest 16th — see design.md § "The 17-state ramp" § Index function.
@@ -1013,6 +1033,8 @@ def render_beads_bar(
     openspec_age_sec: Optional[float] = None,
     beads_age_sec: Optional[float] = None,
     account_label: str = "",
+    next_text: Optional[str] = None,
+    now: Optional[float] = None,
 ) -> str:
     """Row-3 status-format string from parsed roadmap-pulse counts, or ``''``.
 
@@ -1067,6 +1089,36 @@ def render_beads_bar(
     ``" (<duration>)"`` marker via :func:`format_duration`, independently per
     segment.
 
+    **Row3-next-cycle** (``next_text``/``now``, cc-tmux-row3-next-cycle):
+    ``now is None`` (the default) renders this row BYTE-IDENTICAL to the
+    behavior documented above — no phase logic engages, no countdown glyph
+    ever appears, and ``next_text`` is ignored entirely. This protects every
+    existing caller/test that predates this feature and does not pass the two
+    new params.
+
+    When ``now`` IS provided, the left-flowing ``op:``/``bd:`` content above
+    alternates on a wall-clock timer with ``next_text`` (the project's
+    "what to do next" recommendation — see
+    :func:`cc_tmux.cli._parse_roadmap_pulse_next`), gated by
+    :func:`beads_bar_phase`:
+
+    * Phase 0 (or ``next_text is None``, i.e. no next-line available this
+      tick): the left side renders the ``op:``/``bd:`` segments exactly as
+      documented above, prefixed with :func:`beads_bar_countdown_glyph`
+      (DIM, showing time remaining in the current phase).
+    * Phase 1 AND ``next_text`` is present: the left side renders
+      ``next_text`` ALONE — no ``op:``/``bd:`` segments at all — also
+      prefixed with the countdown glyph. The two are mutually exclusive;
+      this row never shows both at once.
+    * The countdown glyph is added ONLY when there is left-side content to
+      prefix — a tick with no counts and no ``next_text`` renders no glyph
+      either, preserving the "nothing available -> no left side" contract
+      below.
+
+    The right-aligned account-identity segment is completely independent of
+    this cycle — it renders in every phase, with or without ``now``, exactly
+    as documented above; the cycle only ever touches the left side.
+
     Pure function of its inputs (no tmux/subprocess).
     """
     left_segments = []
@@ -1088,7 +1140,23 @@ def render_beads_bar(
                 beads_age_sec, BEADS_BLOCKED_HIGH,
             )
         )
-    left = _BEADS_SEP.join(left_segments)
+    counts_left = _BEADS_SEP.join(left_segments)
+
+    if now is None:
+        # Byte-identical to pre-row3-next-cycle behavior — no phase logic,
+        # no countdown glyph, next_text ignored.
+        left = counts_left
+    else:
+        phase = beads_bar_phase(now)
+        if phase == 1 and next_text is not None:
+            phase_content = next_text
+        else:
+            phase_content = counts_left
+        if phase_content:
+            glyph = beads_bar_countdown_glyph(now)
+            left = f"#[fg={DIM}]{glyph}#[default] {phase_content}"
+        else:
+            left = ""
 
     # Account-identity segment: the active account's identity, wrapped in the
     # #[range=user|accounts] click marker relocated from row 2
