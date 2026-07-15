@@ -88,6 +88,7 @@ done
 # registration, no Mac dispatch — just exec python so systemd manages the
 # process directly.
 if [[ $DO_SERVE -eq 1 ]]; then
+  export DOTFILES
   mkdir -p "$STATE_DIR"
   [[ -f "$MOUNTS_JSON" ]] || echo '{"mounts":{},"sentinels":{}}' > "$MOUNTS_JSON"
   : > "$LOG_FILE"
@@ -137,5 +138,3 @@ open_core_resolve_url "$OPEN_RESOLVED_PATH" "$OPEN_RESOLVED_IS_DIR" 1
 }
 
 open_core_dispatch_browser "$OPEN_URL" "$OPEN_URL_PREFIX" auto
-
-trap - EXIT INT TERM

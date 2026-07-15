@@ -21,7 +21,7 @@ from urllib.parse import unquote
 port = int(sys.argv[1])
 mounts_path = sys.argv[2]
 
-DOTFILES = pathlib.Path(os.environ.get('DOTFILES', str(pathlib.Path.home() / 'dev' / 'if')))
+DOTFILES = pathlib.Path(os.environ.get('DOTFILES', str(pathlib.Path.home() / 'dev' / 'personal' / 'installfest')))
 REGISTRY_PATH = DOTFILES / 'home' / 'projects.toml'
 
 def load_registry():
