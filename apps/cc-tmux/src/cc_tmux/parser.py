@@ -5,15 +5,14 @@ name is stored in ``args.command`` and :mod:`cc_tmux.cli` maps it to a
 ``cmd_<name>()`` handler. Keeping the parser handler-free avoids a circular
 import (cli imports the parser; the parser references no handlers).
 
-Subcommands split into two ownership groups:
-  * Implemented: register, cycle, back, switch, focus, discover, clear,
-    self-test, doctor (core); inbox, inbox-clear, picker-data, status,
-    status-inbox (integration surface — these take no arguments, so their parsers
-    stay bare); usage (argless, Req-8), accounts-popup (argless,
-    cc-tmux-account-switcher-popup), accounts-popup-launch (argless,
-    cc-tmux-status-bar-popup-polish task 3.4 follow-up — opens the popup itself,
-    unlike accounts-popup's data-only contract), tabs-row (argless,
-    cc-tmux-tabs-and-rename-fix) and conductor (Req-9, with its own action + flags).
+Subcommands (all implemented): register, cycle, back, switch, focus, discover,
+clear, self-test, doctor (core); inbox, inbox-clear, picker-data (integration
+surface — these take no arguments, so their parsers stay bare); accounts-popup
+(argless, cc-tmux-account-switcher-popup), accounts-popup-launch (argless,
+cc-tmux-status-bar-popup-polish task 3.4 follow-up — opens the popup itself,
+unlike accounts-popup's data-only contract); render-all (argless except the
+window id, cc-tmux-tabs-and-rename-fix / plan 005) and conductor (Req-9, with
+its own action + flags).
 """
 
 from __future__ import annotations
@@ -132,12 +131,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("inbox", help="Notification inbox rows (fzf/menu data).")
     sub.add_parser("inbox-clear", help="Dismiss inbox waiting/idle entries (view filter).")
     sub.add_parser("picker-data", help="Emit picker rows for the jump-to popup.")
-    sub.add_parser("status", help="Emit status-bar pane counts.")
-    sub.add_parser("status-inbox", help="Emit clickable pending-pane badges.")
-
-    # -- usage: Claude multi-account usage status segment (Req-8) --------------
-    # Takes no arguments (mirrors the retired tmux-nexus-creds sh script).
-    sub.add_parser("usage", help="Emit the Claude usage status segment.")
 
     # -- accounts-popup: account-switcher popup body (cc-tmux-account-switcher-popup)
     # Data/render only, argless — resolves the current window itself (mirrors
@@ -159,57 +152,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "accounts-popup-launch",
         help="Open the account-switcher popup, sized to the real content height.",
-    )
-
-    # -- window-icon: animated tab icon (Req: animated tab icon) ---------------
-    # Invoked FROM a tmux window-status-format string
-    # (`#(cc-tmux window-icon #{window_id})`), re-evaluated on every
-    # status-bar refresh — this is what drives the animation, not a timer
-    # owned by this process.
-    p_window_icon = sub.add_parser(
-        "window-icon",
-        help="Emit the current tab-icon glyph for a window (invoked from window-status-format).",
-    )
-    p_window_icon.add_argument(
-        "window",
-        help="Target window (tmux window_id e.g. @3, or an index) to scope the state lookup to.",
-    )
-
-    # -- session-bar: row-2 session/usage status-format (cc-tmux-session-usage-bars)
-    # Invoked FROM a tmux status-format[1] string
-    # (`#(cc-tmux session-bar #{window_id})`), re-evaluated on every status-bar
-    # refresh — same daemon-free read cadence as window-icon.
-    p_session_bar = sub.add_parser(
-        "session-bar",
-        help="Emit the row-2 session/usage status-format string for a window (invoked from status-format[1]).",
-    )
-    p_session_bar.add_argument(
-        "window",
-        help="Target window (tmux window_id e.g. @3, or an index) to scope the lookup to.",
-    )
-
-    # -- beads-bar: row-3 beads/roadmap status-format (cc-tmux-session-usage-bars)
-    # Invoked FROM a tmux status-format[2] string
-    # (`#(cc-tmux beads-bar #{window_id})`), re-evaluated on every status-bar refresh.
-    p_beads_bar = sub.add_parser(
-        "beads-bar",
-        help="Emit the row-3 beads/roadmap status-format string for a window (invoked from status-format[2]).",
-    )
-    p_beads_bar.add_argument(
-        "window",
-        help="Target window (tmux window_id e.g. @3, or an index) to scope the lookup to.",
-    )
-
-    # -- tabs-row: whole-row animated window tabs (cc-tmux-tabs-and-rename-fix)
-    # Invoked FROM a top-level status-format slot (e.g. status-format[0], NOT
-    # nested inside window-status-format — the per-window `#()` job embedded
-    # in the default window-status-format never re-evaluates on this tmux
-    # version, so the whole row renders from one top-level job instead, same
-    # slot class as session-bar/beads-bar). Takes no arguments — it enumerates
-    # every window in the invoking client's session itself (tmux.get_window_tabs).
-    sub.add_parser(
-        "tabs-row",
-        help="Emit the whole animated window-tabs row (invoked from a top-level status-format slot).",
     )
 
     # -- render-all: all three status rows from ONE interpreter spawn ----------

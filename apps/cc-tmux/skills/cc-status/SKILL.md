@@ -21,12 +21,6 @@ Run the cc-tmux status commands (invoke `cc-tmux` on PATH, or the plugin's
 `bin/cc-tmux` by absolute path if it is not linked):
 
 ```bash
-# Pending panes as clickable badges (waiting first, then idle):
-cc-tmux status-inbox
-
-# Aggregate counts per state, formatted for the status bar:
-cc-tmux status
-
 # Every tracked pane, one per line — label<TAB>pane_id (attention-ordered):
 cc-tmux inbox
 

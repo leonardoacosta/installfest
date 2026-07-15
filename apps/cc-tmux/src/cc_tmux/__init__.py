@@ -7,7 +7,6 @@ notification inbox, OS notifications, a status segment, and a dispatch conductor
 Stdlib-only, Python 3.10+. The public surface used across modules:
   * :mod:`cc_tmux.tmux`     — PaneInfo, get_hop_panes(), set_pane_state(), ...
   * :mod:`cc_tmux.priority` — STATE_PRIORITY, cycle selection, sort ordering
-  * :mod:`cc_tmux.paths`    — tmux.conf + plugin-dir detection
   * :mod:`cc_tmux.cli`      — main() entrypoint
 """
 
