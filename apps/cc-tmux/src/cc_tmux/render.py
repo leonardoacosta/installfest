@@ -143,6 +143,32 @@ def beads_bar_countdown_glyph(now: float) -> str:
     return _COUNTDOWN_RAMP[idx]
 
 
+def pour_transition_text(text: str, tick_in_phase: int) -> str:
+    """`text` with each character replaced by its POUR_FRAMES glyph, or the
+    real character once that position has "settled" — a left-to-right wave,
+    first character settling soonest, last character settling
+    POUR_STAGGER_TICKS ticks later. Bounded duration regardless of len(text):
+    settles fully within len(POUR_FRAMES) - 1 + POUR_STAGGER_TICKS + 1 ticks
+    (5, with the frames/stagger above) of `tick_in_phase` reaching that value.
+    Empty text -> empty text (no-op).
+    """
+    if not text:
+        return text
+    n = len(text)
+    out = []
+    for i, ch in enumerate(text):
+        local_progress = i / max(1, n - 1)  # 0.0 (first char) .. 1.0 (last char)
+        stagger = round(local_progress * POUR_STAGGER_TICKS)
+        char_tick = tick_in_phase - stagger
+        if char_tick < 0:
+            out.append(POUR_FRAMES[0])
+        elif char_tick < len(POUR_FRAMES):
+            out.append(POUR_FRAMES[char_tick])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def _idle_meter_index(ratio: float) -> int:
     """Ramp index (0-16) for `ratio` (0..1), clamped then rounded to the
     nearest 16th — see design.md § "The 17-state ramp" § Index function.
@@ -1155,6 +1181,9 @@ def render_beads_bar(
             phase_content = next_text
         else:
             phase_content = counts_left
+        if now is not None:
+            tick_in_phase = int((now % SWAP_PERIOD_SEC) / FRAME_PERIOD_SEC)
+            phase_content = pour_transition_text(phase_content, tick_in_phase)
         if phase_content:
             glyph = beads_bar_countdown_glyph(now)
             left = f"#[fg={DIM}]{glyph}#[default] {phase_content}"
