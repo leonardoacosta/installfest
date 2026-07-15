@@ -2134,25 +2134,44 @@ def _test_render_beads_bar_next_cycle() -> None:
         "now=None with next_text supplied -> still byte-identical (next_text ignored)",
     )
 
-    # (b) now at phase 0 -> op:/bd: counts, glyph-prefixed.
+    # (b) now at phase 0 -> op:/bd: counts, POURED. cc-tmux-row3-pour-transition:
+    # whenever now is not None, render_beads_bar runs phase_content through
+    # render.pour_transition_text. now_phase0=0.0 -> tick_in_phase 0, where every
+    # character (tmux format tokens included) settles to POUR_FRAMES[0] -- so the
+    # whole counts string renders as pour glyphs, NOT the real counts, behind the
+    # (unaffected) countdown-glyph prefix. Expected string derived from
+    # pour_transition_text itself, not hand-written.
     now_phase0 = 0.0
     _check(render.beads_bar_phase(now_phase0) == 0, "sanity: now_phase0 lands in phase 0")
     glyph0 = render.beads_bar_countdown_glyph(now_phase0)
+    counts_left = reference[: -len("#[default]")]  # reference == counts_left + '#[default]'
+    tick0 = int((now_phase0 % period) / render.FRAME_PERIOD_SEC)
+    _check(tick0 == 0, f"sanity: now_phase0 is tick 0 in-phase, got {tick0}")
+    poured0 = render.pour_transition_text(counts_left, tick0)
+    _check(
+        poured0 == render.POUR_FRAMES[0] * len(counts_left),
+        "sanity: tick 0 pours every counts char to POUR_FRAMES[0]",
+    )
     out_phase0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase0)
     _check(
-        out_phase0 == f"#[fg={D}]{glyph0}#[default] {reference}",
-        f"phase 0 -> glyph-prefixed op:/bd: counts: {out_phase0!r}",
+        out_phase0 == f"#[fg={D}]{glyph0}#[default] {poured0}#[default]",
+        f"phase 0 -> glyph-prefixed, POURED op:/bd: counts at tick 0: {out_phase0!r}",
     )
 
-    # (c) now at phase 1 with next_text present -> ONLY next_text, no op:/bd:
-    # segments anywhere, glyph-prefixed.
+    # (c) now at phase 1 with next_text present -> ONLY next_text (POURED), no
+    # op:/bd: segments anywhere, glyph-prefixed. now_phase1 = period+1.0 ->
+    # tick_in_phase 1 (still pouring): the first char has advanced one frame
+    # while trailing chars lag.
     now_phase1 = period + 1.0
     _check(render.beads_bar_phase(now_phase1) == 1, "sanity: now_phase1 lands in phase 1")
     glyph1 = render.beads_bar_countdown_glyph(now_phase1)
+    tick1 = int((now_phase1 % period) / render.FRAME_PERIOD_SEC)
+    _check(tick1 == 1, f"sanity: now_phase1 is tick 1 in-phase, got {tick1}")
+    poured_next1 = render.pour_transition_text(next_text, tick1)
     out_phase1 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase1)
     _check(
-        out_phase1 == f"#[fg={D}]{glyph1}#[default] {next_text}#[default]",
-        f"phase 1 with next_text -> next_text alone, glyph-prefixed: {out_phase1!r}",
+        out_phase1 == f"#[fg={D}]{glyph1}#[default] {poured_next1}#[default]",
+        f"phase 1 with next_text -> POURED next_text alone, glyph-prefixed: {out_phase1!r}",
     )
     _check(
         "op:" not in out_phase1 and "bd:" not in out_phase1,
@@ -2160,11 +2179,12 @@ def _test_render_beads_bar_next_cycle() -> None:
     )
 
     # (d) now at phase 1 with next_text=None -> falls back to phase-0 content
-    # (still glyph-prefixed with the phase-1 glyph).
+    # (POURED at the phase-1 tick, still glyph-prefixed with the phase-1 glyph).
     out_phase1_no_next = render.render_beads_bar(*counts_args, next_text=None, now=now_phase1)
+    poured_counts1 = render.pour_transition_text(counts_left, tick1)
     _check(
-        out_phase1_no_next == f"#[fg={D}]{glyph1}#[default] {reference}",
-        f"phase 1, next_text=None -> falls back to op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
+        out_phase1_no_next == f"#[fg={D}]{glyph1}#[default] {poured_counts1}#[default]",
+        f"phase 1, next_text=None -> falls back to POURED op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
     )
 
     # (e) Account segment renders identically across every phase/now/None
@@ -2189,6 +2209,175 @@ def _test_render_beads_bar_next_cycle() -> None:
             next_text=None, now=now_value, account_label="",
         )
         _check(out_empty == "", f"nothing available -> '' at now={now_value}")
+
+
+def _test_render_pour_transition_text() -> None:
+    """cc-tmux-row3-pour-transition (design.md § Algorithm / Worked example,
+    task 3.1): :func:`render.pour_transition_text` replaces each character with
+    a POUR_FRAMES glyph, settling left-to-right (first char soonest, last char
+    POUR_STAGGER_TICKS ticks later), and returns the raw text once every
+    position has settled. Empty and 1-2 char inputs never raise (guards the
+    ``max(1, n-1)`` division).
+    """
+    frames = render.POUR_FRAMES
+    _check(frames == ("▁", "▄", "▇"), f"sanity: POUR_FRAMES drift, got {frames!r}")
+    _check(render.POUR_STAGGER_TICKS == 2, f"sanity: POUR_STAGGER_TICKS drift, got {render.POUR_STAGGER_TICKS}")
+
+    # The design.md worked-example string. NOTE: design.md's prose says "44
+    # chars" but the literal string is 42 chars -- the glyph table below is a
+    # function of each char's RELATIVE position (stagger = round(i/(n-1) * 2)),
+    # so the first/middle/last progression reproduces exactly regardless of the
+    # off-by-two count in the prose.
+    s = "next: [WORKSPACE-CMDCENTER] Ship the thing"
+    n = len(s)
+    _check(n == 42, f"sanity: worked-example string is 42 chars, got {n}")
+
+    # tick 0: every position (first, middle, last) renders POUR_FRAMES[0]; the
+    # whole string is POUR_FRAMES[0] repeated (nothing has begun settling yet).
+    out0 = render.pour_transition_text(s, 0)
+    _check(out0[0] == frames[0], "tick 0 first char -> POUR_FRAMES[0]")
+    _check(out0[21] == frames[0], "tick 0 middle char -> POUR_FRAMES[0]")
+    _check(out0[n - 1] == frames[0], "tick 0 last char -> POUR_FRAMES[0]")
+    _check(out0 == frames[0] * n, "tick 0 -> entire string is POUR_FRAMES[0]")
+
+    # tick 1: first char has advanced to POUR_FRAMES[1] while the last char is
+    # still POUR_FRAMES[0] -- the left-to-right stagger, first settles soonest.
+    out1 = render.pour_transition_text(s, 1)
+    _check(out1[0] == frames[1], "tick 1 first char advanced to POUR_FRAMES[1]")
+    _check(out1[n - 1] == frames[0], "tick 1 last char still POUR_FRAMES[0] (trails the first)")
+
+    # design.md § Worked example, reproduced exactly: first (i=0, stagger=0),
+    # middle (i=21, stagger=1), last (i=n-1, stagger=2), at ticks 0..5. "real"
+    # means the settled source character at that index.
+    table = [
+        # tick, first,      middle,     last
+        (0, frames[0], frames[0], frames[0]),
+        (1, frames[1], frames[0], frames[0]),
+        (2, frames[2], frames[1], frames[0]),
+        (3, s[0],      frames[2], frames[1]),
+        (4, s[0],      s[21],     frames[2]),
+        (5, s[0],      s[21],     s[n - 1]),
+    ]
+    for tick, exp_first, exp_middle, exp_last in table:
+        out = render.pour_transition_text(s, tick)
+        _check(out[0] == exp_first, f"worked-example tick {tick} first: {out[0]!r} != {exp_first!r}")
+        _check(out[21] == exp_middle, f"worked-example tick {tick} middle: {out[21]!r} != {exp_middle!r}")
+        _check(out[n - 1] == exp_last, f"worked-example tick {tick} last: {out[n - 1]!r} != {exp_last!r}")
+
+    # by tick 5 every character has settled to the real string (bounded
+    # duration: len(POUR_FRAMES)-1 + POUR_STAGGER_TICKS + 1 == 5).
+    _check(render.pour_transition_text(s, 5) == s, "tick 5 -> fully settled to real text")
+    _check(render.pour_transition_text(s, 99) == s, "far past settle -> still the real text (no over-index)")
+
+    # empty-string input returns "" at any tick, no exception.
+    for tick in (0, 1, 5, 99):
+        _check(render.pour_transition_text("", tick) == "", f"empty input -> '' at tick {tick}")
+
+    # very short strings never raise (guards max(1, n-1) -> no ZeroDivisionError
+    # for the 1-char case where n-1 == 0).
+    for short in ("X", "XY"):
+        for tick in (0, 1, 2, 3, 5, 99):
+            render.pour_transition_text(short, tick)  # must not raise
+    # 1-char settles immediately after its own frames run (stagger 0).
+    _check(render.pour_transition_text("X", 0) == frames[0], "1-char tick 0 -> POUR_FRAMES[0]")
+    _check(render.pour_transition_text("X", 3) == "X", "1-char tick 3 -> settled real char")
+    # 2-char: last char carries the full stagger (round(1.0 * 2) == 2).
+    _check(render.pour_transition_text("XY", 0) == frames[0] * 2, "2-char tick 0 -> both POUR_FRAMES[0]")
+    _check(render.pour_transition_text("XY", 1) == f"{frames[1]}{frames[0]}", "2-char tick 1 -> first advances, last trails")
+
+
+def _test_render_beads_bar_pour_transition_wiring() -> None:
+    """cc-tmux-row3-pour-transition (design.md § Wiring into render_beads_bar,
+    task 3.2): render_beads_bar applies :func:`render.pour_transition_text` to
+    phase_content IDENTICALLY in both phases whenever ``now`` is not None. At a
+    swap boundary (tick_in_phase 0) the op:/bd: counts (phase 0) and the next:
+    line (phase 1) both render as transition glyphs, not real content, with the
+    countdown-glyph prefix unaffected; the transition progression is
+    byte-identical across the two phases (same motion regardless of which line
+    is showing); and several ticks past a boundary the content has fully
+    settled to the real text (== the ``now=None`` reference).
+    """
+    D = render.DIM
+    period = render.SWAP_PERIOD_SEC
+    counts_args = (12, 1, 0, 1, 5, 0)
+    next_text = "next: [WORKSPACE-CMDCENTER] Ship the thing"
+
+    reference = render.render_beads_bar(*counts_args)  # now=None -> settled counts
+    counts_left = reference[: -len("#[default]")]  # reference == counts_left + '#[default]'
+
+    # --- Phase-0 swap boundary (now = 2*period = 16.0 -> phase 0, tick 0):
+    # op:/bd: content shows transition glyphs, not the real counts. ---
+    now_p0 = 2 * period
+    _check(render.beads_bar_phase(now_p0) == 0, "sanity: 2*period is phase 0")
+    tick_p0 = int((now_p0 % period) / render.FRAME_PERIOD_SEC)
+    _check(tick_p0 == 0, f"sanity: swap boundary is tick 0, got {tick_p0}")
+    glyph_p0 = render.beads_bar_countdown_glyph(now_p0)
+    poured_counts0 = render.pour_transition_text(counts_left, tick_p0)
+    _check(
+        poured_counts0 == render.POUR_FRAMES[0] * len(counts_left),
+        "phase-0 boundary: every counts char (format tokens included) -> POUR_FRAMES[0]",
+    )
+    out_p0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_p0)
+    _check(
+        out_p0 == f"#[fg={D}]{glyph_p0}#[default] {poured_counts0}#[default]",
+        f"phase-0 boundary: transition glyphs not real counts, countdown-glyph prefix intact: {out_p0!r}",
+    )
+    _check("op:" not in out_p0 and "bd:" not in out_p0, "phase-0 boundary: real counts fully hidden")
+
+    # --- Phase-1 swap boundary (now = period = 8.0 -> phase 1, tick 0): the
+    # next: line shows the IDENTICAL transition progression (same
+    # POUR_FRAMES/POUR_STAGGER_TICKS behavior) -- proves same motion regardless
+    # of phase. ---
+    now_p1 = period
+    _check(render.beads_bar_phase(now_p1) == 1, "sanity: period is phase 1")
+    tick_p1 = int((now_p1 % period) / render.FRAME_PERIOD_SEC)
+    _check(tick_p1 == 0, f"sanity: swap boundary is tick 0, got {tick_p1}")
+    glyph_p1 = render.beads_bar_countdown_glyph(now_p1)
+    poured_next0 = render.pour_transition_text(next_text, tick_p1)
+    _check(
+        poured_next0 == render.POUR_FRAMES[0] * len(next_text),
+        "phase-1 boundary: every next: char -> POUR_FRAMES[0], the SAME pour as phase 0",
+    )
+    out_p1 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_p1)
+    _check(
+        out_p1 == f"#[fg={D}]{glyph_p1}#[default] {poured_next0}#[default]",
+        f"phase-1 boundary: next: line shows the same transition progression: {out_p1!r}",
+    )
+
+    # --- Same motion regardless of phase: over a full tick sweep (0..5), the
+    # left content is pour_transition_text(<that phase's content>, tick) using
+    # the SAME function and SAME tick derivation in both phases. ---
+    for tick in range(6):
+        now0 = 2 * period + tick  # phase 0, tick_in_phase == tick
+        now1 = period + tick      # phase 1, tick_in_phase == tick
+        _check(render.beads_bar_phase(now0) == 0, f"sanity: now0 tick {tick} is phase 0")
+        _check(render.beads_bar_phase(now1) == 1, f"sanity: now1 tick {tick} is phase 1")
+        g0 = render.beads_bar_countdown_glyph(now0)
+        g1 = render.beads_bar_countdown_glyph(now1)
+        exp0 = f"#[fg={D}]{g0}#[default] {render.pour_transition_text(counts_left, tick)}#[default]"
+        exp1 = f"#[fg={D}]{g1}#[default] {render.pour_transition_text(next_text, tick)}#[default]"
+        _check(
+            render.render_beads_bar(*counts_args, next_text=next_text, now=now0) == exp0,
+            f"phase 0 tick {tick}: counts poured via pour_transition_text",
+        )
+        _check(
+            render.render_beads_bar(*counts_args, next_text=next_text, now=now1) == exp1,
+            f"phase 1 tick {tick}: next: poured via the SAME pour_transition_text/tick math",
+        )
+
+    # --- Several ticks past a boundary -> fully settled to real text, matching
+    # the pre-transition (now=None) reference behind the glyph prefix. ---
+    now_settled = 2 * period + 5  # phase 0, tick 5 == settle horizon
+    g_settled = render.beads_bar_countdown_glyph(now_settled)
+    _check(
+        render.pour_transition_text(counts_left, 5) == counts_left,
+        "sanity: tick 5 is fully settled (pour is a no-op regardless of length)",
+    )
+    _check(
+        render.render_beads_bar(*counts_args, next_text=next_text, now=now_settled)
+        == f"#[fg={D}]{g_settled}#[default] {reference}",
+        "several ticks past boundary: content settled == now=None reference, glyph-prefixed",
+    )
 
 
 def _test_render_tabs_row() -> None:
@@ -3521,6 +3710,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.beads_bar_account_segment", _test_render_beads_bar_account_segment),
     ("render.beads_bar_phase_and_countdown_glyph", _test_render_beads_bar_phase_and_countdown_glyph),
     ("render.beads_bar_next_cycle", _test_render_beads_bar_next_cycle),
+    ("render.pour_transition_text", _test_render_pour_transition_text),
+    ("render.beads_bar_pour_transition_wiring", _test_render_beads_bar_pour_transition_wiring),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
