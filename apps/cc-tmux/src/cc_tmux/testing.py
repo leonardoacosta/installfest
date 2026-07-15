@@ -2019,6 +2019,178 @@ def _test_render_beads_bar_account_segment() -> None:
     )
 
 
+def _test_render_beads_bar_phase_and_countdown_glyph() -> None:
+    """cc-tmux-row3-next-cycle (design.md § Phase selection / Countdown glyph,
+    task 4.1): :func:`render.beads_bar_phase` flips exactly at
+    :data:`render.SWAP_PERIOD_SEC` boundaries, and
+    :func:`render.beads_bar_countdown_glyph` sweeps all 8
+    :data:`render._COUNTDOWN_RAMP` frames across one full ``SWAP_PERIOD_SEC``
+    window, resetting to frame 0 at the START of every phase (keyed on
+    ``now % SWAP_PERIOD_SEC``, not on an unbounded ``now``).
+    """
+    period = render.SWAP_PERIOD_SEC
+
+    # Phase flips exactly at SWAP_PERIOD_SEC boundaries (8.0): 7.9 -> 0,
+    # 8.0 -> 1, 15.9 -> 1, 16.0 -> 0.
+    _check(render.beads_bar_phase(7.9) == 0, "now=7.9 -> phase 0")
+    _check(render.beads_bar_phase(8.0) == 1, "now=8.0 -> phase 1")
+    _check(render.beads_bar_phase(15.9) == 1, "now=15.9 -> phase 1")
+    _check(render.beads_bar_phase(16.0) == 0, "now=16.0 -> phase 0 (flips back)")
+
+    # Countdown glyph sweeps all 8 ramp frames, in order, across one phase
+    # window, and the SAME 8 sub-intervals repeat identically in the next
+    # phase -- confirming the index is keyed on now % SWAP_PERIOD_SEC, not on
+    # a running/unbounded now.
+    ramp = render._COUNTDOWN_RAMP
+    _check(len(ramp) == 8, f"sanity: _COUNTDOWN_RAMP has 8 frames, got {len(ramp)}")
+    for i in range(8):
+        expected = ramp[i]
+        now_phase0 = period * (i / 8)
+        glyph_phase0 = render.beads_bar_countdown_glyph(now_phase0)
+        _check(
+            glyph_phase0 == expected,
+            f"phase-0 now={now_phase0} -> frame {i} {expected!r}, got {glyph_phase0!r}",
+        )
+        now_phase1 = period + period * (i / 8)
+        glyph_phase1 = render.beads_bar_countdown_glyph(now_phase1)
+        _check(
+            glyph_phase1 == expected,
+            f"phase-1 now={now_phase1} -> resets to frame {i} {expected!r} same as phase 0, got {glyph_phase1!r}",
+        )
+
+
+def _test_cli_parse_roadmap_pulse_next() -> None:
+    """cc-tmux-row3-next-cycle (task 4.2): :func:`cli._parse_roadmap_pulse_next`
+    extracts a ``next:`` line verbatim regardless of its position in the
+    (already ``radar:``-stripped) roadmap-pulse content string, returns
+    ``None`` when absent, and never mistakes a ``bd:``/``op:``/``radar:``
+    line for a ``next:`` line.
+    """
+    next_line = "next: [WORKSPACE-CMDCENTER] Ship the thing"
+
+    first_position = f"{next_line}\nbd: 0o 0r 0b"
+    _check(
+        cli._parse_roadmap_pulse_next(first_position) == next_line,
+        "next: as the first line -> extracted verbatim",
+    )
+
+    last_position = f"op: 1o 0ip 0ua\nbd: 1o 1r 0b\n{next_line}"
+    _check(
+        cli._parse_roadmap_pulse_next(last_position) == next_line,
+        "next: as the last line -> extracted verbatim",
+    )
+
+    middle_position = f"op: 1o 0ip 0ua\n{next_line}\nbd: 1o 1r 0b"
+    _check(
+        cli._parse_roadmap_pulse_next(middle_position) == next_line,
+        "next: in the middle -> extracted verbatim",
+    )
+
+    _check(
+        cli._parse_roadmap_pulse_next("op: 1o 0ip 0ua\nbd: 1o 1r 0b") is None,
+        "no next: line present -> None",
+    )
+    _check(cli._parse_roadmap_pulse_next("") is None, "empty content -> None")
+
+    # bd:/op:/radar: lines are never mistaken for a next: line (radar: is
+    # already stripped upstream by _read_roadmap_pulse before content reaches
+    # this parser -- confirmed harmless here regardless).
+    no_next_among_others = "op: 1o 0ip 0ua\nbd: 1o 1r 0b\nradar:stale"
+    _check(
+        cli._parse_roadmap_pulse_next(no_next_among_others) is None,
+        "op:/bd:/radar: lines never mistaken for next: -> None",
+    )
+
+
+def _test_render_beads_bar_next_cycle() -> None:
+    """cc-tmux-row3-next-cycle (design.md § render_beads_bar, task 4.3):
+    ``now=None`` (the default) renders BYTE-IDENTICAL to the pre-feature
+    reference shape; when ``now`` is provided, phase 0 renders the op:/bd:
+    counts with a countdown-glyph prefix, phase 1 renders ``next_text`` ALONE
+    (glyph-prefixed, no op:/bd: anywhere) when present, falls back to the
+    counts (still glyph-prefixed) when ``next_text`` is ``None``, and the
+    right-aligned account segment renders identically across every
+    phase/``now``/``None`` combination. "Nothing available" still renders
+    ``""`` in every combination.
+    """
+    D = render.DIM
+    period = render.SWAP_PERIOD_SEC
+    counts_args = (12, 1, 0, 1, 5, 0)  # op: 12o 1ip 0ua | bd: 1o 5r 0b
+    next_text = "next: [WORKSPACE-CMDCENTER] Ship the thing"
+    label = "leo@x.dev·bc7da511"
+
+    # (a) now=None (the default) is byte-identical to the pre-row3-next-cycle
+    # reference call (same counts, no next_text/now at all) -- and stays
+    # byte-identical even when next_text IS supplied, since now=None ignores
+    # it entirely.
+    reference = render.render_beads_bar(*counts_args)
+    _check("next:" not in reference, "sanity: reference call carries no next: text")
+    _check(
+        render.render_beads_bar(*counts_args, now=None) == reference,
+        "now=None (explicit) -> byte-identical to the pre-feature reference call",
+    )
+    _check(
+        render.render_beads_bar(*counts_args, next_text=next_text, now=None) == reference,
+        "now=None with next_text supplied -> still byte-identical (next_text ignored)",
+    )
+
+    # (b) now at phase 0 -> op:/bd: counts, glyph-prefixed.
+    now_phase0 = 0.0
+    _check(render.beads_bar_phase(now_phase0) == 0, "sanity: now_phase0 lands in phase 0")
+    glyph0 = render.beads_bar_countdown_glyph(now_phase0)
+    out_phase0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase0)
+    _check(
+        out_phase0 == f"#[fg={D}]{glyph0}#[default] {reference}",
+        f"phase 0 -> glyph-prefixed op:/bd: counts: {out_phase0!r}",
+    )
+
+    # (c) now at phase 1 with next_text present -> ONLY next_text, no op:/bd:
+    # segments anywhere, glyph-prefixed.
+    now_phase1 = period + 1.0
+    _check(render.beads_bar_phase(now_phase1) == 1, "sanity: now_phase1 lands in phase 1")
+    glyph1 = render.beads_bar_countdown_glyph(now_phase1)
+    out_phase1 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase1)
+    _check(
+        out_phase1 == f"#[fg={D}]{glyph1}#[default] {next_text}#[default]",
+        f"phase 1 with next_text -> next_text alone, glyph-prefixed: {out_phase1!r}",
+    )
+    _check(
+        "op:" not in out_phase1 and "bd:" not in out_phase1,
+        "phase 1 with next_text present never shows op:/bd: segments",
+    )
+
+    # (d) now at phase 1 with next_text=None -> falls back to phase-0 content
+    # (still glyph-prefixed with the phase-1 glyph).
+    out_phase1_no_next = render.render_beads_bar(*counts_args, next_text=None, now=now_phase1)
+    _check(
+        out_phase1_no_next == f"#[fg={D}]{glyph1}#[default] {reference}",
+        f"phase 1, next_text=None -> falls back to op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
+    )
+
+    # (e) Account segment renders identically across every phase/now/None
+    # combination -- only the left side cycles.
+    right_suffix = (
+        f"#[align=right]#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
+    )
+    for now_value in (None, now_phase0, now_phase1):
+        out = render.render_beads_bar(
+            *counts_args, account_label=label, next_text=next_text, now=now_value
+        )
+        _check(
+            out.endswith(right_suffix),
+            f"account segment identical regardless of phase/now (now={now_value}): {out!r}",
+        )
+
+    # (f) "Nothing available" (no counts, next_text=None, account_label="")
+    # still returns "" in every phase/now combination.
+    for now_value in (None, now_phase0, now_phase1):
+        out_empty = render.render_beads_bar(
+            None, None, None, None, None, None,
+            next_text=None, now=now_value, account_label="",
+        )
+        _check(out_empty == "", f"nothing available -> '' at now={now_value}")
+
+
 def _test_render_tabs_row() -> None:
     # Empty window list -> '' (nothing to show).
     _check(render.render_tabs_row([], "@1", 0.0) == "", "empty window list -> ''")
@@ -3347,10 +3519,13 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.session_bar", _test_render_session_bar),
     ("render.beads_bar", _test_render_beads_bar),
     ("render.beads_bar_account_segment", _test_render_beads_bar_account_segment),
+    ("render.beads_bar_phase_and_countdown_glyph", _test_render_beads_bar_phase_and_countdown_glyph),
+    ("render.beads_bar_next_cycle", _test_render_beads_bar_next_cycle),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
     ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),
+    ("cli.parse_roadmap_pulse_next", _test_cli_parse_roadmap_pulse_next),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
     ("cli.beads_pane_active_tracked_preferred", _test_cli_beads_pane_active_tracked_preferred),
     ("cli.resolve_session_pane_active_tracked", _test_cli_resolve_session_pane_active_tracked),
