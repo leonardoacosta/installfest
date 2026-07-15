@@ -665,9 +665,18 @@ log "FATAL: could not read cwd of pid $SHELL_PID"
 printf 'unknown||\n'
 REMOTE_SCRIPT
 
-  local remote_info
-  remote_info=$(ssh "$host" bash -s -- "$src_port" < "$remote_script")
+  local remote_info remote_err ssh_status
+  remote_err="/tmp/paste-image-ssh-err-$$.log"
+  remote_info=$(ssh "$host" bash -s -- "$src_port" < "$remote_script" 2>"$remote_err")
+  ssh_status=$?
   rm -f "$remote_script"
+
+  if [[ $ssh_status -ne 0 ]]; then
+    echo "ssh to $host failed: exit=$ssh_status stderr=$(cat "$remote_err" 2>/dev/null)"
+    rm -f "$remote_err"
+    die "ssh to $host failed (exit $ssh_status) — connection/auth issue, not a CWD-detection failure"
+  fi
+  rm -f "$remote_err"
 
   local kind cwd pane
   IFS='|' read -r kind cwd pane <<< "$remote_info"
