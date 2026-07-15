@@ -25,11 +25,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 from . import log, notify, nx_agent, registry, render, tmux, usage
 from .conductor import cmd_conductor
 from .parser import build_parser
-from .usage import cmd_usage
 from .priority import (
     VALID_STATES,
-    group_by_state,
-    pending_panes,
     select_next,
     sort_panes,
 )
@@ -42,11 +39,9 @@ _CYCLE_MODE_OPT = "@cc-cycle-mode"
 # View / rendering options (Req-5/Req-7).
 _TRACK_FOCUS_OPT = "@cc-track-focus"           # MRU visit tracking (default on)
 _INBOX_CLEARED_OPT = "@cc-inbox-cleared-at"   # dismiss stamp (a view filter)
-_STATUS_FORMAT_OPT = "@cc-status-format"       # @cc-status template
 _WINDOW_RENAME_OPT = "@cc-window-rename"       # opt-in window auto-rename
 _WINDOW_RENAME_FORMAT_OPT = "@cc-window-rename-format"  # "state" (default) | "title"
 _TAB_NAME_MAX = 20                             # project-code + session-title combined budget
-_STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge style
 
 # Sub-agent tab-icon overlay (cc-tmux-subagent-tab-icon): how long a background
 # (run_in_background=true) Task dispatch counts as "active" after launch, since
@@ -56,9 +51,6 @@ _STATUS_INBOX_STYLE_OPT = "@cc-status-inbox-{state}-style"  # per-state badge st
 # this module.
 _SUBAGENT_BG_TIMEOUT_OPT = "@cc-subagent-bg-timeout"
 _DEFAULT_SUBAGENT_BG_TIMEOUT = 300.0
-
-# No remaining stub subcommands: every registered command has a handler below.
-_STUB_OWNERS: Dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -94,8 +86,8 @@ def cmd_register(args) -> int:
     # (SessionStart payload `model` field -> @cc-model), but that path was
     # confirmed empty on every live pane (the field is absent/unusable at
     # SessionStart, and it misses mid-session `/model` switches by design).
-    # The session-bar now reads the model letter fresh on every render from
-    # `session-context.<pane>.json` instead — see `_read_session_context`.
+    # The session-bar now reads the model letter fresh on every render
+    # from nx-agent — see _resolve_model_letter.
     hook_payload = _read_hook_stdin()
     if hook_payload.get("hook_event_name") == "SessionStart":
         title = hook_payload.get("session_title")
@@ -667,53 +659,13 @@ def cmd_picker_data(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Status sources + window rename (Req-7, task 1.8)
+# Window rename (Req-7)
 # ---------------------------------------------------------------------------
 
-def cmd_status(args) -> int:
-    """Emit the status-bar pane counts via ``@cc-status-format`` (Req-7).
-
-    NOT wired by default: cc-tmux.tmux no longer publishes ``@cc-status``
-    (the option had zero consumers). Users may wire ``#(cc-tmux status)``
-    into their own status line manually. The per-tick reconcile heartbeat
-    lives in :func:`cmd_tabs_row` (status-format[0]); the reconcile call
-    below is kept (rate-limited) for anyone who does wire this surface.
-    """
-    groups = group_by_state(tmux.reconcile(_pane_ids_running_claude))
-    counts = {state: len(members) for state, members in groups.items()}
-    fmt = tmux.get_global_option(_STATUS_FORMAT_OPT) or render.DEFAULT_STATUS_FORMAT
-    icons = render.resolve_icons(tmux.get_global_option)
-    out = render.render_status(fmt, counts, icons)
-    if out:
-        print(out)
-    return 0
-
-
-def cmd_status_inbox(args) -> int:
-    """Emit clickable pending-pane badges for an optional second status line.
-
-    Each badge is wrapped in ``#[range=pane|<id>]`` so tmux's default
-    ``MouseDown1Status`` switch-client gives click-to-hop for free. Per-state
-    styling comes from ``@cc-status-inbox-<state>-style``.
-    """
-    icons = render.resolve_icons(tmux.get_global_option)
-    badges: List[str] = []
-    for pane in pending_panes(tmux.get_hop_panes()):
-        style = tmux.get_global_option(_STATUS_INBOX_STYLE_OPT.format(state=pane.state))
-        icon = icons.get(pane.state, pane.state)
-        label = pane.project or pane.session
-        prefix = f"#[{style}]" if style else ""
-        badges.append(
-            f"#[range=pane|{pane.id}]{prefix} {icon} {label} #[norange]#[default]"
-        )
-    if badges:
-        print(" ".join(badges))
-    return 0
-
-
 # ---------------------------------------------------------------------------
-# View helpers (shared by inbox / picker / status)
+# View helpers (shared by inbox / picker)
 # ---------------------------------------------------------------------------
+
 
 def _emit_rows(panes: List["tmux.PaneInfo"]) -> None:
     """Print aligned ``label\\tpane_id`` rows for fzf / menu consumption."""
@@ -761,29 +713,6 @@ def _subagent_bg_timeout() -> float:
     return val if val > 0 else _DEFAULT_SUBAGENT_BG_TIMEOUT
 
 
-def _window_subagent_counts(window_target: str) -> Tuple[int, int]:
-    """``(fg_count, pruned_bg_count)`` for ``window_target``'s representative pane.
-
-    Legacy call site (:func:`cmd_window_icon` — kept for confs that haven't
-    migrated to the ``render-all``/tabs-row job, see that function's
-    docstring). Uses the SAME representative-pane choice
-    (:func:`tmux.get_window_top_pane`) that :func:`cmd_window_icon` already
-    scopes its state lookup to, unlike the live tabs-row path
-    (:func:`_build_tabs_row`) which sums/unions across every tracked pane in
-    the window via :func:`tmux.get_window_tabs` — single-pane here vs
-    multi-pane there is intentional: this is the narrower, single-pane legacy
-    surface. Fail-open: no representative pane -> ``(0, 0)``.
-    """
-    pane = tmux.get_window_top_pane(window_target)
-    if not pane:
-        return 0, 0
-    fg = tmux.get_subagent_fg(pane)
-    bg_entries = prune_background_entries(
-        tmux.get_subagent_bg(pane), time.time(), _subagent_bg_timeout()
-    )
-    return fg, len(bg_entries)
-
-
 def _maybe_rename_window(pane_id: str) -> bool:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
@@ -794,12 +723,11 @@ def _maybe_rename_window(pane_id: str) -> bool:
       ``_TAB_NAME_MAX`` chars combined — see :func:`_title_window_name`.
 
     NOTE: neither format includes a state icon here anymore. The tab icon is
-    now animated (see ``render.animated_icon`` / ``cmd_window_icon``), which
+    now animated (see ``render.animated_icon``), which
     needs a wall-clock-driven re-render that a hook-triggered ``rename-window``
     call cannot provide (hooks fire irregularly, not on a timer). The icon is
-    rendered separately, from the tmux ``window-status-format`` string itself
-    (``#(cc-tmux window-icon #{window_id})``), re-evaluated on every
-    status-bar refresh — see tmux.conf.tmpl / the theme ``.conf`` files.
+    rendered separately by the render-all tabs row (see :func:`_build_tabs_row` /
+    :func:`render.render_tabs_row`).
 
     ``automatic-rename`` is forced off either way so tmux does not clobber the
     name tmux-conf itself already disables (see tmux.conf.tmpl).
@@ -868,28 +796,6 @@ def _title_window_name(pane) -> str:
     return compose_title_name(code, title, fallback=pane.project or "")
 
 
-def cmd_window_icon(args) -> int:
-    """Emit the current tab-icon glyph for a window (animated tab icon).
-
-    Invoked FROM a tmux ``window-status-format``/``window-status-current-format``
-    string (``#(cc-tmux window-icon #{window_id})``) — tmux re-runs this on
-    every status-bar refresh, which is what drives the animation (this
-    process holds no timer of its own). Prints ``"<glyph> "`` (with a trailing
-    separator space) when the window has a tracked pane, or nothing at all for
-    an untracked (non-Claude) window — the caller's format string relies on
-    that to avoid a stray double-space, see tmux.conf.tmpl / theme .conf files.
-    Fail-open: any error -> print nothing, exit 0 (never blocks the status bar).
-    """
-    state = tmux.get_window_top_state(args.window)
-    if not state:
-        return 0
-    fg, bg = _window_subagent_counts(args.window)
-    icon = render.resolve_tab_icon(state, time.time(), fg, bg)
-    if icon:
-        sys.stdout.write(f"{icon} ")
-    return 0
-
-
 # ---------------------------------------------------------------------------
 # Session + beads status rows (cc-tmux-session-usage-bars, rows 2 + 3)
 #
@@ -948,91 +854,6 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
         return content, age
     except Exception:
         return "", None
-
-
-# session-context.<pane>.json freshness cutoff (plan 003): the writer
-# (nexus-statusline) refreshes ts on every statusline render, i.e. every turn.
-# A file older than this is a dead session or a recycled pane id — render it
-# as absent rather than confidently wrong. Writer-side GC (>6h prune) is inert
-# exactly when the writer stalls, so the reader enforces its own cutoff.
-# Post-migration (cc-tmux-adopt-nx-context-and-git-status, if-hrbd, then
-# nx-yn6c2) NO production caller reads this file anymore: ``model_letter``
-# (index 0), the last field still consumed, moved onto nx-agent via
-# :func:`_resolve_model_letter` once nx confirmed the file no longer exists
-# on disk at all. ``_read_session_context`` and this cutoff are kept only for
-# their self-test coverage of the (now legacy-only) parsing contract; SES and
-# model_letter are both sourced exclusively via nx-agent
-# (:func:`_resolve_ses_pct` / :func:`_resolve_model_letter`) for row 2 and the
-# accounts popup.
-SESSION_CONTEXT_MAX_AGE_SECS = 900.0
-
-
-def _read_session_context(pane_id: str) -> Tuple[str, Optional[float], str, bool, int]:
-    """``(model_letter, context_used_pct, branch, dirty, ahead)`` from
-    ``session-context.<pane>.json``.
-
-    nexus-statusline writes
-    ``{context_used_pct, model, ts, branch?, dirty?, ahead?}`` per pane (keyed
-    on the raw ``#{pane_id}`` e.g. ``%3``). ``model`` is a single-letter tag
-    (F/O/H/S) refreshed on every statusline render — unlike the old
-    SessionStart-hook path this replaces (see ``cmd_register``'s note), it also
-    tracks mid-session ``/model`` switches. ``context_used_pct`` is 0-100;
-    divided by 100 here to keep the 0..1 ratio convention used elsewhere in this
-    module. ``branch``/``dirty``/``ahead`` are optional (absent on an older
-    nexus binary that hasn't been redeployed yet -> ``("", False, 0)``
-    defaults, backward compatible). A ``ts`` older than the freshness cutoff
-    (defined just above) is treated as stale and rendered as fully absent
-    (plan 003) — the git fields share that same freshness gate, they have no
-    cutoff logic of their own. Fail-open: missing pane id / file / bad shape /
-    non-numeric -> ``("", None, "", False, 0)`` for the piece that failed.
-
-    Consumption note (as of nx-yn6c2): ZERO production callers read this
-    function anymore. ``context_used_pct`` (index 1) moved to nx-agent first
-    (if-hrbd, :func:`_resolve_ses_pct`); ``model_letter`` (index 0), the last
-    field :func:`_build_session_bar` still read from here, moved to nx-agent
-    too (:func:`_resolve_model_letter`) once nx confirmed
-    ``session-context.<pane>.json`` no longer exists on disk at all. This
-    function and its 5-tuple parsing are retained only for
-    :mod:`testing`'s existing coverage of the legacy file shape — no new
-    caller should be added; MUST NOT be assumed live.
-    """
-    if not pane_id:
-        return "", None, "", False, 0
-    try:
-        data = json.loads((_cc_state_dir() / f"session-context.{pane_id}.json").read_text(encoding="utf-8"))
-    except Exception:
-        return "", None, "", False, 0
-
-    ts = data.get("ts")
-    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-        return "", None, "", False, 0
-    if time.time() - float(ts) > SESSION_CONTEXT_MAX_AGE_SECS:
-        return "", None, "", False, 0
-
-    letter = data.get("model")
-    if not isinstance(letter, str):
-        letter = ""
-    letter = letter[:1]
-
-    pct = data.get("context_used_pct")
-    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
-        pct = None
-    else:
-        pct = float(pct) / 100.0
-
-    branch = data.get("branch")
-    if not isinstance(branch, str):
-        branch = ""
-
-    dirty = data.get("dirty") is True
-
-    ahead_raw = data.get("ahead")
-    if isinstance(ahead_raw, bool) or not isinstance(ahead_raw, int) or ahead_raw < 0:
-        ahead = 0
-    else:
-        ahead = ahead_raw
-
-    return letter, pct, branch, dirty, ahead
 
 
 def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
@@ -1251,7 +1072,7 @@ def _resolve_model_letter(pane: str) -> str:
     Same ``GET /sessions/:id/context`` call :func:`_resolve_ses_pct` makes
     (cached — see :mod:`nx_agent`), read here for its ``model`` field instead
     of ``usedPercentage``. Replaces the retired legacy-file read
-    (:func:`_read_session_context`'s index-0 return): nx confirmed 2026-07-13
+    (the retired session-context.<pane>.json read): nx confirmed 2026-07-13
     that ``session-context.<pane>.json`` no longer exists on disk at all
     (cc-tmux-adopt-nx-context-and-git-status migrated ``context_used_pct`` off
     it via :func:`_resolve_ses_pct` but left ``model_letter`` on the dead
@@ -1287,7 +1108,7 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     * ``model_letter`` — :func:`_resolve_model_letter` (nx-agent
       ``GET /sessions/:id/context``'s ``model`` field, keyed by the
       ``@cc-session-id`` pane option; nx-yn6c2). Replaces the former legacy-file
-      read (``session-context.<pane>.json``, via :func:`_read_session_context`)
+      read (``session-context.<pane>.json``, since removed)
       now that nx confirmed that file no longer exists on disk at all — the
       same migration :func:`_resolve_ses_pct` already made for
       ``context_used_pct``.
@@ -1356,20 +1177,6 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
         raw_tokens=ses_tokens,
     )
 
-
-def cmd_session_bar(args) -> int:
-    """Emit the row-2 session status-format string for a window (Req rows 2).
-
-    Invoked FROM a tmux ``status-format[1]`` string
-    (``#(cc-tmux session-bar #{window_id})``), re-evaluated on every status-bar
-    refresh. Thin wrapper over :func:`_build_session_bar` — kept for other
-    machines' deployed confs that still call this subcommand directly until
-    they re-apply the plan-005 conf change (see Maintenance notes).
-    """
-    out = _build_session_bar(args.window)
-    if out:
-        sys.stdout.write(out)
-    return 0
 
 
 def _accounts_popup_body() -> str:
@@ -1752,7 +1559,7 @@ def _parse_roadmap_pulse_counts(
     missing or unparseable ``bd:`` line degrades ONLY the beads half to
     ``(None, None, None)`` without affecting an otherwise-valid ``op:`` half,
     and vice versa — the same fail-open contract the rest of this module uses
-    (e.g. :func:`_read_session_context`'s per-field ``None`` degradation), so
+    (e.g. :func:`_resolve_git_status`'s per-field fallback), so
     a malformed half never blanks the other.
     """
     openspec_open: Optional[int] = None
@@ -1822,20 +1629,6 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     )
 
 
-def cmd_beads_bar(args) -> int:
-    """Emit the row-3 beads/roadmap status-format string for a window (Req rows 3).
-
-    Invoked FROM a tmux ``status-format[2]`` string
-    (``#(cc-tmux beads-bar #{window_id})``). Thin wrapper over
-    :func:`_build_beads_bar` — kept for other machines' deployed confs that
-    still call this subcommand directly until they re-apply the plan-005 conf
-    change (see Maintenance notes).
-    """
-    out = _build_beads_bar(args.window)
-    if out:
-        sys.stdout.write(out)
-    return 0
-
 
 def _build_tabs_row(active_window_id: str) -> str:
     """Build the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
@@ -1881,21 +1674,6 @@ def _build_tabs_row(active_window_id: str) -> str:
     return render.render_tabs_row(windows, active_window_id, now)
 
 
-def cmd_tabs_row(args) -> int:
-    """Emit the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
-
-    Invoked FROM a top-level status-format slot (same slot class as
-    :func:`cmd_session_bar`/:func:`cmd_beads_bar` — NOT nested inside
-    ``window-status-format``, whose own embedded ``#()`` job never
-    re-evaluates on this tmux version, confirmed via /openspec:explore runtime
-    evidence). Thin wrapper over :func:`_build_tabs_row` — kept for other
-    machines' deployed confs that still call this subcommand directly until
-    they re-apply the plan-005 conf change (see Maintenance notes).
-    """
-    out = _build_tabs_row(tmux.current_window_id())
-    if out:
-        sys.stdout.write(out)
-    return 0
 
 
 # Global user options carrying the pre-rendered rows 2/3 for status-format[1]/[2]
@@ -2027,33 +1805,11 @@ _DISPATCH: Dict[str, Callable[[object], int]] = {
     "inbox": cmd_inbox,
     "inbox-clear": cmd_inbox_clear,
     "picker-data": cmd_picker_data,
-    "status": cmd_status,
-    "status-inbox": cmd_status_inbox,
-    "usage": cmd_usage,
     "accounts-popup": cmd_accounts_popup,
     "accounts-popup-launch": cmd_accounts_popup_launch,
-    "window-icon": cmd_window_icon,
-    "session-bar": cmd_session_bar,
-    "beads-bar": cmd_beads_bar,
-    "tabs-row": cmd_tabs_row,
     "render-all": cmd_render_all,
     "conductor": cmd_conductor,
 }
-
-
-def _stub(command: str) -> int:
-    """Report a subcommand whose implementation another engineer owns.
-
-    Prints a clear message (no traceback) and returns 2 so the parser is complete
-    today while the owning engineer's handler is still pending.
-    """
-    import sys
-
-    owner = _STUB_OWNERS.get(command, "another engineer")
-    sys.stderr.write(
-        f"cc-tmux: '{command}' is not implemented in this batch (owned by {owner}).\n"
-    )
-    return 2
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -2067,8 +1823,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     handler = _DISPATCH.get(command)
-    if handler is None:
-        return _stub(command)
+    if handler is None:  # defensive: parser and _DISPATCH should always agree
+        parser.print_help()
+        return 2
 
     try:
         return handler(args) or 0

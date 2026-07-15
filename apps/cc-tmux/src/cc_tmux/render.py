@@ -38,11 +38,6 @@ DEFAULT_ICONS: Dict[str, str] = {
     "active": "◐",   # ◐ half — working
 }
 
-# Default @cc-status-format: "icon count" per state, highest attention first.
-DEFAULT_STATUS_FORMAT = "{waiting:icon} {idle:icon} {active:icon}"
-
-_TOKEN_RE = re.compile(r"\{(\w+):icon\}")
-
 # ---------------------------------------------------------------------------
 # Animated window-tab icon (Req: animated tab icon)
 #
@@ -52,10 +47,10 @@ _TOKEN_RE = re.compile(r"\{(\w+):icon\}")
 # needs a wall-clock-driven re-render, which tmux already provides for free
 # via `window-status-format`/`window-status-current-format`: those are
 # re-evaluated on every status-bar refresh (`status-interval`), independent of
-# hook activity. `cli.cmd_window_icon` is invoked FROM that format string
-# (`#(cc-tmux window-icon #{window_id})`), so :func:`animated_icon` picks a
-# frame purely from the caller-supplied wall-clock time — no timer, no
-# background process, same "daemon-free" invariant as the rest of this
+# hook activity. The render-all tabs-row job (status-format[0]) re-renders
+# every window's icon each status-interval tick, so :func:`animated_icon`
+# picks a frame purely from the caller-supplied wall-clock time — no timer,
+# no background process, same "daemon-free" invariant as the rest of this
 # plugin (tmux.py's own docstring).
 #
 # Frame family per state (distinct motion language, not just distinct icons):
@@ -150,7 +145,7 @@ def animated_icon(state: str, now: float) -> str:
     """The tab-icon glyph for ``state`` at wall-clock ``now``.
 
     Pure function of its inputs (testable without a live clock or tmux) —
-    :func:`cc_tmux.cli.cmd_window_icon` supplies the real ``time.time()``.
+    callers supply the real ``time.time()`` (see :func:`cc_tmux.cli._build_tabs_row`).
     ``waiting``/``active`` cycle their frame tuple by ``now // FRAME_PERIOD_SEC``;
     ``idle`` always returns the same static glyph. Any other state (or an
     empty string, meaning no tracked pane) falls back to :data:`DEFAULT_ICONS`,
@@ -220,9 +215,9 @@ def resolve_tab_glyph(
     """``(glyph, color)`` tab-icon pair, idle-usage-meter-aware
     (cc-tmux-idle-tab-usage-meter overlay).
 
-    Pure additive wrapper — :func:`resolve_tab_icon` itself is untouched (legacy
-    :func:`cc_tmux.cli.cmd_window_icon` still calls it directly and must keep
-    rendering the plain, monochrome glyph unchanged). Precedence is IDENTICAL
+    Pure additive wrapper — :func:`resolve_tab_icon` itself is untouched and
+    remains the glyph-precedence core that this wrapper extends, rendering
+    the plain, monochrome glyph unchanged. Precedence is IDENTICAL
     to :func:`resolve_tab_icon`'s documented order: sub-agent overlays and the
     waiting/active animations beat the meter — only the plain, un-overlaid idle
     case (``fg_count == 0 and bg_count == 0 and state == "idle"``) swaps in
@@ -272,23 +267,6 @@ def format_duration(seconds: float) -> str:
     return f"{h // 24}d"
 
 
-def render_status(fmt: str, counts: Dict[str, int], icons: Dict[str, str]) -> str:
-    """Render ``@cc-status-format`` — ``{state:icon}`` -> "icon count" when > 0.
-
-    A state with a zero count renders empty (the token drops out); leftover
-    whitespace is collapsed so ``"● 2  ◐ 1"`` never has ragged gaps.
-    """
-    def _repl(match: "re.Match[str]") -> str:
-        state = match.group(1)
-        count = counts.get(state, 0)
-        if count <= 0:
-            return ""
-        return f"{icons.get(state, state)} {count}"
-
-    out = _TOKEN_RE.sub(_repl, fmt or "")
-    return re.sub(r"\s+", " ", out).strip()
-
-
 def inbox_rows(
     panes: Sequence[object],
     icons: Dict[str, str],
@@ -336,25 +314,16 @@ def inbox_rows(
 # ---------------------------------------------------------------------------
 # Context-window bar (cc-tmux-context-bar, Leo's ask 2026-07-13)
 #
-# Replaces the old "SES:xx%" percentage-only readout with a raw-token-count
-# label + shade-block fill bar: "252.5k:▓▓▓░░░░░░░". Two independent scales,
-# deliberately: the BAR FILL is driven by `used_pct` (this session's fraction
-# of its OWN context window — "how close to hitting the wall right now"),
-# while the BAR COLOUR is driven by `raw_tokens` (absolute context tokens
-# burned this session, regardless of window size — "how much has been spent
-# overall"). A 1M-window session at 250k tokens is only ~25% full (dim bar)
-# but already ORANGE (absolute-burn colour), and that mismatch is intentional
-# — both signals are useful together, not meant to agree.
+# SES colour tiers (label colour driven by raw_tokens; see below). Two
+# independent scales, deliberately: the BAR FILL is driven by `used_pct`
+# (this session's fraction of its OWN context window — "how close to hitting
+# the wall right now"), while the BAR COLOUR is driven by `raw_tokens`
+# (absolute context tokens burned this session, regardless of window size —
+# "how much has been spent overall"). A 1M-window session at 250k tokens is
+# only ~25% full (dim bar) but already ORANGE (absolute-burn colour), and
+# that mismatch is intentional — both signals are useful together, not meant
+# to agree.
 # ---------------------------------------------------------------------------
-
-# _BAR_FILLED/_BAR_EMPTY: retained (unlike CONTEXT_BAR_WIDTH and the
-# render_context_bar tmux-format function, both retired by
-# cc-tmux-braille-usage-glyph task 3.3) — _context_bar_parts below still
-# builds the shade-block ``bar`` string from these, and is itself still a
-# live dependency of render_context_bar_ansi (the ANSI counterpart; no tmux
-# real caller today, but kept per the same change's task instructions).
-_BAR_FILLED = "▓"
-_BAR_EMPTY = "░"
 
 
 def _context_color_pair(raw_tokens: Optional[float]) -> Tuple[str, Optional[str]]:
@@ -409,49 +378,6 @@ def format_context_tokens(raw_tokens: Optional[float]) -> str:
     if raw_tokens is None:
         return "--"
     return f"{raw_tokens / 1000:.1f}k"
-
-
-def _context_bar_parts(
-    raw_tokens: Optional[float],
-    used_pct: Optional[float],
-    now: float,
-    width: int,
-) -> Tuple[str, str, str]:
-    """``(label, color_hex, bar_glyphs)`` shared by both bar renderers below.
-
-    ``used_pct`` (0..1) drives the fill fraction, rounded to the nearest
-    segment and clamped to ``[0, width]`` (a stale/out-of-range value can
-    never over/under-run the bar). ``None`` -> zero segments filled.
-    """
-    label = format_context_tokens(raw_tokens)
-    color = resolve_context_color(raw_tokens, now)
-    filled = 0 if used_pct is None else max(0, min(width, round(used_pct * width)))
-    bar = _BAR_FILLED * filled + _BAR_EMPTY * (width - filled)
-    return label, color, bar
-
-
-def _hex_to_ansi_fg(hex_color: str) -> str:
-    """``\\x1b[38;2;R;G;Bm`` truecolor ANSI escape for a ``"#RRGGBB"`` hex string."""
-    h = hex_color.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    return f"\x1b[38;2;{r};{g};{b}m"
-
-
-def render_context_bar_ansi(
-    raw_tokens: Optional[float],
-    used_pct: Optional[float],
-    now: float,
-    *,
-    width: int = 10,
-) -> str:
-    """ANSI-escaped counterpart to :func:`render_context_bar`, for the
-    accounts-popup (a real terminal via fzf/display-popup, not tmux's own
-    status-format renderer — see the "Accounts popup" section below for why
-    that split matters: tmux ``#[fg=...]`` tokens would show up as literal
-    garbage here).
-    """
-    label, color, bar = _context_bar_parts(raw_tokens, used_pct, now, width)
-    return f"{label}:{_hex_to_ansi_fg(color)}{bar}{_ANSI_RESET}"
 
 
 # ---------------------------------------------------------------------------
@@ -558,10 +484,10 @@ def render_usage_glyph_2metric(
 # corrected post cc-tmux-bar-cleanup)
 #
 # Both are *pure* composition functions. They emit tmux status-format strings
-# using the same ``#[fg=…]``/``#[default]`` escaping convention as
-# :func:`cc_tmux.usage.render_usage`, reusing that module's ``CYAN``/``DIM``
-# colour constants. The CLI handlers (``cmd_session_bar``/``cmd_beads_bar``)
-# read tmux/cache state and hand plain values in — nothing here touches tmux or
+# using the same ``#[fg=…]``/``#[default]`` escaping convention as the
+# retired ``cc_tmux.usage.render_usage`` did, reusing that module's
+# ``CYAN``/``DIM`` colour constants. The CLI handler (``cmd_render_all``)
+# reads tmux/cache state and hands plain values in — nothing here touches tmux or
 # a subprocess.
 #
 # Claude usage stats (account label, SES/5H/7D gauges) render on row 2's
@@ -707,7 +633,7 @@ _ANSI_GREEN = "\x1b[38;2;0;172;58m"
 _ANSI_RESET = "\x1b[0m"
 
 # SGR-only escape matcher (colour codes, always ``\x1b[...m`` — every escape
-# this module emits, see ``_green``/``_hex_to_ansi_fg`` above, ends in ``m``).
+# this module emits, see ``_green`` above, ends in ``m``).
 # Shared with :mod:`cc_tmux.testing` (``_strip_ansi``, test-content assertions)
 # and :mod:`cc_tmux.cli` (``cmd_accounts_popup_launch``'s width sizing,
 # cc-tmux-status-bar-popup-polish task 3.4 follow-up, 2026-07-14) — both need
@@ -937,12 +863,12 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     canonical source is :func:`cc_tmux.tmux.get_window_tabs`. ``state`` is the
     window's highest-priority tracked ``@cc-state``, or ``""`` for a window
     with no tracked Claude pane — that window renders with no icon (matches
-    :func:`cmd_window_icon`'s existing "untracked window -> no icon" contract),
+    :func:`resolve_tab_icon`'s documented "untracked window -> no icon" contract),
     just its bare ``index:name``. ``now`` is the caller-supplied wall-clock
     time (``time.time()`` in production) handed straight to
     :func:`resolve_tab_icon` (which falls through to :func:`animated_icon` for
     the animation frame when no sub-agent is active — cc-tmux-subagent-tab-icon)
-    — same invocation pattern :func:`cc_tmux.cli.cmd_window_icon` already uses,
+    — same invocation pattern :func:`resolve_tab_icon`'s contract already documents,
     reused here per window rather than re-deriving the state->glyph mapping.
     ``fg``/``bg`` (duck-typed via ``getattr``, defaulting to ``0``/``[]``) are
     the window's sub-agent counts; ``bg`` MUST already be pruned by the caller

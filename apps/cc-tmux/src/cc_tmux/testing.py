@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-from . import cli, conductor, nx_agent, paths, priority, registry, render, tmux, usage
+from . import cli, conductor, nx_agent, priority, registry, render, tmux, usage
 
 # Shared with render.strip_ansi / cli's popup-width sizing (cc-tmux-status-bar-
 # popup-polish task 3.4 follow-up, 2026-07-14) -- one regex, not two drifting
@@ -517,39 +517,6 @@ def _test_trace_register_rename_succeeded_field() -> None:
 
 
 # ---------------------------------------------------------------------------
-# paths.py tests
-# ---------------------------------------------------------------------------
-
-def _test_tmux_conf_candidates() -> None:
-    cands = [str(p) for p in paths.tmux_conf_candidates()]
-    _check(any(c.endswith("tmux/tmux.conf") for c in cands), "XDG tmux.conf missing from candidates")
-    _check(any(c.endswith(".tmux.conf") for c in cands), "~/.tmux.conf missing from candidates")
-
-
-def _test_find_tmux_conf_override() -> None:
-    saved = os.environ.get("TMUX_CONF")
-    with tempfile.NamedTemporaryFile(prefix="cc-tmux-test-", suffix=".conf", delete=False) as tf:
-        tmp_path = tf.name
-    try:
-        os.environ["TMUX_CONF"] = tmp_path
-        found = paths.find_tmux_conf()
-        _check(found is not None and str(found) == tmp_path, "TMUX_CONF override not honored")
-    finally:
-        if saved is None:
-            os.environ.pop("TMUX_CONF", None)
-        else:
-            os.environ["TMUX_CONF"] = saved
-        os.unlink(tmp_path)
-
-
-def _test_find_plugin_dir() -> None:
-    # Running from the source tree, the plugin dir is derivable and contains src/cc_tmux.
-    found = paths.find_plugin_dir()
-    _check(found is not None, "plugin dir not found from source tree")
-    _check((found / "src" / "cc_tmux").is_dir(), "plugin dir missing src/cc_tmux")
-
-
-# ---------------------------------------------------------------------------
 # render.py tests (pure presentation logic — Req-5 / Req-7)
 # ---------------------------------------------------------------------------
 
@@ -561,15 +528,6 @@ def _test_render_format_duration() -> None:
     _check(render.format_duration(90000) == "1d", "1d")
     _check(render.format_duration(-3) == "0s", "negative floors to 0s")
 
-
-def _test_render_status() -> None:
-    icons = {"waiting": "W", "idle": "I", "active": "A"}
-    fmt = "{waiting:icon} {idle:icon} {active:icon}"
-    # zero-count states drop out and whitespace collapses.
-    out = render.render_status(fmt, {"waiting": 2, "idle": 0, "active": 1}, icons)
-    _check(out == "W 2 A 1", f"status render wrong: {out!r}")
-    # all zero -> empty string.
-    _check(render.render_status(fmt, {}, icons) == "", "empty counts -> empty status")
 
 
 def _test_render_resolve_icons() -> None:
@@ -772,29 +730,6 @@ def _test_render_render_tabs_row_idle_meter_wiring() -> None:
     _check(out_no_attr == static_expected, "getattr default (no raw_tokens attribute) matches explicit raw_tokens=None")
 
 
-def _test_tmux_get_window_top_state() -> None:
-    saved = tmux._run_tmux
-    try:
-        def fake_two_panes(args, *, check_available: bool = True):
-            if args[:2] == ["list-panes", "-t"]:
-                return "%1\x1fidle\n%2\x1fwaiting"
-            return None
-        tmux._run_tmux = fake_two_panes  # type: ignore[assignment]
-        _check(tmux.get_window_top_state("@1") == "waiting", "waiting outranks idle")
-
-        def fake_no_output(args, *, check_available: bool = True):
-            return None
-        tmux._run_tmux = fake_no_output  # type: ignore[assignment]
-        _check(tmux.get_window_top_state("@2") == "", "no tmux output -> ''")
-
-        def fake_untracked(args, *, check_available: bool = True):
-            return "%1\x1f"  # pane present, no @cc-state -> untracked
-        tmux._run_tmux = fake_untracked  # type: ignore[assignment]
-        _check(tmux.get_window_top_state("@3") == "", "untracked pane -> ''")
-    finally:
-        tmux._run_tmux = saved  # type: ignore[assignment]
-
-
 def _test_render_inbox_rows() -> None:
     panes = [
         _FakePaneFull("%1", "waiting", 100.0, "s1", "0", "proj", "main", "permission", "do X"),
@@ -892,49 +827,6 @@ def _test_usage_account_label() -> None:
     _check(usage._account_label({}) == "", "nothing present -> ''")
 
 
-def _test_usage_render_segment() -> None:
-    payload = {
-        "credentials": [
-            {"isActive": False, "accountName": "personal", "usage5hUsed": 10.0, "usage5hLimit": 100.0},
-            {
-                "isActive": True,
-                "accountName": "work",
-                "usage5hUsed": 50.0,
-                "usage5hLimit": 100.0,
-                "usage7dUsed": 85.0,
-                "usage7dLimit": 100.0,
-            },
-        ],
-        "activeFingerprint": "abc",
-    }
-    out = usage.render_usage(payload)
-    expected = (
-        f"#[fg={usage.DIM}]work "
-        f"#[fg={usage.DIM}]5H:#[fg={usage.YELLOW}]50%#[default] "
-        f"#[fg={usage.DIM}]7D:#[fg={usage.RED}]85%#[default]"
-    )
-    _check(out == expected, f"segment mismatch: {out!r}")
-    # no trailing newline in the rendered segment.
-    _check(not out.endswith("\n"), "segment must not carry a trailing newline")
-
-
-def _test_usage_fail_open() -> None:
-    # Every "would render nothing" case -> ''.
-    _check(usage.render_usage({}) == "", "no credentials key -> ''")
-    _check(usage.render_usage({"credentials": "nope"}) == "", "non-list credentials -> ''")
-    _check(
-        usage.render_usage({"credentials": [{"isActive": False, "accountName": "x"}]}) == "",
-        "no isActive credential -> ''",
-    )
-    _check(
-        usage.render_usage({"credentials": [{"isActive": True, "accountName": ""}]}) == "",
-        "active credential with no usable label -> ''",
-    )
-    # active-but-unpolled account (usage5h/7d absent) renders '--' pcts and dim colours —
-    # the expected nexus-agent state before it has ever polled that account.
-    out = usage.render_usage({"credentials": [{"isActive": True, "accountName": "a"}]})
-    _check("5H:" in out and "--" in out, "unpolled windows -> '--' pct")
-    _check(f"#[fg={usage.DIM}]5H:#[fg={usage.DIM}]--" in out, "missing 5H window -> DIM")
 
 
 def _test_usage_extract_active() -> None:
@@ -1497,49 +1389,11 @@ def _test_render_usage_glyph_2metric() -> None:
     )
 
 
-def _test_context_bar_format() -> None:
-    """format_context_tokens / render_context_bar_ansi: label + fill math.
-
-    ``render_context_bar`` (the tmux-format shade-block bar) was retired by
-    cc-tmux-braille-usage-glyph task 3.3 -- render_session_bar now calls
-    render_usage_glyph instead (see :func:`_test_render_usage_glyph`). Only
-    the ANSI counterpart (render_context_bar_ansi, still a live function
-    with no tmux-format caller today, per task 3.3's "retained" note) and
-    format_context_tokens survive from the original version of this test.
-    """
+def _test_format_context_tokens() -> None:
+    """format_context_tokens: the row-2 SES token-count label."""
     _check(render.format_context_tokens(None) == "--", "no tokens -> '--'")
     _check(render.format_context_tokens(252_500) == "252.5k", "252500 -> '252.5k'")
     _check(render.format_context_tokens(0) == "0.0k", "0 -> '0.0k'")
-
-    out_ansi = render.render_context_bar_ansi(252_500, 0.3, 0.0, width=10)
-    _check("#[" not in out_ansi, f"ansi bar carries no tmux tokens: {out_ansi!r}")
-    _check("\x1b[38;2;" in out_ansi, f"ansi bar carries a truecolor escape: {out_ansi!r}")
-    _check("252.5k:" in _strip_ansi(out_ansi), f"ansi bar carries the token label too: {out_ansi!r}")
-    _check(
-        _strip_ansi(out_ansi).count("▓") == 3, f"30% of width 10 -> 3 filled segments: {out_ansi!r}"
-    )
-    _check(
-        _strip_ansi(out_ansi).count("░") == 7, f"remaining 7 empty segments: {out_ansi!r}"
-    )
-
-    # No fill/token data -> zero filled segments, '--' label, not a crash.
-    out_none = render.render_context_bar_ansi(None, None, 0.0, width=10)
-    _check(
-        _strip_ansi(out_none).count("▓") == 0, f"no fill data -> zero filled segments: {out_none!r}"
-    )
-    _check("--:" in _strip_ansi(out_none), f"no token data -> '--' label: {out_none!r}")
-
-    # Fill fraction clamps to [0, width] even for out-of-range input.
-    out_over = render.render_context_bar_ansi(100, 1.5, 0.0, width=10)
-    _check(
-        _strip_ansi(out_over).count("▓") == 10,
-        f"used_pct > 1.0 clamps to a full bar: {out_over!r}",
-    )
-    out_under = render.render_context_bar_ansi(100, -0.5, 0.0, width=10)
-    _check(
-        _strip_ansi(out_under).count("▓") == 0,
-        f"used_pct < 0 clamps to an empty bar: {out_under!r}",
-    )
 
 
 def _test_account_identity() -> None:
@@ -1701,16 +1555,13 @@ def _test_cli_resolve_model_letter() -> None:
     """nx-yn6c2: ``_resolve_model_letter`` sources the row-2 model letter from
     nx-agent's ``GET /sessions/:id/context`` ``model`` field, keyed by the
     pane's ``@cc-session-id`` option — NOT the retired legacy per-pane
-    ``session-context.<pane>.json`` file (:func:`cli._read_session_context`),
+    ``session-context.<pane>.json`` file (since removed),
     mirroring the if-hrbd fix's technique for SES.
     """
     saved_get_pane_option = tmux.get_pane_option
     saved_session_context = nx_agent.session_context
-    saved_read_ctx = cli._read_session_context
 
     tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
-    # OLD path: if this were still read, the letter would render as "Z" (wrong).
-    cli._read_session_context = lambda pane: ("Z", 0.99, "", False, 0)  # type: ignore[assignment]
     try:
         # NEW path: nx-agent's real value.
         nx_agent.session_context = lambda *a, **k: {"model": "O"}  # type: ignore[assignment]
@@ -1739,7 +1590,6 @@ def _test_cli_resolve_model_letter() -> None:
     finally:
         tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
         nx_agent.session_context = saved_session_context  # type: ignore[assignment]
-        cli._read_session_context = saved_read_ctx  # type: ignore[assignment]
 
 
 def _test_usage_active_usage_ttl() -> None:
@@ -1797,7 +1647,7 @@ def _test_usage_active_usage_ttl() -> None:
 # ---------------------------------------------------------------------------
 
 def _test_tmux_get_window_top_pane() -> None:
-    # Pane-id analogue of get_window_top_state — mirror that test's fixture shape.
+    # Priority-pick pane resolution — two tracked panes, waiting outranks idle.
     saved = tmux._run_tmux
     try:
         def fake_two_panes(args, *, check_available: bool = True):
@@ -2194,7 +2044,7 @@ def _test_render_tabs_row() -> None:
     )
 
     # Untracked window (state == '') renders no icon at all — bare
-    # 'index name', matching cmd_window_icon's existing untracked contract —
+    # 'index name', matching resolve_tab_icon's untracked contract —
     # and IS styled as the active window here (bold CYAN).
     _check(
         f"#[fg={render.CYAN},bold]#[range=window|2] 2 shell #[norange]#[default]" in out,
@@ -2564,119 +2414,6 @@ def _test_render_session_bar_usage_glyph_wiring() -> None:
         out.index("7D:") < out.index(expected_glyph),
         f"glyph renders strictly after the 7D: percentage: {out!r}",
     )
-
-
-def _test_cli_read_session_context() -> None:
-    # No pane id -> ('', None, '', False, 0) without ever touching the filesystem.
-    _check(
-        cli._read_session_context("") == ("", None, "", False, 0),
-        "empty pane -> ('', None, '', False, 0)",
-    )
-
-    saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
-    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-session-context-test-")
-    try:
-        state_dir = os.path.join(tmpdir, "scripts", "state")
-        os.makedirs(state_dir, exist_ok=True)
-        os.environ["CLAUDE_CONFIG_DIR"] = tmpdir
-
-        fixture = os.path.join(state_dir, "session-context.%9.json")
-        with open(fixture, "w") as f:
-            f.write(f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}}}')
-
-        letter, pct, branch, dirty, ahead = cli._read_session_context("%9")
-        _check(letter == "F", f"model letter not read from fixture: {letter!r}")
-        _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
-        _check(
-            (branch, dirty, ahead) == ("", False, 0),
-            f"legacy payload without git keys -> ('', False, 0): got {(branch, dirty, ahead)!r}",
-        )
-
-        # Missing file -> fail-open ('', None, '', False, 0), never raises.
-        os.unlink(fixture)
-        _check(
-            cli._read_session_context("%9") == ("", None, "", False, 0),
-            "missing file -> ('', None, '', False, 0)",
-        )
-
-        # Malformed JSON -> fail-open, never raises.
-        with open(fixture, "w") as f:
-            f.write("not json")
-        _check(
-            cli._read_session_context("%9") == ("", None, "", False, 0),
-            "malformed JSON -> ('', None, '', False, 0)",
-        )
-
-        # Stale ts (older than the freshness cutoff) -> fail-open, including git fields.
-        with open(fixture, "w") as f:
-            f.write(
-                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time() - 3600}, '
-                f'"branch": "main", "dirty": true, "ahead": 3}}'
-            )
-        _check(
-            cli._read_session_context("%9") == ("", None, "", False, 0),
-            "stale ts -> ('', None, '', False, 0), git fields included in the fail-open",
-        )
-
-        # Missing ts -> unverifiable, treated as stale -> fail-open.
-        with open(fixture, "w") as f:
-            f.write('{"context_used_pct": 42, "model": "F"}')
-        _check(
-            cli._read_session_context("%9") == ("", None, "", False, 0),
-            "missing ts -> ('', None, '', False, 0)",
-        )
-
-        # Boolean ts -> non-numeric, treated as stale -> fail-open.
-        with open(fixture, "w") as f:
-            f.write('{"context_used_pct": 42, "model": "F", "ts": true}')
-        _check(
-            cli._read_session_context("%9") == ("", None, "", False, 0),
-            "boolean ts -> ('', None, '', False, 0)",
-        )
-
-        # Fresh ts + multi-char model -> letter clamps to one char.
-        with open(fixture, "w") as f:
-            f.write(f'{{"context_used_pct": 42, "model": "Fable", "ts": {time.time()}}}')
-        letter, pct, branch, dirty, ahead = cli._read_session_context("%9")
-        _check(letter == "F", f"multi-char model should clamp to one letter: {letter!r}")
-        _check(pct == 0.42, f"context pct not read/scaled from fixture: {pct!r}")
-
-        # Full payload with fresh ts + valid git fields -> parsed through.
-        with open(fixture, "w") as f:
-            f.write(
-                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
-                f'"branch": "main", "dirty": true, "ahead": 3}}'
-            )
-        _check(
-            cli._read_session_context("%9") == ("F", 0.42, "main", True, 3),
-            "full fresh payload -> ('F', 0.42, 'main', True, 3)",
-        )
-
-        # Garbage-typed git fields -> defaults; bool ahead -> 0 (bool-is-int guard).
-        with open(fixture, "w") as f:
-            f.write(
-                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
-                f'"branch": 5, "dirty": "yes", "ahead": -2}}'
-            )
-        _, _, branch, dirty, ahead = cli._read_session_context("%9")
-        _check(
-            (branch, dirty, ahead) == ("", False, 0),
-            f"garbage-typed git fields -> ('', False, 0): got {(branch, dirty, ahead)!r}",
-        )
-
-        with open(fixture, "w") as f:
-            f.write(
-                f'{{"context_used_pct": 42, "model": "F", "ts": {time.time()}, '
-                f'"branch": "main", "dirty": true, "ahead": true}}'
-            )
-        _, _, _, _, ahead = cli._read_session_context("%9")
-        _check(ahead == 0, f"boolean ahead must not be treated as int 1: got {ahead!r}")
-    finally:
-        if saved_cfg is None:
-            os.environ.pop("CLAUDE_CONFIG_DIR", None)
-        else:
-            os.environ["CLAUDE_CONFIG_DIR"] = saved_cfg
-        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def _test_conductor_attach_command() -> None:
@@ -3575,11 +3312,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.compose_title_name", _test_compose_title_name),
     ("cli.maybe_rename_window_success_failure", _test_maybe_rename_window_success_failure),
     ("cli.trace_register_rename_succeeded_field", _test_trace_register_rename_succeeded_field),
-    ("paths.tmux_conf_candidates", _test_tmux_conf_candidates),
-    ("paths.find_tmux_conf_override", _test_find_tmux_conf_override),
-    ("paths.find_plugin_dir", _test_find_plugin_dir),
     ("render.format_duration", _test_render_format_duration),
-    ("render.render_status", _test_render_status),
     ("render.resolve_icons", _test_render_resolve_icons),
     ("render.animated_icon", _test_render_animated_icon),
     ("render.idle_meter_ramp_sweep", _test_render_idle_meter_ramp_sweep),
@@ -3588,14 +3321,11 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.idle_meter_color_matches_resolve_context_color", _test_render_idle_meter_color_matches_resolve_context_color),
     ("render.resolve_tab_glyph_precedence", _test_render_resolve_tab_glyph_precedence),
     ("render.tabs_row_idle_meter_wiring", _test_render_render_tabs_row_idle_meter_wiring),
-    ("tmux.get_window_top_state", _test_tmux_get_window_top_state),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
     ("usage.pct_formatting", _test_usage_pct_formatting),
     ("usage.extract_util", _test_usage_extract_util),
     ("usage.account_label", _test_usage_account_label),
-    ("usage.render_segment", _test_usage_render_segment),
-    ("usage.fail_open", _test_usage_fail_open),
     ("usage.extract_active", _test_usage_extract_active),
     ("usage.extract_reset_at", _test_usage_extract_reset_at),
     ("usage.dedupe_credentials", _test_usage_dedupe_credentials),
@@ -3605,7 +3335,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.apply_metric_dots", _test_apply_metric_dots),
     ("render.usage_glyph", _test_render_usage_glyph),
     ("render.usage_glyph_2metric", _test_render_usage_glyph_2metric),
-    ("render.context_bar_format", _test_context_bar_format),
+    ("render.format_context_tokens", _test_format_context_tokens),
     ("usage.account_identity", _test_account_identity),
     ("cli.resolve_ses_tokens", _test_cli_resolve_ses_tokens),
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
@@ -3628,7 +3358,6 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.resolve_session_pane_no_active_fallback", _test_cli_resolve_session_pane_no_active_fallback),
     ("render.session_bar_no_glyph", _test_render_session_bar_no_glyph),
     ("render.session_bar_usage_glyph_wiring", _test_render_session_bar_usage_glyph_wiring),
-    ("cli.read_session_context", _test_cli_read_session_context),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),

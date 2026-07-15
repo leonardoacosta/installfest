@@ -43,8 +43,7 @@ To persist, also add the `set -g @cc-... "..."` line to the user's tmux.conf
 | `@cc-cycle-mode` | `priority` | `priority` (cycle the top non-empty group only) or `flat` (all pending panes). |
 | `@cc-window-rename` | off | When on, renames a window per `@cc-window-rename-format`. |
 | `@cc-window-rename-format` | `state` | `state` -> `<dir>` alone. `title` -> `<project-code>·<session-title>`, truncated to 10 chars combined. The state icon is NOT part of the renamed text in either format — see the animated tab icon below. |
-| tab icon (always on, no option) | animated | Rendered from `window-status-format` (`cc-tmux window-icon`), not baked into the window name — needed for real animation since hooks fire irregularly. `waiting` pulses `░▒▓█▓▒░`, `active` rotates `▁▏▔▕`, `idle` is a static glyph, untracked windows show nothing. |
-| `@cc-status-format` | built-in | Template for the `cc-tmux status` counts. |
+| tab icon (always on, no option) | animated | Rendered by the render-all tabs row (status-format[0]), not baked into the window name — needed for real animation since hooks fire irregularly. `waiting` pulses `░▒▓█▓▒░`, `active` rotates `▁▏▔▕`, `idle` is a static glyph, untracked windows show nothing. |
 | `@cc-icon-waiting` / `-idle` / `-active` | built-in | Per-state icon overrides. |
 | `@cc-cycle-key` / `-picker-key` / `-inbox-key` / `-back-key` | `o` / `C-f` / `i` / `C-Space` | Keybinding overrides (re-source the plugin to apply). |
 | `@cc-conductor-enabled` | off | Enable the Conductor session + its keybindings. |

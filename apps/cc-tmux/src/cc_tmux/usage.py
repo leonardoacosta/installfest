@@ -1,7 +1,8 @@
-"""Claude multi-account usage status segment (Req-8, task 1.9).
+"""Claude multi-account usage data for the status rows (nx-agent /credentials).
 
-Queries the local ``nexus-agent`` credentials endpoint and renders the active
-account's 5-hour / 7-day utilization as a tmux ``status-right`` segment.
+Queries the local ``nexus-agent`` credentials endpoint for the active
+account's 5-hour / 7-day utilization, consumed by row 2
+(:func:`extract_active` / :func:`active_usage`) and the accounts popup.
 
 Originally a clean-room reimplementation of the retired ``tmux-nexus-creds`` sh
 script targeting an OLDER nexus-agent response shape (top-level ``active_account``
@@ -18,20 +19,6 @@ shape is now:
      "activeFingerprint": str}
 
 (no ``active_account``/``accounts``/nested ``five_hour`` objects anywhere).
-Fixed to match the current shape:
-
-* Query ``http://localhost:7400/credentials`` with a 1s timeout.
-* Find the credential with ``isActive is True``; if none -> output nothing.
-* Label from ``accountName`` (falls back to ``accountEmail``, then ``name``).
-* Utilization = ``usage5hUsed / usage5hLimit`` (and the 7d equivalent) when both
-  are present and the limit is nonzero, else absent — nexus-agent only starts
-  populating these once it has actually polled the account (``usagePolledAt``
-  non-null); an unpolled account is expected to render ``--`` for both windows,
-  not a bug in this file.
-* Colour: absent -> DIM, ``> 0.80`` -> RED, ``>= 0.50`` -> YELLOW, else CYAN.
-* Percent: absent -> ``--``, else ``round(util*100)`` + ``%``.
-* Emit ``#[fg=…]<acct> #[fg=…]5H:#[fg=…]<pct>#[default] #[fg=…]7D:…#[default]``
-  with NO trailing newline (visual format preserved from the original sh script).
 
 **Invariant 5 (fail open):** ANY failure — unreachable agent, HTTP error, JSON
 parse error, missing fields, timeout — produces empty output and exit 0. It never
@@ -44,7 +31,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import tempfile
 import time
 import urllib.request
@@ -206,49 +192,7 @@ def _account_identity(credential: dict) -> Tuple[str, str]:
     return name, org_short
 
 
-def render_usage(payload: dict) -> str:
-    """Render the tmux segment from a parsed credentials payload, or ``''``.
-
-    Returns the empty string whenever there's nothing sensible to show: no
-    ``credentials`` list, no credential with ``isActive is True``, or a
-    malformed payload shape.
-    """
-    credentials = payload.get("credentials")
-    if not isinstance(credentials, list):
-        return ""
-
-    active = None
-    for candidate in credentials:
-        if isinstance(candidate, dict) and candidate.get("isActive") is True:
-            active = candidate
-            break
-    if active is None:
-        return ""
-
-    label = _account_label(active)
-    if not label:
-        return ""
-
-    util_5h = _extract_util(active, "usage5hUsed", "usage5hLimit")
-    util_7d = _extract_util(active, "usage7dUsed", "usage7dLimit")
-
-    c5 = color_for(util_5h)
-    c7 = color_for(util_7d)
-    p5 = pct_for(util_5h)
-    p7 = pct_for(util_7d)
-
-    # Exact byte layout of the original sh printf (no trailing newline).
-    return (
-        f"#[fg={DIM}]{label} "
-        f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
-        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Query + CLI handler
-# ---------------------------------------------------------------------------
-
+# Credentials query
 def _query(url: str = CREDENTIALS_URL, timeout: float = TIMEOUT_SECS) -> Optional[dict]:
     """Fetch + parse the credentials JSON, or ``None`` on any failure.
 
@@ -566,24 +510,3 @@ def active_usage(
     return result
 
 
-def build_segment() -> str:
-    """Query nexus-agent and render the segment, or ``''`` on any failure."""
-    payload = _query()
-    if payload is None:
-        return ""
-    try:
-        return render_usage(payload)
-    except Exception:  # noqa: BLE001 - never let a shape surprise raise
-        return ""
-
-
-def cmd_usage(args) -> int:
-    """Emit the Claude usage status segment (Req-8). Fail open: silent + exit 0.
-
-    Writes with no trailing newline to byte-match the retired ``tmux-nexus-creds``
-    ``printf`` output.
-    """
-    segment = build_segment()
-    if segment:
-        sys.stdout.write(segment)
-    return 0

@@ -67,7 +67,6 @@ apps/cc-tmux/
   src/cc_tmux/
     tmux.py             # pane-option state store (the only state store)
     priority.py         # attention-priority sort + cycle selection
-    paths.py            # tmux.conf + plugin-dir detection
     cli.py / parser.py  # argparse subcommands -> cmd_<name>() handlers
     testing.py          # cc-tmux self-test
 ```

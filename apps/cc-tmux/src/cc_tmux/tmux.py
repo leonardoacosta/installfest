@@ -24,8 +24,8 @@ NOTE (cc-tmux-bar-cleanup): there used to be a ``@cc-model`` option here, writte
 from the SessionStart hook payload's ``model`` field. That path was confirmed
 empty on every live pane and also missed mid-session ``/model`` switches, so it
 was removed — the session-bar row now reads the model letter fresh on every
-render from ``session-context.<pane>.json`` (see cli._read_session_context)
-instead of from pane-option state.
+render from nx-agent (see cli._resolve_model_letter) instead of from
+pane-option state.
 
 **Invariant 3 (real-transition guard):** :func:`set_pane_state` returns whether
 ``@cc-state`` actually changed, so callers fire auto-hop / app-focus ONLY on a
@@ -130,7 +130,7 @@ class WindowInfo:
 
     ``state`` is the highest-priority ``@cc-state`` among the window's tracked
     panes (same :data:`~cc_tmux.priority.STATE_PRIORITY` ordering
-    :func:`get_window_top_state` uses for a single window), or ``""`` when the
+    :func:`get_window_top_pane` uses for a single window), or ``""`` when the
     window has no tracked Claude pane. Source: :func:`get_window_tabs`.
 
     ``fg`` is the SUM of ``@cc-subagent-fg`` across every tracked pane in the
@@ -251,41 +251,12 @@ def get_hop_panes(exclude_session: Optional[str] = None) -> List[PaneInfo]:
     return panes
 
 
-def get_window_top_state(window_target: str) -> str:
-    """Highest-priority ``@cc-state`` among ``window_target``'s panes, or ``""``.
-
-    A scoped ``list-panes -t <window>`` read (NOT the full server-wide
-    :func:`get_hop_panes` scan) — this is invoked by ``cc-tmux window-icon``
-    once per window on every status-bar refresh (``status-interval``), so it
-    needs to stay cheap regardless of how many other windows/sessions exist.
-    ``""`` means no tracked (Claude) pane in that window — callers should
-    treat that as "show no icon", not an error. Fail-open: no tmux -> ''.
-    """
-    fmt = _FS.join(["#{pane_id}", "#{@cc-state}"])
-    out = _run_tmux(["list-panes", "-t", window_target, "-F", fmt])
-    if not out:
-        return ""
-    states: List[str] = []
-    for line in out.split("\n"):
-        if not line:
-            continue
-        parts = line.split(_FS)
-        if len(parts) != 2:
-            continue
-        _pane_id, state = parts
-        if state in VALID_STATES:
-            states.append(state)
-    if not states:
-        return ""
-    return min(states, key=lambda s: STATE_PRIORITY.get(s, len(STATE_PRIORITY)))
-
-
 def get_window_top_pane(window_target: str) -> str:
     """Id of the highest-priority ``@cc-state`` pane in ``window_target``, or ``""``.
 
-    The pane-id analogue of :func:`get_window_top_state` — same scoped
-    ``list-panes -t <window>`` read and same priority sort, but returns the
-    winning pane's id instead of its state string. Used by the session-bar to
+    A scoped ``list-panes -t <window>`` read (NOT the full server-wide
+    :func:`get_hop_panes` scan) with the same priority sort, returning the
+    winning pane's id. Used by the session-bar to
     pick the window's representative pane (the one whose ``@cc-project`` /
     ``@cc-branch`` the row renders). ``""`` means no tracked
     (Claude) pane in that window. Fail-open: no tmux -> ''.
@@ -324,17 +295,17 @@ def get_window_active_pane(window_target: str) -> str:
 def get_window_tabs() -> List[WindowInfo]:
     """Every window in the invoking client's current session, with its top state.
 
-    Two batched reads (not one ``get_window_top_state`` call per window, which
+    Two batched reads (not one ``get_window_top_pane`` call per window, which
     would be O(windows) tmux subprocess round-trips on every status-bar
     refresh): a ``list-windows`` for id/index/name, and a single session-scoped
     ``list-panes -s`` for every tracked pane's window id + state. Both omit an
     explicit ``-t`` — the same implicit current-session resolution
-    :func:`cmd_session_bar`/:func:`cmd_beads_bar`'s window-scoped
+    :func:`cmd_render_all`'s window-scoped
     ``#{window_id}`` argument relies on already (a ``#()`` job spawned from a
     client's status-format string resolves default targets against that
     client's session). Per-window state reuses
     :data:`~cc_tmux.priority.STATE_PRIORITY` — the same waiting > idle > active
-    precedence :func:`get_window_top_state` applies to a single window — rather
+    precedence :func:`get_window_top_pane` applies to a single window — rather
     than re-deriving the ordering. This is the data source for
     :func:`cc_tmux.render.render_tabs_row`. Fail-open: no tmux / no windows ->
     ``[]``.
@@ -481,7 +452,7 @@ def current_pane_id() -> Optional[str]:
 def current_window_id() -> str:
     """Id of the active window for the invoking client's session, or ``''``.
 
-    Used by ``cc-tmux tabs-row`` (:func:`cc_tmux.cli.cmd_tabs_row`) to mark the
+    Used by ``cc-tmux render-all`` (:func:`cc_tmux.cli.cmd_render_all`) to mark the
     active tab distinctly in the combined row. Unlike :func:`current_pane_id`
     (hook-invoked, has a ``$TMUX_PANE`` env fast path), tabs-row is invoked
     from a status-format job with no equivalent env var, so this always shells
@@ -576,7 +547,6 @@ def set_pane_state(
     task: Optional[str] = None,
     wait_reason: Optional[str] = None,
     timestamp: Optional[float] = None,
-    resolve_git: Optional[bool] = None,
     git_resolver: Optional[Callable[[str], None]] = None,
 ) -> bool:
     """Set a pane's tracked state; return whether ``@cc-state`` actually changed.
@@ -588,8 +558,7 @@ def set_pane_state(
     is passed explicitly) — re-asserted states keep their existing stamp.
 
     Git identity (invariant 4): resolved only for ``waiting`` / ``idle`` by
-    default (``active`` — the hot path — skips it). Pass ``resolve_git`` to force
-    the decision either way. ``git_resolver`` is an injection seam for tests.
+    default (``active`` — the hot path — skips it). ``git_resolver`` is an injection seam for tests.
 
     Fail-open: with no tmux, returns ``False`` (no change) and writes nothing.
     """
@@ -621,10 +590,8 @@ def set_pane_state(
     else:
         _unset_opt(pane_id, OPT_WAIT_REASON)
 
-    # Hot-path guard: resolve git identity only for pending states unless forced.
-    if resolve_git is None:
-        resolve_git = state in PENDING_STATES
-    if resolve_git:
+    # Hot-path guard: resolve git identity only for pending states.
+    if state in PENDING_STATES:
         resolver = git_resolver or set_pane_git_identity
         resolver(pane_id)
 
