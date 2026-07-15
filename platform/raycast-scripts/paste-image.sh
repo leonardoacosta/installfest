@@ -26,7 +26,6 @@ set -uo pipefail
 
 # ---------------------------------------------------------------------------
 # Logging: tee everything to /tmp/paste-image.log for post-mortem debugging.
-# Set PASTE_IMAGE_DEBUG=1 to also echo to terminal.
 # ---------------------------------------------------------------------------
 LOG_FILE="${PASTE_IMAGE_LOG:-/tmp/paste-image.log}"
 exec > >(tee -a "$LOG_FILE") 2>&1

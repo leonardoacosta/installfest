@@ -78,7 +78,7 @@ const SURFACES = [
   },
   {
     key: 'ssh-mesh',
-    prompt: `Surface: ssh mesh docs vs live state. Compare ssh-mesh/README.md (topology, IPs, hostnames, key policy) and ssh-mesh/configs/*.config against live: tailscale status, ~/.ssh/config, ssh -o BatchMode=yes probes to mac and cloudpc. Flag every doc claim that no longer holds (IP drift, hostname drift, dead config blocks).`,
+    prompt: `Surface: ssh mesh docs vs live state. Compare ssh-mesh/README.md (topology, IPs, hostnames, key policy) and home/private_dot_ssh/config.tmpl against live: tailscale status, ~/.ssh/config, ssh -o BatchMode=yes probes to mac and cloudpc. Flag every doc claim that no longer holds (IP drift, hostname drift, dead config blocks).`,
   },
   {
     key: 'launchers',

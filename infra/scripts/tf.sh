@@ -7,7 +7,6 @@ INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_DIR="$(cd "$INFRA_DIR/.." && pwd)"
 ENV_DIR="$INFRA_DIR/environments/prod"
 SECRETS_FILE="$INFRA_DIR/.secrets.env"
-OUTPUTS_FILE="$INFRA_DIR/.tf-outputs.env"
 
 # Bootstrap .secrets.env if missing
 if [[ ! -f "$SECRETS_FILE" ]]; then
@@ -52,11 +51,3 @@ fi
 
 # Execute terraform
 terraform "$@"
-
-# Post-apply: write .tf-outputs.env
-if [[ "$CMD" == "apply" ]]; then
-  echo "Writing Terraform outputs to $OUTPUTS_FILE..."
-  terraform output -json | jq -r 'to_entries[] | "TF_OUT_\(.key | ascii_upcase)=\(.value.value)"' > "$OUTPUTS_FILE"
-  chmod 600 "$OUTPUTS_FILE"
-  echo "Outputs written to $OUTPUTS_FILE"
-fi

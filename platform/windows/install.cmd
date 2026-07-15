@@ -16,9 +16,6 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Set execution policy for this process (non-persistent)
-powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force"
-
 :: Run the setup script
 echo.
 echo ========================================

@@ -46,6 +46,25 @@
 # optional cask) and surface them as warnings rather than aborting the whole run.
 set -uo pipefail
 
+# --- arg parse (only --help is supported) ----------------------------------
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage:
+  bash platform/bootstrap.sh          # full interactive run (PHASE 2 of cold-start)
+  bash platform/bootstrap.sh --help   # this text
+
+PHASE 2 of the documented 2-phase cold-start. Run AFTER Phase 1
+(chezmoi init --apply leonardoacosta/installfest). Interactive: pauses at
+supervised Apple gates (Remote Login, Xcode/2FA, signing cert), then
+Tailscale hostname, gh auth, and the projects.toml clone+install loop.
+See the header comment of this script and README.md § Quick Start.
+EOF
+	exit 0
+elif [[ $# -gt 0 ]]; then
+	printf 'Unknown argument: %s (only --help is supported)\n' "$1" >&2
+	exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Locate the repo + reuse shared helpers
 # ---------------------------------------------------------------------------

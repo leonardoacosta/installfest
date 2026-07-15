@@ -7,7 +7,6 @@
     Configures a Windows workstation for development with:
     - OpenSSH Server with Ed25519 key authentication
     - WSL2 with Arch Linux (mirrors homelab/mac dotfiles)
-    - WezTerm terminal with Mac keyboard bindings
     - AutoHotKey for Synergy Mac keyboard remapping
     - Dev tools via winget (Cursor, VS Code, Visual Studio)
     - Docker Engine inside WSL2 (no Docker Desktop)
@@ -26,7 +25,7 @@ $ErrorActionPreference = "Stop"
 
 $Config = @{
     # Dotfiles repo (cloned inside WSL2)
-    DotfilesRepo   = "git@github.com:leonardoacosta/dotfiles.git"
+    DotfilesRepo   = "git@github.com:leonardoacosta/installfest.git"
     DotfilesPath   = "~/dev/personal/installfest"
 
     # WSL2 username (should match your other machines)
@@ -41,7 +40,6 @@ $Config = @{
     # Windows apps to install via winget
     WingetApps     = @(
         # --- Terminal & Shell ---
-        "wez.wezterm"
         "Microsoft.PowerToys"
         "gerardog.gsudo"              # sudo for Windows
 
@@ -515,11 +513,11 @@ function Install-WSL2Arch {
   3. Set default user (from PowerShell):
      > Arch.exe config --default-user $($Config.WslUser)
 
-  4. Re-enter as your user and clone dotfiles:
+  4. Re-enter as your user and bootstrap dotfiles (chezmoi two-phase flow):
      > Arch.exe
-     $ mkdir -p ~/dev && cd ~/dev
-     $ git clone $($Config.DotfilesRepo) if
-     $ cd if && ./install.sh
+     $ sudo pacman -S --noconfirm chezmoi
+     $ chezmoi init --apply leonardoacosta/installfest --source $($Config.DotfilesPath)
+     (Phase 2, interactive, afterwards: $($Config.DotfilesPath)/platform/bootstrap.sh)
 
   5. Install yay (AUR helper):
      $ cd /tmp
@@ -572,32 +570,7 @@ function Install-WingetApps {
 }
 
 # ============================================================================
-# 4. WezTerm Configuration (Windows-adapted)
-# ============================================================================
-
-function Install-WezTermConfig {
-    Write-Step "Configuring WezTerm for Windows..."
-
-    $weztermDir = "$env:USERPROFILE\.config\wezterm"
-    if (-not (Test-Path $weztermDir)) {
-        New-Item -ItemType Directory -Path $weztermDir -Force | Out-Null
-    }
-
-    # Copy the Windows-adapted WezTerm config
-    $scriptDir = Split-Path -Parent $MyInvocation.ScriptName
-    $sourceConfig = Join-Path $scriptDir "wezterm-windows.lua"
-
-    if (Test-Path $sourceConfig) {
-        Copy-Item $sourceConfig "$weztermDir\wezterm.lua" -Force
-        Write-Ok "WezTerm config installed to $weztermDir\wezterm.lua"
-    } else {
-        Write-Warn "wezterm-windows.lua not found in script directory"
-        Write-Warn "Expected at: $sourceConfig"
-    }
-}
-
-# ============================================================================
-# 5. AutoHotKey Script (Mac Keyboard via Synergy)
+# 4. AutoHotKey Script (Mac Keyboard via Synergy)
 # ============================================================================
 
 function Install-AHKScript {
@@ -636,7 +609,7 @@ function Install-AHKScript {
 }
 
 # ============================================================================
-# 6. Git Configuration
+# 5. Git Configuration
 # ============================================================================
 
 function Install-GitConfig {
@@ -679,7 +652,7 @@ function Install-GitConfig {
 }
 
 # ============================================================================
-# 7. PowerShell Profile (minimal - WSL2 is primary shell)
+# 6. PowerShell Profile (minimal - WSL2 is primary shell)
 # ============================================================================
 
 function Install-PSProfile {
@@ -720,7 +693,7 @@ function ssh-wsl { ssh localhost }
 }
 
 # ============================================================================
-# 8. Nerd Fonts
+# 7. Nerd Fonts
 # ============================================================================
 
 function Install-NerdFonts {
@@ -751,7 +724,7 @@ function Install-NerdFonts {
 }
 
 # ============================================================================
-# 9. WSL2 Configuration
+# 8. WSL2 Configuration
 # ============================================================================
 
 function Install-WSLConfig {
@@ -790,13 +763,12 @@ Write-Host @"
 This script will configure:
   1. OpenSSH Server (Ed25519 auth, Tailscale firewall)
   2. WSL2 + Arch Linux
-  3. Windows apps (WezTerm, Cursor, VS Code, VS Studio, etc.)
-  4. WezTerm config (Mac keyboard bindings)
-  5. AutoHotKey (Synergy Mac keyboard remapping)
-  6. Git (SSH signing, aliases)
-  7. PowerShell profile
-  8. Nerd Fonts
-  9. WSL2 resource limits
+  3. Windows apps (Cursor, VS Code, VS Studio, etc.)
+  4. AutoHotKey (Synergy Mac keyboard remapping)
+  5. Git (SSH signing, aliases)
+  6. PowerShell profile
+  7. Nerd Fonts
+  8. WSL2 resource limits
 
 "@
 
@@ -805,7 +777,6 @@ $sections = @(
     @{ Name = "OpenSSH Server";         Fn = { Install-OpenSSHServer } }
     @{ Name = "WSL2 + Arch Linux";      Fn = { Install-WSL2Arch } }
     @{ Name = "Windows apps (winget)";  Fn = { Install-WingetApps } }
-    @{ Name = "WezTerm config";         Fn = { Install-WezTermConfig } }
     @{ Name = "AutoHotKey (Mac keys)";  Fn = { Install-AHKScript } }
     @{ Name = "Git configuration";      Fn = { Install-GitConfig } }
     @{ Name = "PowerShell profile";     Fn = { Install-PSProfile } }
