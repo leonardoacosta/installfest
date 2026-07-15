@@ -45,7 +45,7 @@ A 3-machine SSH mesh allowing passwordless SSH between Mac, Homelab, and CloudPC
 - **Tailscale:** Native app
 - **LAN IP:** `192.168.1.50`
 - **Tailscale IP:** `100.91.88.16`
-- **Special:** Smart routing (probes LAN before Tailscale fallback)
+- **Special:** Tailscale-only routing — ~/.ssh/config is chezmoi-managed (home/private_dot_ssh/config.tmpl); the old LAN probe was removed
 
 ### Homelab (homelab)
 
@@ -66,11 +66,12 @@ A 3-machine SSH mesh allowing passwordless SSH between Mac, Homelab, and CloudPC
 
 ## Shared SSH Key
 
-All machines use the same ED25519 keypair:
-
-- **Type:** ED25519
-- **Fingerprint:** `SHA256:CBNRqlrElgBDWzg9bv6MdnYV2xnO21l+klwB4qdi2kY`
-- **Public Key:** `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFqT0bMXcrQGgWvYoLg66dCCvhgAPx1rmrJmzGpMeFVR`
+All machines use the same ED25519 keypair. The current public key is
+chezmoi-managed — the single source of truth is
+`home/private_dot_ssh/private_authorized_keys` in this repo (the key line's
+comment tag, e.g. `leo-mesh-YYYYMMDD`, dates the last rotation). Do not copy
+the key or fingerprint into docs: `ssh-mesh/scripts/rotate-keys.sh`
+regenerates the pair and rewrites that file, and copies drift.
 
 ## File Locations
 
@@ -103,46 +104,29 @@ All machines use the same ED25519 keypair:
 
 ## Quick Setup
 
-### Mac
+SSH config and authorized_keys are **chezmoi-managed**
+(`home/private_dot_ssh/config.tmpl` + `private_authorized_keys`). The old
+`ssh-mesh/scripts/setup-*.sh` playbooks were deleted — they predate chezmoi
+ownership and clobbered managed files (git history has them if needed).
+
+### Mac / Homelab
 
 ```bash
-cd ~/dev/personal/installfest/ssh-mesh
-bash scripts/setup-mac.sh
+chezmoi apply   # lays down ~/.ssh/config and ~/.ssh/authorized_keys
 ```
 
-### Homelab
-
-```bash
-# From Mac, copy files and run setup
-scp -r ~/dev/personal/installfest/ssh-mesh homelab:~/
-ssh homelab "cd ~/ssh-mesh && bash scripts/setup-homelab.sh"
-```
+Private key material is never in git (`ssh-mesh/keys/` is gitignored). To
+generate/redeploy/rotate the shared keypair across all machines, run
+`ssh-mesh/scripts/rotate-keys.sh`.
 
 ### CloudPC
 
 ```powershell
 # Run as Administrator (from repo root)
-powershell -ExecutionPolicy Bypass -File windows\setup.ps1
+powershell -ExecutionPolicy Bypass -File platform\windows\setup.ps1
 ```
 
-> **Note:** The CloudPC setup script was consolidated into `windows/setup.ps1` (handles SSH keys, sshd config, Tailscale, and dev tool installation).
-
-## Mac SSH Config Explained
-
-The Mac config uses smart routing to prefer LAN when available:
-
-```
-# Probe LAN with 0.5s timeout
-Match host homelab exec "bash -c 'exec 3<>/dev/tcp/192.168.1.100/22' ..."
-    HostName 192.168.1.100    # Use LAN if reachable
-
-# Fallback to Tailscale
-Host homelab
-    HostName homelab.tail296462.ts.net
-```
-
-**Why bash instead of nc?**
-macOS `nc -w` timeout flag doesn't work for connection timeouts, only idle timeouts. The bash `/dev/tcp` approach with background process + kill provides reliable sub-second timeouts.
+> **Note:** The CloudPC setup script was consolidated into `platform/windows/setup.ps1` (handles SSH keys, sshd config, Tailscale, and dev tool installation).
 
 ## Windows SSH Quirks
 
@@ -214,10 +198,6 @@ tailscale status
 1. Verify public key is in `authorized_keys`
 2. Check file permissions (600 for private key, config, authorized_keys)
 3. On Windows, verify `administrators_authorized_keys` permissions
-
-### Mac LAN Probe Hanging
-
-The old `nc -z -w1` approach hangs on macOS. Use the bash `/dev/tcp` method with explicit timeout.
 
 ## Security Notes
 
