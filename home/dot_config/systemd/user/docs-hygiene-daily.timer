@@ -1,0 +1,10 @@
+[Unit]
+Description=Run docs-hygiene-daily.service nightly
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+Persistent=true
+Unit=docs-hygiene-daily.service
+
+[Install]
+WantedBy=timers.target

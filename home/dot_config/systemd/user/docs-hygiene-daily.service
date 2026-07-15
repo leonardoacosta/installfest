@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly /improve:docs sweep across active personal/priceless repos (never b-and-b)
+Documentation=file:%h/dev/personal/installfest/scripts/docs-hygiene-daily.py
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/dev/personal/installfest/scripts/docs-hygiene-daily.py
+EnvironmentFile=-%h/.env
+StandardOutput=append:%h/.local/state/docs-hygiene-daily.systemd.log
+StandardError=append:%h/.local/state/docs-hygiene-daily.systemd.log
+# Don't restart on failure -- the timer retries next night; a stuck run
+# should not chain-retry mid-night and pile up worktrees.
+Restart=no
