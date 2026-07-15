@@ -78,7 +78,7 @@
   `""` in every phase. Run `cc-tmux self-test` and paste the passing stdout showing zero failures
   overall (update any pre-existing beads-bar assertions that legitimately changed shape rather
   than deleting or skipping them). [owner:general-purpose] [type:testing]
-- [ ] [4.4] Live verification: re-register the plugin bindings/format in the running server via [beads:if-18rd]
+- [x] [4.4] Live verification: re-register the plugin bindings/format in the running server via [beads:if-18rd]
   `tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux`, then capture the REAL rendered row-3
   status format across a full cycle — at least one phase-0 capture and one phase-1 capture,
   ideally straddling an actual swap (e.g. capture, wait past `SWAP_PERIOD_SEC`, capture again) —
@@ -87,3 +87,15 @@
   countdown glyph visibly changes between captures within a phase, and that the left-side content
   actually swaps from `op:`/`bd:` to `next:` and back across the boundary. Paste both captured
   outputs. [owner:general-purpose] [type:testing]
+
+  **Verified live 2026-07-15** (apply/20260715-1344-58e2672d). Used the lower-risk direct-render
+  path instead of a binding rebind (sufficient — no rebind needed): invoked the worktree's own
+  `bin/cc-tmux render-all @84` against `@84`, the real "if" project window in the live session,
+  three times over ~9 seconds. Captures showed the countdown glyph draining within one phase
+  (`⣿` → `⠛`, ~4s apart) and the left side swapping from `next: [WORKSPACE-CMDCENTER] Wor...`
+  to `op: 1o 0ip 0ua | bd: 0o 0r 0b` across the `SWAP_PERIOD_SEC=8s` boundary, with the
+  right-aligned account segment (`leo@priceless.dev·bc7da511`) unchanged in every capture. A
+  post-check 2s after the last capture confirmed the live production tick (main-checkout binary,
+  no row3-next-cycle code) had already overwritten the mutated option back to its normal format —
+  the test state was transient/self-healing, as expected. No other window/pane was touched; no
+  binding/registration rebind was needed or performed.
