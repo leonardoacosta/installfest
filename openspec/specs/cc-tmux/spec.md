@@ -605,10 +605,9 @@ the active nexus-agent credential's identity (email + 8-character org id, e.g.
 `leo@priceless.dev·bc7da511` — the same format used by the accounts popup's identity rows).
 
 **Left-side content cycles between two phases on a wall-clock timer, prefixed by a countdown
-glyph** — reversing the prior version's "next: SHALL NOT render on this row" exclusion. Phase is
-`int(now / 8.0) % 2`, `now` the caller-supplied wall-clock time at render (the same daemon-free,
-`status-interval`-driven cadence `animated_icon` already uses for the tabs row — no timer
-process, no new tmux hook):
+glyph, with a pour-in transition on each swap.** Phase is `int(now / 8.0) % 2`, `now` the
+caller-supplied wall-clock time at render (the same daemon-free, `status-interval`-driven cadence
+`animated_icon` already uses for the tabs row — no timer process, no new tmux hook):
 
 - **Phase 0** (counts): the openspec/beads portion renders in cc's abbreviated form `op:
   {open}o {in_progress}ip {ua}ua ({age}) | bd: {open}o {ready}r {blocked}b ({age})` (if-bqw.1, cc
@@ -624,24 +623,41 @@ process, no new tmux hook):
 - **Phase 1** (next): the row instead renders the cache's `next:` line verbatim (already
   pre-truncated by the producer script) in place of the `op:`/`bd:` segments — the two never
   render simultaneously.
+- **Pour-in transition**: for a fixed, bounded number of ticks immediately after each phase swap
+  (independent of the content's length — never longer than `len(POUR_FRAMES) - 1 +
+  POUR_STAGGER_TICKS + 1` ticks, 5 with the shipped constants), the newly-active phase's content
+  SHALL render through a left-to-right block-height wave — each character passes through the
+  `POUR_FRAMES` glyphs (`▁` low, `▄` mid, `▇` high) before settling to its real value, the
+  leftmost character settling soonest and the rightmost character settling
+  `POUR_STAGGER_TICKS` ticks later, interpolated linearly for characters in between. This applies
+  IDENTICALLY regardless of which phase is arriving — `op:`/`bd:` counts pouring in look the same
+  as the `next:` line pouring in. The countdown glyph prefix is unaffected by the transition and
+  continues to render every tick as before. The transition ALWAYS fully settles well before the
+  following swap (its fixed worst-case duration is well under half of the 8-second phase), so it
+  never straddles two swaps.
 - A `radar:` line SHALL NOT be rendered in either phase (unchanged from the prior requirement
   version — defense against a stale or rolled-back cache carrying that token).
 - When no `next:` line is available in the cache, phase 1 falls back to rendering phase 0's
-  content instead (never a blank left side when counts ARE available).
+  content instead (never a blank left side when counts ARE available) — the pour-in transition
+  still applies to that fallback content on the swap into phase 1.
 - No new data production mechanism SHALL be introduced for the openspec/beads/next portion — it
   reads the same cache nexus-statusline's own `getRoadmapPulse()` already maintains; this row
   parses it a second, independent time.
+- No new runtime dependency SHALL be introduced for the pour-in transition — it is a pure,
+  stdlib-only function, matching the plugin's stated stdlib-only design (`apps/cc-tmux/pyproject.toml`).
 
 **Account identity segment**: the plugin SHALL append the active credential's identity as a
 third segment, independent of the openspec/beads/next cycle — present whenever an active
 nexus-agent credential resolves, regardless of cycle phase or whether the roadmap-pulse cache
 exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`, via the same
-`#[range=user|accounts]` mouse-range marker mechanism, in both phases.
+`#[range=user|accounts]` mouse-range marker mechanism, in both phases. The account segment is
+unaffected by the pour-in transition — it never pours, only the cycling left side does.
 
 #### Scenario: phase 0 renders counts with the countdown glyph, plus the account identity
 - Given: a cached roadmap-pulse file whose counts are `1o 0ip 0ua` (openspec) and `1o 1r 0b`
   (standalone beads), an active nexus-agent credential `leo@priceless.dev` / org `bc7da511-...`,
-  and a render `now` that resolves to phase 0
+  and a render `now` several ticks past the most recent phase-0 swap boundary (transition
+  already settled)
 - When: the beads-bar row renders
 - Then: it shows `[countdown-glyph] op: 1o 0ip 0ua (<age>) | bd: 1o 1r 0b (<age>) |
   leo@priceless.dev·bc7da511` with all counts coloured DIM, and the account segment clickable via
@@ -649,10 +665,28 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
 
 #### Scenario: phase 1 renders the next-action line instead of counts
 - Given: the same cached roadmap-pulse file additionally carries a `next: [WORKSPACE-CMDCENTER]
-  Wor...` line, and a render `now` that resolves to phase 1
+  Wor...` line, and a render `now` several ticks past the most recent phase-1 swap boundary
+  (transition already settled)
 - When: the beads-bar row renders
 - Then: the left side shows `[countdown-glyph] next: [WORKSPACE-CMDCENTER] Wor...` — the `op:`/
   `bd:` segments do NOT appear — and the account segment still renders on the right, unchanged
+
+#### Scenario: a swap into phase 1 pours the next: line in left-to-right
+- Given: the same cache as above, and a render `now` exactly at the start of a phase-1 swap
+  (`tick_in_phase == 0`)
+- When: the beads-bar row renders
+- Then: every character of the `next:` line renders as `POUR_FRAMES[0]` (`▁`); one tick later the
+  leftmost characters have advanced to `POUR_FRAMES[1]` (`▄`) while characters further right are
+  still at or behind `POUR_FRAMES[0]`; by `tick_in_phase == 5` every character has settled to its
+  real value — the countdown glyph prefix and account segment are unaffected throughout
+
+#### Scenario: a swap into phase 0 pours the counts in the same way as phase 1
+- Given: the same cache as above, and a render `now` exactly at the start of a phase-0 swap
+  (`tick_in_phase == 0`)
+- When: the beads-bar row renders
+- Then: the `op:`/`bd:` counts pour in left-to-right using the IDENTICAL `POUR_FRAMES`/
+  `POUR_STAGGER_TICKS` progression as the phase-1 case above — the transition treats both phases
+  identically, never differently, per the approved demo's "same motion regardless of which line"
 
 #### Scenario: no next: line available falls back to phase 0's content in phase 1
 - Given: a cached roadmap-pulse file with counts but no `next:` line, and a render `now` that
@@ -660,14 +694,16 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
 - When: the beads-bar row renders
 - Then: the left side shows the phase-0 `op:`/`bd:` content (with countdown glyph) instead of a
   blank phase-1 slot — the row never goes empty just because the cycle landed on an unavailable
-  phase
+  phase; if this render lands within the transition window of the swap into phase 1, that
+  fallback content pours in the same way any other phase-1 content would
 
 #### Scenario: no roadmap-pulse cache, but an active account resolves
 - Given: no roadmap-pulse cache file exists yet for the current project, and an active
   nexus-agent credential resolves
 - When: the beads-bar row renders
 - Then: the row shows ONLY the account identity segment (`leo@priceless.dev·bc7da511`) — not an
-  empty row, in either phase, since the account segment is independent of the cycle
+  empty row, in either phase, since the account segment is independent of the cycle and never
+  pours
 
 #### Scenario: openspec/beads/next cache present, no active account resolves
 - Given: a cached roadmap-pulse file with real counts and a `next:` line, and nexus-agent is
@@ -694,9 +730,9 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
 - Given: no roadmap-pulse cache file exists yet for the current project, and no active
   nexus-agent credential resolves
 - When: the beads-bar row renders
-- Then: the row is empty — no error, no placeholder text, no countdown glyph with nothing to
-  prefix (unchanged from the prior requirement version's "no cache yet" contract, now also gated
-  on the account segment's own absence)
+- Then: the row is empty — no error, no placeholder text, no countdown glyph or pour-in
+  transition with nothing to prefix/render (unchanged from the prior requirement version's "no
+  cache yet" contract, now also gated on the account segment's own absence)
 
 ### Requirement: The tmux status bar is three lines
 `home/dot_config/tmux/tmux.conf.tmpl` SHALL set `status 3`, and each shipped theme
