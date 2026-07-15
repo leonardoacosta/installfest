@@ -13,8 +13,9 @@
 #   --as-admin    Force BBAdmin identity
 #   --as-personal Force personal identity (no proxy)
 #
-# Project routing (in shared.zsh):
-#   ~/dev/ct/* → personal identity (no proxy) — handled by shell function, never reaches this script
+# Civalent/personal routing: the old az() shell function (and its ~/dev/ct
+# path routing) was removed as a documented arg-mangling foot-gun — see
+# shared.zsh "Per-Project CLI Routing". Sanctioned path: explicit `az --as-personal`.
 #
 # FAIL-FAST ON AADSTS70043 (Req-5, design.md D2)
 #   The 60-day CA sign-in-frequency window only resets on an interactive
