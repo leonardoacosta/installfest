@@ -756,7 +756,7 @@ def _maybe_rename_window(pane_id: str) -> bool:
         cwd = tmux._run_tmux(
             ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
         )
-        name = os.path.basename(os.path.normpath(cwd)) if cwd else (me.project or "")
+        name = _cwd_basename(cwd, fallback=me.project or "")
 
     if not name:
         return False
@@ -766,6 +766,16 @@ def _maybe_rename_window(pane_id: str) -> bool:
 
 
 _TITLE_DIVIDER = "·"  # middle dot — visually distinct from the icon's own space
+
+
+def _cwd_basename(cwd: str, fallback: str = "") -> str:
+    """Raw directory basename of ``cwd`` (the ``state``-format window name),
+    or ``fallback`` when ``cwd`` is empty. Shared by :func:`_maybe_rename_window`
+    (``state`` format) and :func:`_title_window_name` (``title`` format's
+    no-title fallback, cc-tmux-title-folder-fallback) so the path-basename
+    logic lives in exactly one place.
+    """
+    return os.path.basename(os.path.normpath(cwd)) if cwd else fallback
 
 
 def compose_title_name(code: str, title: str, fallback: str = "") -> str:
@@ -785,14 +795,21 @@ def compose_title_name(code: str, title: str, fallback: str = "") -> str:
 def _title_window_name(pane) -> str:
     """``<project-code>·<session-title>`` for the ``title`` window-rename format.
 
-    ``code`` resolves from the dotfiles project registry (``registry.py``) by
-    the pane's current directory; ``title`` is whatever ``@cc-title`` holds
-    (set from the SessionStart hook payload in :func:`cmd_register`). The
-    leading state icon is NOT included here — see :func:`_maybe_rename_window`.
+    ``title`` is whatever ``@cc-title`` holds (set from the SessionStart hook
+    payload in :func:`cmd_register`). When ``title`` is unset or empty, the
+    name falls back to the raw current-directory basename ALONE (cc-tmux-
+    title-folder-fallback) — the project-code prefix is applied only when a
+    title is actually present, never as a substitute for it, so an untitled
+    pane never renders a bare/misleading registry code. ``code`` resolves
+    from the dotfiles project registry (``registry.py``) by the pane's
+    current directory, and is only looked up once a title exists to prefix.
+    The leading state icon is NOT included here — see :func:`_maybe_rename_window`.
     """
     cwd = tmux._run_tmux(["display-message", "-p", "-t", pane.id, "#{pane_current_path}"])
-    code = registry.resolve_project_code(cwd) if cwd else ""
     title = tmux.get_pane_option(pane.id, tmux.OPT_TITLE)
+    if not title:
+        return _cwd_basename(cwd, fallback=pane.project or "")
+    code = registry.resolve_project_code(cwd) if cwd else ""
     return compose_title_name(code, title, fallback=pane.project or "")
 
 
