@@ -542,14 +542,18 @@ def _test_render_resolve_icons() -> None:
 
 
 def _test_render_animated_icon() -> None:
+    """cc-tmux-braille-flash-and-permission-pulse (task 2.1): `waiting` now cycles
+    `PERMISSION_PULSE_FRAMES` (replacing `SHADE_FRAMES`) and `active` cycles
+    `ACTIVE_FLASH_FRAMES` (replacing `BLOCK_FRAMES`) — both 2-frame pairs indexed by
+    `FRAME_PERIOD_SEC` tick PARITY (`% 2`), not the old 4-/7-frame full-cycle index."""
     _check(render.animated_icon("idle", 0.0) == render.IDLE_GLYPH, "idle -> static glyph")
     _check(render.animated_icon("idle", 999.0) == render.IDLE_GLYPH, "idle never changes with time")
-    _check(render.animated_icon("waiting", 0.0) == render.SHADE_FRAMES[0], "waiting frame 0")
-    _check(render.animated_icon("waiting", 1.0) == render.SHADE_FRAMES[1], "waiting frame 1s later")
-    n_shade = len(render.SHADE_FRAMES)
-    _check(render.animated_icon("waiting", float(n_shade)) == render.SHADE_FRAMES[0], "waiting wraps around")
-    _check(render.animated_icon("active", 0.0) == render.BLOCK_FRAMES[0], "active frame 0")
-    _check(render.animated_icon("active", 2.0) == render.BLOCK_FRAMES[2], "active frame 2s later")
+    _check(render.animated_icon("waiting", 0.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting frame 0")
+    _check(render.animated_icon("waiting", 1.0) == render.PERMISSION_PULSE_FRAMES[1], "waiting frame 1s later")
+    _check(render.animated_icon("waiting", 2.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting wraps around by tick parity")
+    _check(render.animated_icon("active", 0.0) == render.ACTIVE_FLASH_FRAMES[0], "active frame 0")
+    _check(render.animated_icon("active", 1.0) == render.ACTIVE_FLASH_FRAMES[1], "active frame 1s later")
+    _check(render.animated_icon("active", 2.0) == render.ACTIVE_FLASH_FRAMES[0], "active wraps around by tick parity")
     _check(render.animated_icon("bogus-state", 0.0) == "", "unknown state -> ''")
 
 
@@ -621,19 +625,19 @@ def _test_render_idle_meter_color_matches_resolve_context_color() -> None:
 
 
 def _test_render_resolve_tab_glyph_precedence() -> None:
-    """resolve_tab_glyph precedence (task 4.2): waiting, active, fg=1 (foreground
-    sub-agent), and bg=2 (background sub-agent) ALL return
-    ``(resolve_tab_icon(state, now, fg_count, bg_count), "")`` byte-identical to
-    calling resolve_tab_icon directly with an empty colour — the meter is never
-    reached in those cases. ONLY the plain-idle case (fg=0, bg=0, state=="idle")
-    routes to :func:`render.idle_usage_meter`."""
-    # waiting state, no subagents -> plain resolve_tab_icon passthrough.
-    icon = render.resolve_tab_icon("waiting", 0.0, 0, 0)
-    _check(
-        render.resolve_tab_glyph("waiting", 0.0, 0, 0) == (icon, ""),
-        "waiting: byte-identical to resolve_tab_icon, empty colour",
-    )
-
+    """resolve_tab_glyph precedence (task 4.2; waiting sub-case updated by
+    cc-tmux-braille-flash-and-permission-pulse task 2.3): active, fg=1 (foreground
+    sub-agent, both plain and with state=="waiting"), and bg=2 (background
+    sub-agent) ALL return ``(resolve_tab_icon(state, now, fg_count, bg_count), "")``
+    byte-identical to calling resolve_tab_icon directly with an empty colour —
+    NEITHER the idle-usage-meter NOR the permission-pulse colour branch is ever
+    reached in those cases, since the sub-agent overlay takes precedence over both.
+    ONLY the plain-idle case (fg=0, bg=0, state=="idle") routes to
+    :func:`render.idle_usage_meter`, and ONLY the plain-waiting case (fg=0, bg=0,
+    state=="waiting") routes to the permission-pulse colour branch — see
+    :func:`_test_render_resolve_tab_glyph_permission_pulse` for that case's own
+    dedicated coverage (it no longer byte-matches the bare resolve_tab_icon
+    passthrough this test asserts for every OTHER case)."""
     # active state, no subagents -> plain resolve_tab_icon passthrough.
     icon = render.resolve_tab_icon("active", 2.0, 0, 0)
     _check(
@@ -644,16 +648,25 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     # fg=1 (foreground sub-agent), even with state=="idle" -> subagent overlay
     # wins, never the meter.
     icon = render.resolve_tab_icon("idle", 0.0, 1, 0)
-    _check(icon == render.SUBAGENT_FG_1, "sanity: fg=1 -> hollow ring")
+    _check(icon == render.SUBAGENT_FG1_FLASH_FRAMES[0], "sanity: fg=1 -> FG1 flash frame 0")
     _check(
         render.resolve_tab_glyph("idle", 0.0, 1, 0) == (icon, ""),
         "fg=1: byte-identical to resolve_tab_icon, empty colour, not the meter",
     )
 
+    # fg=1 (foreground sub-agent) with state=="waiting" -> subagent overlay wins,
+    # never the permission-pulse colour branch either (it only fires at fg=0,bg=0).
+    icon = render.resolve_tab_icon("waiting", 0.0, 1, 0)
+    _check(icon == render.SUBAGENT_FG1_FLASH_FRAMES[0], "sanity: fg=1 -> FG1 flash frame 0 (waiting state ignored)")
+    _check(
+        render.resolve_tab_glyph("waiting", 0.0, 1, 0) == (icon, ""),
+        "fg=1+waiting: byte-identical to resolve_tab_icon, empty colour, not the permission pulse",
+    )
+
     # bg=2 (background sub-agents), fg=0, state=="idle" -> subagent overlay
     # wins, never the meter.
     icon = render.resolve_tab_icon("idle", 0.0, 0, 2)
-    _check(icon == render.SUBAGENT_BG_2PLUS, "sanity: fg=0,bg=2 -> filled diamond")
+    _check(icon == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "sanity: fg=0,bg=2 -> BG2+ flash frame 0")
     _check(
         render.resolve_tab_glyph("idle", 0.0, 0, 2) == (icon, ""),
         "bg=2: byte-identical to resolve_tab_icon, empty colour, not the meter",
@@ -671,6 +684,37 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     )
     _check(meter_result[0] != plain_icon, "plain idle + raw_tokens: meter glyph differs from resolve_tab_icon's static glyph")
     _check(meter_result[1] != "", "plain idle + raw_tokens: non-empty meter colour")
+
+
+def _test_render_resolve_tab_glyph_permission_pulse() -> None:
+    """resolve_tab_glyph's NEW waiting colour branch (cc-tmux-braille-flash-and-
+    permission-pulse task 2.3): fg=0, bg=0, state=="waiting" cycles
+    :data:`render.PERMISSION_PULSE_FRAMES` by :data:`render.FRAME_PERIOD_SEC` tick
+    parity — ``(◉, YELLOW)`` on even ticks, ``(◎, "")`` (unstyled/default) on odd
+    ticks. This genuinely diverges from :func:`render.resolve_tab_icon`'s bare
+    ``(glyph, "")`` passthrough shape every other resolve_tab_glyph case still
+    byte-matches (see :func:`_test_render_resolve_tab_glyph_precedence`) — confirms
+    this is really the new colour branch firing, not an accidental fallthrough."""
+    _check(render.PERMISSION_PULSE_FRAMES == ("◉", "◎"), "sanity: pulse pair is (◉, ◎)")
+
+    glyph0, color0 = render.resolve_tab_glyph("waiting", 0.0, 0, 0)
+    _check(glyph0 == "◉", f"waiting frame 0 -> ◉, got {glyph0!r}")
+    _check(color0 == render.YELLOW, f"waiting frame 0 -> YELLOW, got {color0!r}")
+
+    glyph1, color1 = render.resolve_tab_glyph("waiting", 1.0, 0, 0)
+    _check(glyph1 == "◎", f"waiting frame 1s later -> ◎, got {glyph1!r}")
+    _check(color1 == "", f"waiting frame 1s later -> empty (default) colour, got {color1!r}")
+
+    glyph2, color2 = render.resolve_tab_glyph("waiting", 2.0, 0, 0)
+    _check(glyph2 == "◉", "waiting wraps back to ◉ by tick parity")
+    _check(color2 == render.YELLOW, "waiting wraps back to YELLOW by tick parity")
+
+    # Diverges from resolve_tab_icon's bare passthrough shape (that pairs the same
+    # glyph with an always-empty colour) -- the defining behavior this branch adds.
+    _check(
+        render.resolve_tab_glyph("waiting", 0.0, 0, 0) != (render.resolve_tab_icon("waiting", 0.0, 0, 0), ""),
+        "waiting+YELLOW diverges from the bare (icon, '') passthrough shape",
+    )
 
 
 def _test_render_render_tabs_row_idle_meter_wiring() -> None:
@@ -2850,32 +2894,52 @@ def _test_cli_prune_background_entries() -> None:
 
 
 def _test_render_resolve_tab_icon() -> None:
-    """Resolved glyph mapping (tasks.md task 1.1): fg=1 -> hollow ring
-    regardless of bg; fg=2+ -> filled circle regardless of bg; fg=0 with
-    bg=1/2+ -> hollow/filled diamond; fg=0 and bg=0 (or fully pruned) falls
-    through to the existing state-based animated_icon result."""
-    _check(render.resolve_tab_icon("idle", 0.0, 1, 0) == render.SUBAGENT_FG_1, "fg=1 -> hollow ring")
-    _check(render.resolve_tab_icon("idle", 0.0, 2, 0) == render.SUBAGENT_FG_2PLUS, "fg=2 -> filled circle")
-    _check(render.resolve_tab_icon("idle", 0.0, 5, 0) == render.SUBAGENT_FG_2PLUS, "fg=5 -> filled circle")
+    """Resolved glyph mapping (tasks.md task 1.1, updated by cc-tmux-braille-flash-
+    and-permission-pulse task 2.2): fg=1 -> flashes SUBAGENT_FG1_FLASH_FRAMES
+    regardless of bg; fg=2+ -> flashes SUBAGENT_FG2PLUS_FLASH_FRAMES regardless of
+    bg; fg=0 with bg=1/2+ -> flashes SUBAGENT_BG1_FLASH_FRAMES/
+    SUBAGENT_BG2PLUS_FLASH_FRAMES; fg=0 and bg=0 (or fully pruned) falls through to
+    the existing state-based animated_icon result. Every flash pair cycles by
+    FRAME_PERIOD_SEC tick PARITY (`% 2`), same idiom as animated_icon. Precedence
+    order and thresholds are UNCHANGED from the pre-flash static-glyph mapping —
+    only what each branch RETURNS changed."""
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 0) == render.SUBAGENT_FG1_FLASH_FRAMES[0], "fg=1 -> FG1 flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 1, 0) == render.SUBAGENT_FG1_FLASH_FRAMES[1], "fg=1 -> FG1 flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=2 -> FG2+ flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 2, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[1], "fg=2 -> FG2+ flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 5, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=5 -> FG2+ flash frame 0")
     # Foreground takes precedence over background whenever fg is nonzero.
-    _check(render.resolve_tab_icon("idle", 0.0, 1, 9) == render.SUBAGENT_FG_1, "fg=1 wins over any bg count")
-    _check(render.resolve_tab_icon("idle", 0.0, 2, 9) == render.SUBAGENT_FG_2PLUS, "fg=2+ wins over any bg count")
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 9) == render.SUBAGENT_FG1_FLASH_FRAMES[0], "fg=1 wins over any bg count")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 9) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=2+ wins over any bg count")
     # fg=0 falls through to the background heuristic.
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 1) == render.SUBAGENT_BG_1, "fg=0,bg=1 -> hollow diamond")
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 2) == render.SUBAGENT_BG_2PLUS, "fg=0,bg=2 -> filled diamond")
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 7) == render.SUBAGENT_BG_2PLUS, "fg=0,bg=7 -> filled diamond")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 1) == render.SUBAGENT_BG1_FLASH_FRAMES[0], "fg=0,bg=1 -> BG1 flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 0, 1) == render.SUBAGENT_BG1_FLASH_FRAMES[1], "fg=0,bg=1 -> BG1 flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 2) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "fg=0,bg=2 -> BG2+ flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 0, 2) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[1], "fg=0,bg=2 -> BG2+ flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 7) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "fg=0,bg=7 -> BG2+ flash frame 0")
     # Neither active (or bg fully pruned by the caller before this call) -> falls
     # through to the plain state-based animated_icon result, not a subagent glyph.
     _check(render.resolve_tab_icon("idle", 0.0, 0, 0) == render.IDLE_GLYPH, "fg=0,bg=0 -> idle glyph (fallthrough)")
     _check(
-        render.resolve_tab_icon("waiting", 0.0, 0, 0) == render.SHADE_FRAMES[0],
+        render.resolve_tab_icon("waiting", 0.0, 0, 0) == render.PERMISSION_PULSE_FRAMES[0],
         "fg=0,bg=0 -> waiting animation frame preserved",
     )
     _check(
-        render.resolve_tab_icon("active", 2.0, 0, 0) == render.BLOCK_FRAMES[2],
+        render.resolve_tab_icon("active", 1.0, 0, 0) == render.ACTIVE_FLASH_FRAMES[1],
         "fg=0,bg=0 -> active animation frame preserved",
     )
     _check(render.resolve_tab_icon("", 0.0, 0, 0) == "", "no tracked pane, no subagents -> ''")
+
+    # Distinctness contract (proposal.md "Distinctness decision"): no two of the
+    # four sub-agent flash pairs share a frame, so each of the four states stays
+    # visually distinguishable at a glance even mid-flash.
+    all_frames = (
+        render.SUBAGENT_FG1_FLASH_FRAMES
+        + render.SUBAGENT_FG2PLUS_FLASH_FRAMES
+        + render.SUBAGENT_BG1_FLASH_FRAMES
+        + render.SUBAGENT_BG2PLUS_FLASH_FRAMES
+    )
+    _check(len(set(all_frames)) == len(all_frames), "no two sub-agent flash pairs share a frame")
 
 
 def _test_cli_register_subagent_start_stop_branching() -> None:
@@ -3492,6 +3556,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.idle_meter_none_fallback", _test_render_idle_meter_none_fallback),
     ("render.idle_meter_color_matches_resolve_context_color", _test_render_idle_meter_color_matches_resolve_context_color),
     ("render.resolve_tab_glyph_precedence", _test_render_resolve_tab_glyph_precedence),
+    ("render.resolve_tab_glyph_permission_pulse", _test_render_resolve_tab_glyph_permission_pulse),
     ("render.tabs_row_idle_meter_wiring", _test_render_render_tabs_row_idle_meter_wiring),
     ("render.inbox_rows", _test_render_inbox_rows),
     ("usage.color_thresholds", _test_usage_color_thresholds),
