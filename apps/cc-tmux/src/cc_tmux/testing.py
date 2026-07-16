@@ -2433,31 +2433,64 @@ def _test_cli_tab_rows_gated_on_mobile() -> None:
     proposal.md's Non-Goals require landscape rendering to be byte-identical
     to pre-change regardless of tab-segment width. The fix: cli.py's call
     site only consults `_compute_tab_rows` when `mobile` is True; landscape
-    always resolves to `1`. This test asserts the FIXED gating expression
-    directly (`_build_tabs_row` itself needs a live tmux session to exercise
-    end-to-end -- see the E2E batch's live-verify note), using the exact
-    overflow scenario the review gate reproduced: 5 tab segments that sum to
-    more width than a 60-column client at 1x."""
-    segs = [
-        "1 editor-project-alpha",
-        "2 editor-project-beta",
-        "3 shell-homelab",
-        "4 shell-mac",
-        "5 notes",
-    ]
-    client_width = 60
+    always resolves to `1`.
 
-    # Landscape (mobile=False): even though these segments overflow 60 columns
-    # at 1x, tab_rows MUST stay 1 -- the gate is orientation, not overflow.
-    mobile = False
-    tab_rows = render._compute_tab_rows(segs, client_width, mobile) if mobile else 1
-    _check(tab_rows == 1, f"landscape must always be tab_rows=1 regardless of overflow, got {tab_rows}")
+    Exercises `cli._build_tabs_row` end-to-end (not a re-derivation of the
+    gating expression -- the review gate's retry pass flagged the first
+    version of this test for exactly that gap) by monkeypatching
+    `tmux._run_tmux` (mirrors `_test_tmux_get_window_tabs`'s convention) and
+    `tmux.set_global_option`/`tmux.reconcile` to capture the published
+    `@cc-tab-rows` value without touching a real tmux session. A revert of
+    the cli.py fix WOULD fail this test."""
+    saved_run_tmux = tmux._run_tmux
+    saved_set_opt = tmux.set_global_option
+    saved_reconcile = tmux.reconcile
+    published: dict = {}
+    try:
+        tmux.reconcile = lambda *a, **k: None  # type: ignore[assignment]
 
-    # Sanity: the SAME segments/width DO overflow when mobile=True is allowed
-    # to consult _compute_tab_rows -- proves this isn't trivially 1 either way.
-    mobile = True
-    tab_rows = render._compute_tab_rows(segs, client_width, mobile) if mobile else 1
-    _check(tab_rows > 1, f"portrait with the same segments/width should wrap (>1), got {tab_rows}")
+        def fake_five_windows(args, *, check_available: bool = True):
+            if args[:1] == ["list-windows"]:
+                return (
+                    "@1\x1f1\x1feditor-project-alpha\n"
+                    "@2\x1f2\x1feditor-project-beta\n"
+                    "@3\x1f3\x1fshell-homelab\n"
+                    "@4\x1f4\x1fshell-mac\n"
+                    "@5\x1f5\x1fnotes"
+                )
+            if args[:2] == ["list-panes", "-s"]:
+                return "\n".join(f"@{i}\x1fidle\x1f0\x1f[]" for i in range(1, 6))
+            return None
+        tmux._run_tmux = fake_five_windows  # type: ignore[assignment]
+
+        def fake_set_global_option(name, value):
+            published[name] = value
+        tmux.set_global_option = fake_set_global_option  # type: ignore[assignment]
+
+        # Landscape (client_width=60, client_height=20): these 5 segments
+        # overflow 60 columns at 1x, but tab_rows MUST stay 1 -- the gate is
+        # orientation, not overflow.
+        cli._build_tabs_row("@1", client_width=60, client_height=20)
+        _check(
+            published.get("@cc-tab-rows") == "1",
+            f"landscape must publish @cc-tab-rows=1 regardless of overflow, got {published.get('@cc-tab-rows')!r}",
+        )
+        _check(
+            published.get("status") == "3",
+            f"landscape must publish status=3 (byte-identical to pre-change), got {published.get('status')!r}",
+        )
+
+        # Sanity: the SAME segments/width DO wrap when portrait (client_height
+        # > client_width) is allowed to consult _compute_tab_rows -- proves
+        # this isn't trivially 1 either way.
+        published.clear()
+        cli._build_tabs_row("@1", client_width=60, client_height=90)
+        tab_rows_portrait = int(published.get("@cc-tab-rows", "1"))
+        _check(tab_rows_portrait > 1, f"portrait with the same segments/width should wrap (>1), got {tab_rows_portrait}")
+    finally:
+        tmux._run_tmux = saved_run_tmux
+        tmux.set_global_option = saved_set_opt
+        tmux.reconcile = saved_reconcile
 
 
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
