@@ -2810,6 +2810,60 @@ def _test_render_session_bar_no_glyph() -> None:
     _check("◉" not in out_empty and "◌" not in out_empty, "empty call -> no glyph token")
 
 
+def _test_render_session_bar_model_colors_and_format() -> None:
+    """render_session_bar (cc-tmux-row2-model-color-usage-format tasks 2.1/2.2,
+    verified here per task 3.1): each of the four model letters renders its
+    documented per-model colour, an unrecognized letter falls back to CYAN,
+    the SES label drops its trailing colon while 5H:/7D: keep theirs, exactly
+    one space precedes the combined usage glyph, and the glyph itself is now
+    20 cells wide (was 10)."""
+    # Opus=YELLOW, Sonnet=GREEN, Haiku=LIGHT_GREEN, Fable=RED — one assertion
+    # per letter so a future _MODEL_LETTER_COLORS edit that swaps any single
+    # mapping fails exactly the row it broke, not a shared multi-letter check.
+    out_o = render.render_session_bar("O", "if", "main", None, None, None)
+    _check(f"#[fg={render.YELLOW}]O" in out_o, f"Opus (O) renders YELLOW: {out_o!r}")
+    out_s = render.render_session_bar("S", "if", "main", None, None, None)
+    _check(f"#[fg={render.GREEN}]S" in out_s, f"Sonnet (S) renders GREEN: {out_s!r}")
+    out_h = render.render_session_bar("H", "if", "main", None, None, None)
+    _check(f"#[fg={render.LIGHT_GREEN}]H" in out_h, f"Haiku (H) renders LIGHT_GREEN: {out_h!r}")
+    out_f = render.render_session_bar("F", "if", "main", None, None, None)
+    _check(f"#[fg={render.RED}]F" in out_f, f"Fable (F) renders RED: {out_f!r}")
+
+    # An unrecognized non-empty letter is still truthy -> the `if model_letter`
+    # branch runs and _MODEL_LETTER_COLORS.get(..., CYAN) falls back to CYAN.
+    out_unknown = render.render_session_bar("X", "if", "main", None, None, None)
+    _check(f"#[fg={render.CYAN}]X" in out_unknown, f"unrecognized letter falls back to CYAN: {out_unknown!r}")
+
+    # An empty model_letter is falsy -> the entire `if model_letter` branch is
+    # skipped (fail-open, same convention as project/branch), so no model
+    # colour segment renders at all -- distinct from "renders CYAN with an
+    # empty letter", which the current implementation never does.
+    out_empty = render.render_session_bar("", "if", "main", None, None, None)
+    _check(f"#[fg={render.CYAN}]" not in out_empty, f"empty model_letter -> no CYAN segment at all: {out_empty!r}")
+
+    # SES label: no trailing colon on the label itself, immediately followed
+    # by #[default] with nothing in between -- 5H:/7D: keep theirs unchanged.
+    out = render.render_session_bar("O", "if", "main", 0.30, 0.88, 0.35, raw_tokens=252_500)
+    ses_label = render.format_context_tokens(252_500)
+    _check(f"{ses_label}#[default]" in out, f"SES label has no trailing colon: {out!r}")
+    _check(f"{ses_label}:" not in out, f"SES label must not carry a trailing colon: {out!r}")
+    _check("5H:" in out and "7D:" in out, f"5H:/7D: retain their colons: {out!r}")
+
+    # Exactly one space separates the 7D percentage segment from the glyph:
+    # the glyph is the last thing on the right side (already asserted
+    # elsewhere), so the character immediately preceding it must be a single
+    # space, and the one before that must not also be a space.
+    usage_glyph = render.render_usage_glyph(0.30, 0.88, 0.35, n=20)
+    _check(out.endswith(usage_glyph), f"glyph is the final element on the right: {out!r}")
+    before_glyph = out[: -len(usage_glyph)]
+    _check(before_glyph.endswith(" "), f"exactly one space precedes the glyph: {out!r}")
+    _check(not before_glyph.endswith("  "), f"no more than one space precedes the glyph: {out!r}")
+
+    # The glyph itself is 20 characters long (n=20, widened from the prior
+    # n=10) -- asserted directly on length, not just glyph identity/wiring.
+    _check(len(usage_glyph) == 20, f"usage glyph is 20 cells wide: {usage_glyph!r} (len={len(usage_glyph)})")
+
+
 def _test_render_session_bar_usage_glyph_wiring() -> None:
     """render_session_bar (row 2, cc-tmux-braille-usage-glyph task 4.4): the
     combined 3-metric braille glyph (n=20, widened by
@@ -3817,6 +3871,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.resolve_session_pane_no_active_fallback", _test_cli_resolve_session_pane_no_active_fallback),
     ("render.session_bar_no_glyph", _test_render_session_bar_no_glyph),
     ("render.session_bar_usage_glyph_wiring", _test_render_session_bar_usage_glyph_wiring),
+    ("render.session_bar_model_colors_and_format", _test_render_session_bar_model_colors_and_format),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),
