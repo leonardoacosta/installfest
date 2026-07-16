@@ -1007,6 +1007,11 @@ BEADS_UNARCHIVED_HIGH = 5
 BEADS_BLOCKED_HIGH = 5
 
 _BEADS_SEP = f"#[fg={DIM}] | "
+# Plain (no tmux format tokens) counterpart of _BEADS_SEP — the separator used
+# when joining the PLAIN segment variants for pour-transition math (see
+# render_beads_bar's pour-transition wiring; mirrors _pulse_segment's
+# (plain, colored) split).
+_BEADS_SEP_PLAIN = " | "
 
 
 def _threshold_color(n: int, high: int) -> str:
@@ -1028,8 +1033,9 @@ def _pulse_segment(
     suffix3: str,
     age_sec: Optional[float],
     high: int,
-) -> str:
-    """One ``"label: N1suffix1 N2suffix2 N3suffix3 (age)"`` segment.
+) -> Tuple[str, str]:
+    """``(plain, colored)`` pair for one
+    ``"label: N1suffix1 N2suffix2 N3suffix3 (age)"`` segment.
 
     Renders cc's abbreviated roadmap-pulse shape (if-bqw.1) — e.g.
     ``"op: 1o 0ip 0ua"`` or ``"bd: 1o 1r 0b"`` — where each count's suffix is
@@ -1039,15 +1045,25 @@ def _pulse_segment(
     via :func:`_threshold_color`; its suffix reverts to DIM immediately
     after. ``age_sec`` beyond ``BEADS_STALE_AFTER_SEC`` appends a DIM
     trailing ``" (<duration>)"`` marker, independent per segment.
+
+    Returns BOTH a plain-text variant (no ``#[fg=...]`` tmux format tokens —
+    the safe input for :func:`pour_transition_text`'s character-by-character
+    animation, which has no awareness of those tokens and would otherwise
+    animate/corrupt them mid-transition — see :func:`render_beads_bar`'s
+    pour-transition wiring) and the colour-decorated variant used once
+    settled, mirroring :func:`_format_reset_line`'s ``(plain, colored)``
+    contract.
     """
     n3_color = _threshold_color(n3, high)
-    seg = (
-        f"#[fg={DIM}]{label}: {n1}{suffix1} {n2}{suffix2} "
-        f"#[fg={n3_color}]{n3}#[fg={DIM}]{suffix3}"
-    )
+    age_suffix = ""
     if age_sec is not None and age_sec > BEADS_STALE_AFTER_SEC:
-        seg += f" ({format_duration(age_sec)})"
-    return seg
+        age_suffix = f" ({format_duration(age_sec)})"
+    plain = f"{label}: {n1}{suffix1} {n2}{suffix2} {n3}{suffix3}{age_suffix}"
+    colored = (
+        f"#[fg={DIM}]{label}: {n1}{suffix1} {n2}{suffix2} "
+        f"#[fg={n3_color}]{n3}#[fg={DIM}]{suffix3}{age_suffix}"
+    )
+    return plain, colored
 
 
 def render_beads_bar(
@@ -1148,26 +1164,28 @@ def render_beads_bar(
 
     Pure function of its inputs (no tmux/subprocess).
     """
-    left_segments = []
+    left_segments_plain: List[str] = []
+    left_segments_colored: List[str] = []
     if (
         openspec_open is not None
         and openspec_in_progress is not None
         and openspec_ua is not None
     ):
-        left_segments.append(
-            _pulse_segment(
-                "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
-                openspec_age_sec, BEADS_UNARCHIVED_HIGH,
-            )
+        plain, colored = _pulse_segment(
+            "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
+            openspec_age_sec, BEADS_UNARCHIVED_HIGH,
         )
+        left_segments_plain.append(plain)
+        left_segments_colored.append(colored)
     if beads_open is not None and beads_ready is not None and beads_blocked is not None:
-        left_segments.append(
-            _pulse_segment(
-                "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
-                beads_age_sec, BEADS_BLOCKED_HIGH,
-            )
+        plain, colored = _pulse_segment(
+            "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
+            beads_age_sec, BEADS_BLOCKED_HIGH,
         )
-    counts_left = _BEADS_SEP.join(left_segments)
+        left_segments_plain.append(plain)
+        left_segments_colored.append(colored)
+    counts_left_plain = _BEADS_SEP_PLAIN.join(left_segments_plain)
+    counts_left = _BEADS_SEP.join(left_segments_colored)
 
     if now is None:
         # Byte-identical to pre-row3-next-cycle behavior — no phase logic,
@@ -1176,12 +1194,35 @@ def render_beads_bar(
     else:
         phase = beads_bar_phase(now)
         if phase == 1 and next_text is not None:
-            phase_content = next_text
+            # next_text (cli._parse_roadmap_pulse_next) is a raw line lifted
+            # verbatim out of the roadmap-pulse cache file — it never carries
+            # tmux #[...] format tokens, so plain == colored here; no split
+            # needed the way the op:/bd: counts require one.
+            phase_plain = next_text
+            phase_colored = next_text
         else:
-            phase_content = counts_left
-        if now is not None:
-            tick_in_phase = int((now % SWAP_PERIOD_SEC) / FRAME_PERIOD_SEC)
-            phase_content = pour_transition_text(phase_content, tick_in_phase)
+            phase_plain = counts_left_plain
+            phase_colored = counts_left
+        tick_in_phase = int((now % SWAP_PERIOD_SEC) / FRAME_PERIOD_SEC)
+        # pour_transition_text operates on the PLAIN variant only — it is a
+        # naive character-by-character animator with no awareness of tmux
+        # #[fg=...] format tokens, and running it on the colour-decorated
+        # string would animate/mangle those tokens' characters individually,
+        # corrupting them into literal visible glyphs once tmux fails to
+        # parse the partially-overwritten escape sequence (the "solid bar"
+        # bug — docs/screenshots/img-20260716-125148.png). Per its own
+        # docstring, pour_transition_text is a no-op once every position has
+        # settled, so an equality check against the plain input doubles as
+        # the "has this fully settled" detector without re-deriving the
+        # stagger/settle-horizon math here. Mid-animation the color spans
+        # can't be sub-divided per character, so the poured (plain) glyphs
+        # render uncolored; the colour-decorated variant is swapped back in
+        # only once settled.
+        poured_plain = pour_transition_text(phase_plain, tick_in_phase)
+        if poured_plain == phase_plain:
+            phase_content = phase_colored
+        else:
+            phase_content = poured_plain
         if phase_content:
             glyph = beads_bar_countdown_glyph(now)
             left = f"#[fg={DIM}]{glyph}#[default] {phase_content}"

@@ -2102,6 +2102,21 @@ def _test_cli_parse_roadmap_pulse_next() -> None:
     )
 
 
+def _beads_bar_expected_phase_content(plain: str, colored: str, tick: int) -> str:
+    """Test-side re-derivation of render_beads_bar's pour/settle contract
+    (cc-tmux-row3-pour-transition-escape-fix): pour_transition_text runs on
+    the PLAIN variant only (tmux ``#[fg=...]`` format tokens are never safe
+    to animate char-by-char — that was the "solid bar" bug,
+    docs/screenshots/img-20260716-125148.png). ``pour_transition_text`` is a
+    documented no-op once every position has settled, so an equality check
+    against the plain input doubles as the settled detector: mid-animation
+    the poured (plain, uncolored) glyphs render; once settled, the
+    colour-decorated variant swaps back in.
+    """
+    poured = render.pour_transition_text(plain, tick)
+    return colored if poured == plain else poured
+
+
 def _test_render_beads_bar_next_cycle() -> None:
     """cc-tmux-row3-next-cycle (design.md § render_beads_bar, task 4.3):
     ``now=None`` (the default) renders BYTE-IDENTICAL to the pre-feature
@@ -2112,6 +2127,14 @@ def _test_render_beads_bar_next_cycle() -> None:
     right-aligned account segment renders identically across every
     phase/``now``/``None`` combination. "Nothing available" still renders
     ``""`` in every combination.
+
+    cc-tmux-row3-pour-transition-escape-fix: the op:/bd: counts carry embedded
+    tmux ``#[fg=...]`` format tokens (:func:`render._pulse_segment`'s colored
+    variant), which :func:`render.pour_transition_text` must never see
+    directly (see :func:`_beads_bar_expected_phase_content`) -- the PLAIN
+    variant (``_pulse_segment``'s other half) is what actually feeds the
+    pour math; ``next_text`` (a raw roadmap-pulse cache line, never
+    tmux-decorated) needs no such split.
     """
     D = render.DIM
     period = render.SWAP_PERIOD_SEC
@@ -2134,34 +2157,44 @@ def _test_render_beads_bar_next_cycle() -> None:
         "now=None with next_text supplied -> still byte-identical (next_text ignored)",
     )
 
-    # (b) now at phase 0 -> op:/bd: counts, POURED. cc-tmux-row3-pour-transition:
-    # whenever now is not None, render_beads_bar runs phase_content through
-    # render.pour_transition_text. now_phase0=0.0 -> tick_in_phase 0, where every
-    # character (tmux format tokens included) settles to POUR_FRAMES[0] -- so the
-    # whole counts string renders as pour glyphs, NOT the real counts, behind the
-    # (unaffected) countdown-glyph prefix. Expected string derived from
-    # pour_transition_text itself, not hand-written.
+    # (b) now at phase 0 -> op:/bd: counts, POURED on the PLAIN variant (no
+    # format tokens for pour_transition_text to corrupt), rendered uncolored
+    # while mid-animation. now_phase0=0.0 -> tick_in_phase 0, where every
+    # plain character settles to POUR_FRAMES[0] -- the whole counts string
+    # renders as pour glyphs, NOT the real counts, behind the (unaffected)
+    # countdown-glyph prefix.
     now_phase0 = 0.0
     _check(render.beads_bar_phase(now_phase0) == 0, "sanity: now_phase0 lands in phase 0")
     glyph0 = render.beads_bar_countdown_glyph(now_phase0)
-    counts_left = reference[: -len("#[default]")]  # reference == counts_left + '#[default]'
+    plain_op, _ = render._pulse_segment(
+        "op", 12, "o", 1, "ip", 0, "ua", None, render.BEADS_UNARCHIVED_HIGH
+    )
+    plain_bd, _ = render._pulse_segment(
+        "bd", 1, "o", 5, "r", 0, "b", None, render.BEADS_BLOCKED_HIGH
+    )
+    counts_left_plain = render._BEADS_SEP_PLAIN.join([plain_op, plain_bd])
     tick0 = int((now_phase0 % period) / render.FRAME_PERIOD_SEC)
     _check(tick0 == 0, f"sanity: now_phase0 is tick 0 in-phase, got {tick0}")
-    poured0 = render.pour_transition_text(counts_left, tick0)
+    poured0 = render.pour_transition_text(counts_left_plain, tick0)
     _check(
-        poured0 == render.POUR_FRAMES[0] * len(counts_left),
-        "sanity: tick 0 pours every counts char to POUR_FRAMES[0]",
+        poured0 == render.POUR_FRAMES[0] * len(counts_left_plain),
+        "sanity: tick 0 pours every PLAIN counts char (no format tokens) to POUR_FRAMES[0]",
+    )
+    _check(
+        "#[" not in poured0,
+        "sanity: poured plain counts carry zero tmux format tokens (the escape-corruption bug this guards)",
     )
     out_phase0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase0)
     _check(
         out_phase0 == f"#[fg={D}]{glyph0}#[default] {poured0}#[default]",
-        f"phase 0 -> glyph-prefixed, POURED op:/bd: counts at tick 0: {out_phase0!r}",
+        f"phase 0 -> glyph-prefixed, POURED (plain, uncolored) op:/bd: counts at tick 0: {out_phase0!r}",
     )
 
     # (c) now at phase 1 with next_text present -> ONLY next_text (POURED), no
-    # op:/bd: segments anywhere, glyph-prefixed. now_phase1 = period+1.0 ->
-    # tick_in_phase 1 (still pouring): the first char has advanced one frame
-    # while trailing chars lag.
+    # op:/bd: segments anywhere, glyph-prefixed. next_text is never
+    # tmux-decorated, so it pours directly (no plain/colored split needed).
+    # now_phase1 = period+1.0 -> tick_in_phase 1 (still pouring): the first
+    # char has advanced one frame while trailing chars lag.
     now_phase1 = period + 1.0
     _check(render.beads_bar_phase(now_phase1) == 1, "sanity: now_phase1 lands in phase 1")
     glyph1 = render.beads_bar_countdown_glyph(now_phase1)
@@ -2179,12 +2212,13 @@ def _test_render_beads_bar_next_cycle() -> None:
     )
 
     # (d) now at phase 1 with next_text=None -> falls back to phase-0 content
-    # (POURED at the phase-1 tick, still glyph-prefixed with the phase-1 glyph).
+    # (POURED plain, uncolored, at the phase-1 tick, still glyph-prefixed with
+    # the phase-1 glyph).
     out_phase1_no_next = render.render_beads_bar(*counts_args, next_text=None, now=now_phase1)
-    poured_counts1 = render.pour_transition_text(counts_left, tick1)
+    poured_counts1 = render.pour_transition_text(counts_left_plain, tick1)
     _check(
         out_phase1_no_next == f"#[fg={D}]{glyph1}#[default] {poured_counts1}#[default]",
-        f"phase 1, next_text=None -> falls back to POURED op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
+        f"phase 1, next_text=None -> falls back to POURED (plain) op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
     )
 
     # (e) Account segment renders identically across every phase/now/None
@@ -2296,6 +2330,15 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
     byte-identical across the two phases (same motion regardless of which line
     is showing); and several ticks past a boundary the content has fully
     settled to the real text (== the ``now=None`` reference).
+
+    cc-tmux-row3-pour-transition-escape-fix: the op:/bd: counts half of that
+    transition runs on the PLAIN (no tmux ``#[fg=...]`` tokens) variant --
+    see :func:`_beads_bar_expected_phase_content` -- since pour_transition_text
+    has no awareness of format tokens and would otherwise animate/corrupt them
+    character-by-character (the "solid bar" bug,
+    docs/screenshots/img-20260716-125148.png). ``next_text`` carries no format
+    tokens in the first place (a raw roadmap-pulse cache line), so its half of
+    this test is unaffected by the fix.
     """
     D = render.DIM
     period = render.SWAP_PERIOD_SEC
@@ -2304,6 +2347,13 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
 
     reference = render.render_beads_bar(*counts_args)  # now=None -> settled counts
     counts_left = reference[: -len("#[default]")]  # reference == counts_left + '#[default]'
+    plain_op, _ = render._pulse_segment(
+        "op", 12, "o", 1, "ip", 0, "ua", None, render.BEADS_UNARCHIVED_HIGH
+    )
+    plain_bd, _ = render._pulse_segment(
+        "bd", 1, "o", 5, "r", 0, "b", None, render.BEADS_BLOCKED_HIGH
+    )
+    counts_left_plain = render._BEADS_SEP_PLAIN.join([plain_op, plain_bd])
 
     # --- Phase-0 swap boundary (now = 2*period = 16.0 -> phase 0, tick 0):
     # op:/bd: content shows transition glyphs, not the real counts. ---
@@ -2312,10 +2362,14 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
     tick_p0 = int((now_p0 % period) / render.FRAME_PERIOD_SEC)
     _check(tick_p0 == 0, f"sanity: swap boundary is tick 0, got {tick_p0}")
     glyph_p0 = render.beads_bar_countdown_glyph(now_p0)
-    poured_counts0 = render.pour_transition_text(counts_left, tick_p0)
+    poured_counts0 = render.pour_transition_text(counts_left_plain, tick_p0)
     _check(
-        poured_counts0 == render.POUR_FRAMES[0] * len(counts_left),
-        "phase-0 boundary: every counts char (format tokens included) -> POUR_FRAMES[0]",
+        poured_counts0 == render.POUR_FRAMES[0] * len(counts_left_plain),
+        "phase-0 boundary: every PLAIN counts char -> POUR_FRAMES[0]",
+    )
+    _check(
+        "#[" not in poured_counts0,
+        "phase-0 boundary: poured counts carry zero tmux format tokens",
     )
     out_p0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_p0)
     _check(
@@ -2345,8 +2399,10 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
     )
 
     # --- Same motion regardless of phase: over a full tick sweep (0..5), the
-    # left content is pour_transition_text(<that phase's content>, tick) using
-    # the SAME function and SAME tick derivation in both phases. ---
+    # left content is _beads_bar_expected_phase_content(<phase's plain/colored
+    # pair>, tick) using the SAME pour_transition_text/tick derivation in both
+    # phases -- poured+uncolored while mid-animation, colour-decorated once
+    # settled. ---
     for tick in range(6):
         now0 = 2 * period + tick  # phase 0, tick_in_phase == tick
         now1 = period + tick      # phase 1, tick_in_phase == tick
@@ -2354,11 +2410,13 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
         _check(render.beads_bar_phase(now1) == 1, f"sanity: now1 tick {tick} is phase 1")
         g0 = render.beads_bar_countdown_glyph(now0)
         g1 = render.beads_bar_countdown_glyph(now1)
-        exp0 = f"#[fg={D}]{g0}#[default] {render.pour_transition_text(counts_left, tick)}#[default]"
-        exp1 = f"#[fg={D}]{g1}#[default] {render.pour_transition_text(next_text, tick)}#[default]"
+        content0 = _beads_bar_expected_phase_content(counts_left_plain, counts_left, tick)
+        content1 = _beads_bar_expected_phase_content(next_text, next_text, tick)
+        exp0 = f"#[fg={D}]{g0}#[default] {content0}#[default]"
+        exp1 = f"#[fg={D}]{g1}#[default] {content1}#[default]"
         _check(
             render.render_beads_bar(*counts_args, next_text=next_text, now=now0) == exp0,
-            f"phase 0 tick {tick}: counts poured via pour_transition_text",
+            f"phase 0 tick {tick}: counts poured (plain) then re-colored once settled",
         )
         _check(
             render.render_beads_bar(*counts_args, next_text=next_text, now=now1) == exp1,
@@ -2370,7 +2428,7 @@ def _test_render_beads_bar_pour_transition_wiring() -> None:
     now_settled = 2 * period + 5  # phase 0, tick 5 == settle horizon
     g_settled = render.beads_bar_countdown_glyph(now_settled)
     _check(
-        render.pour_transition_text(counts_left, 5) == counts_left,
+        render.pour_transition_text(counts_left_plain, 5) == counts_left_plain,
         "sanity: tick 5 is fully settled (pour is a no-op regardless of length)",
     )
     _check(
