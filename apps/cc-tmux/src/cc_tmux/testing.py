@@ -2484,8 +2484,8 @@ def _test_render_tabs_row_tab_rows_param() -> None:
     # would, and confirm the two rows match exactly (front-loaded: window 1
     # alone on row 0, window 2 alone on row 1, for a 2-segment/2-row split).
     icon_waiting = render.animated_icon("waiting", 1.0)
-    seg1 = f"#[fg={render.DIM}]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]"
-    seg2 = f"#[fg={render.CYAN},bold]#[range=window|2] 2 shell #[norange]#[default]"
+    seg1 = f"#[fg={render.DIM}]#[range=window|1] {icon_waiting} editor #[norange]#[default]"
+    seg2 = f"#[fg={render.CYAN},bold]#[range=window|2] shell #[norange]#[default]"
     expected_rows = render._partition_segments([seg1, seg2], 2)
     _check(parts == expected_rows, f"tab_rows=2 output matches _partition_segments of the built segments: {parts!r}")
     _check(parts[0] == seg1, "row 0 carries window 1's segment alone")
