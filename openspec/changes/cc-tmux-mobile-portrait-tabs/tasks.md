@@ -35,10 +35,10 @@
 
 ## API Batch
 
-- [ ] [2.1] `home/dot_config/tmux/tmux.conf.tmpl`: add `#{client_width}` `#{client_height}` as [beads:if-0v8k]
+- [x] [2.1] `home/dot_config/tmux/tmux.conf.tmpl`: add `#{client_width}` `#{client_height}` as [beads:if-0v8k]
   additional arguments to the `status-format[0]` render-all job string (alongside the existing
   `#{window_id}`). [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py` (`cmd_render_all`/`_build_tabs_row`): accept the [beads:if-13t7]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/cli.py` (`cmd_render_all`/`_build_tabs_row`): accept the [beads:if-13t7]
   new `client_width`/`client_height` arguments, call `_detect_portrait`, and widen each tab
   segment's horizontal padding/spacing (no escape sequence — task 1.1 confirmed OSC 66 does not
   render at scale here) when in portrait mode. Call `_compute_tab_rows` to determine
