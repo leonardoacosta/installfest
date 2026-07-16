@@ -46,11 +46,19 @@ if command -v chezmoi >/dev/null 2>&1; then
         ;; esac
 fi
 
-# --- ZSA Voyager firmware check (Mac-only, self-gating, backgrounded) ---
+# --- ZSA Voyager firmware (self-gating per-hostname, backgrounded) -----
+# Mac: notice a staged .bin in Downloads and drive the notify/flash-poll.
+# Homelab: poll Oryx for a layout change and build+ship if there is one.
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" ]; then
-    REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
-    disown 2>/dev/null || true
+if [ -n "$REPO_ROOT" ]; then
+    if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" ]; then
+        nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
+    if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-build.sh" ]; then
+        REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-build.sh" </dev/null >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
 fi
 
 exit 0

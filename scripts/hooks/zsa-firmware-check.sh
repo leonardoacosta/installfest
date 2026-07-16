@@ -1,28 +1,20 @@
 #!/bin/sh
 #
-# zsa-firmware-check.sh — Mac-only: check out the pinned ZSA Voyager
-# firmware submodule commit, fetch its GH-Action-built artifact, stage it
-# in ~/Downloads, and drive the (unavoidably manual) flash step via nx
-# notifications.
+# zsa-firmware-check.sh — Mac-only: notice a freshly staged ZSA Voyager
+# firmware .bin in ~/Downloads and drive the (unavoidably manual) flash
+# step via nx notifications.
 #
-# Called from BOTH scripts/hooks/post-commit (local path: commit made
-# directly on the Mac) and scripts/hooks/remote-apply.sh (cross-machine
-# path: pushed from homelab, this runs after SSH lands on the Mac) — it
-# self-gates on macOS so it's a safe instant no-op everywhere else,
-# mirroring remote-apply.sh's existing Mac-only raycast-notify block.
-# This is what satisfies "ssh to the mac if not already on it": the
-# script itself doesn't SSH — whichever hook path is already running
-# (local on Mac, or post-SSH on Mac) just calls it in place.
-#
-# SOURCE LIVES AS A PINNED SUBMODULE, NOT A FREE-FLOATING CLONE:
-# apps/zsa-voyager-keymap (leonardoacosta/oryx-with-custom-qmk, forked
-# from poulainpi's template) is tracked by installfest itself at a
-# specific commit SHA. Advancing to newer firmware source is a deliberate
-# `git -C apps/zsa-voyager-keymap fetch && git submodule update --remote`
-# + a commit in installfest, not something this script does on its own —
-# its job is just to make sure whatever commit installfest's history
-# currently records is actually checked out on disk, then go get that
-# commit's built artifact.
+# Two call shapes:
+#   zsa-firmware-check.sh                  — generic check: look for the
+#     newest .bin under ~/Downloads, skip if we've already notified about
+#     that exact file (state file keyed by path+mtime). Called from
+#     scripts/hooks/post-commit (local path: commit made directly on the
+#     Mac) and scripts/hooks/remote-apply.sh (cross-machine path: pushed
+#     from homelab). Self-gates on macOS, safe no-op everywhere else.
+#   zsa-firmware-check.sh /path/to/file.bin — explicit handoff: skip the
+#     "what's new" guesswork entirely. Called by
+#     scripts/hooks/zsa-firmware-build.sh right after it scp's a freshly
+#     built artifact over from Homelab.
 #
 # WHY IT CAN'T FULLY AUTOMATE THE FLASH: ZSA's scriptable API (kontroll,
 # talking to Keymapp) exposes no flash RPC — see
@@ -31,8 +23,7 @@
 # (physical reset button, or a QK_BOOT key mapped in the layout) is a
 # real keypress a human makes on the keyboard itself; nothing on the
 # host side can inject that over USB. So this script automates
-# everything AROUND that one manual step: sync the submodule -> fetch
-# the built .bin for that commit -> stage it in ~/Downloads -> notify
+# everything AROUND that one manual step: notice the artifact -> notify
 # "ready, go press reset + flash in Keymapp" -> poll for the firmware
 # version to change -> announce completion (or a gentle nudge on
 # timeout — see the design note above the poll loop).
@@ -40,9 +31,6 @@
 # UNVERIFIED — see beads if-cgf5 for the live-verification follow-up:
 #   - Exact `kontroll status` output/exit-code shape connected vs not
 #     (no Mac access / kontroll install from this session to check).
-#   - GH Action artifact naming — the `gh run download --name firmware`
-#     guess below needs confirming against the real workflow's
-#     `actions/upload-artifact` step in leonardoacosta/oryx-with-custom-qmk.
 #   - Whether $NEXUS_ATTACH_SECRET loads from ~/.env in this
 #     non-interactive shell without the explicit source below.
 
@@ -55,16 +43,13 @@ case "$(uname -s)" in
 esac
 
 # --- Config ----------------------------------------------------------------
-REPO_ROOT="${REPO_ROOT:-$HOME/dev/personal/installfest}"
-ZSA_SUBMODULE_PATH="apps/zsa-voyager-keymap"
-ZSA_REPO_DIR="$REPO_ROOT/$ZSA_SUBMODULE_PATH"
-ZSA_GH_REPO="${ZSA_GH_REPO:-leonardoacosta/oryx-with-custom-qmk}"
-DOWNLOAD_DIR="$HOME/Downloads/zsa-voyager-firmware"
+DOWNLOADS_DIR="$HOME/Downloads"
 POLL_TIMEOUT_SECS="${ZSA_POLL_TIMEOUT_SECS:-900}"   # 15 min
 POLL_INTERVAL_SECS=15
 STATE_DIR="$HOME/.local/state"
+STATE_FILE="$STATE_DIR/zsa-firmware-check.json"
 LOG="$STATE_DIR/if-deploy.log"
-mkdir -p "$STATE_DIR" "$DOWNLOAD_DIR"
+mkdir -p "$STATE_DIR"
 
 # nx_notify needs NEXUS_ATTACH_SECRET; non-interactive SSH/git-hook shells
 # don't source ~/.zshrc, so pull it from ~/.env directly (same file
@@ -75,62 +60,44 @@ mkdir -p "$STATE_DIR" "$DOWNLOAD_DIR"
 {
     echo "--- zsa-firmware-check $(date -u +%FT%TZ) ---"
 
-    if [ ! -d "$REPO_ROOT/.git" ]; then
-        echo "err: $REPO_ROOT is not a git repo (REPO_ROOT=$REPO_ROOT)"
-        exit 0
-    fi
-
     if ! command -v kontroll >/dev/null 2>&1; then
         echo "skip: kontroll not installed (github.com/zsa/kontroll releases)"
         exit 0
     fi
 
-    # --- Sync the submodule to whatever commit installfest pins --------
-    PRE_SHA=""
-    [ -d "$ZSA_REPO_DIR/.git" ] && PRE_SHA=$(git -C "$ZSA_REPO_DIR" rev-parse HEAD 2>/dev/null)
-
-    if ! git -C "$REPO_ROOT" submodule update --init --recursive -- "$ZSA_SUBMODULE_PATH" >/dev/null 2>&1; then
-        echo "err: git submodule update failed for $ZSA_SUBMODULE_PATH"
-        exit 0
-    fi
-    POST_SHA=$(git -C "$ZSA_REPO_DIR" rev-parse HEAD 2>/dev/null)
-    REPO_CHANGED=0
-    [ "$PRE_SHA" != "$POST_SHA" ] && REPO_CHANGED=1
-
-    # --- Best-effort: fetch the GH Action's built artifact for this commit ---
-    # Artifact name "firmware" is a guess — confirm against the real
-    # workflow's upload-artifact step (beads if-cgf5).
-    if command -v gh >/dev/null 2>&1; then
-        gh run download --repo "$ZSA_GH_REPO" --dir "$DOWNLOAD_DIR" --name firmware >/dev/null 2>&1 \
-            && REPO_CHANGED=1
-    fi
-
-    if [ "$REPO_CHANGED" -eq 0 ]; then
-        echo "skip: submodule unchanged ($POST_SHA) and no new artifact"
-        exit 0
-    fi
-    echo "firmware updated: submodule $PRE_SHA -> $POST_SHA"
-
-    # --- Locate the newest built artifact (BSD stat -f, macOS-only) -----
-    FW_FILE=""
-    FW_MTIME=0
-    for f in "$DOWNLOAD_DIR"/*.bin "$DOWNLOAD_DIR"/*/*.bin; do
-        [ -f "$f" ] || continue
-        m=$(stat -f '%m' "$f" 2>/dev/null) || continue
-        if [ "$m" -gt "$FW_MTIME" ]; then
-            FW_MTIME="$m"
-            FW_FILE="$f"
+    # --- Which file are we checking? ------------------------------------
+    if [ -n "$1" ]; then
+        FW_FILE="$1"
+        if [ ! -f "$FW_FILE" ]; then
+            echo "err: explicit firmware path $FW_FILE does not exist"
+            exit 0
         fi
-    done
-    if [ -z "$FW_FILE" ]; then
-        echo "skip: no .bin firmware artifact found under $DOWNLOAD_DIR"
-        exit 0
+        echo "explicit handoff: $FW_FILE"
+    else
+        FW_FILE=""
+        FW_MTIME=0
+        for f in "$DOWNLOADS_DIR"/*.bin; do
+            [ -f "$f" ] || continue
+            m=$(stat -f '%m' "$f" 2>/dev/null) || continue
+            if [ "$m" -gt "$FW_MTIME" ]; then
+                FW_MTIME="$m"
+                FW_FILE="$f"
+            fi
+        done
+        if [ -z "$FW_FILE" ]; then
+            echo "skip: no .bin under $DOWNLOADS_DIR"
+            exit 0
+        fi
+        # Dedup: don't re-notify about a file we already handled.
+        LAST_FILE=""
+        [ -f "$STATE_FILE" ] && LAST_FILE=$(grep -o '"file":"[^"]*"' "$STATE_FILE" 2>/dev/null | cut -d'"' -f4)
+        if [ "$FW_FILE" = "$LAST_FILE" ]; then
+            echo "skip: already notified about $FW_FILE"
+            exit 0
+        fi
+        echo "found: $FW_FILE"
     fi
-    echo "firmware artifact: $FW_FILE"
-
-    # --- Stage a flat copy directly in ~/Downloads for drag-into-Keymapp ---
-    DOWNLOADS_COPY="$HOME/Downloads/$(basename "$FW_FILE")"
-    [ "$FW_FILE" != "$DOWNLOADS_COPY" ] && cp -f "$FW_FILE" "$DOWNLOADS_COPY"
+    printf '{"file":"%s"}' "$FW_FILE" > "$STATE_FILE" 2>/dev/null
 
     # --- Keyboard connected? ----------------------------------------------
     # VERIFY LIVE (if-cgf5): assumes nonzero exit or "no keyboard"/"not

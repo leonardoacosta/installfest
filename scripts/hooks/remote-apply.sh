@@ -67,13 +67,20 @@ PRE_SHA="${1:-}"
         fi
     fi
 
-    # --- ZSA Voyager firmware check (Mac-only, self-gating, backgrounded) ---
-    # Detached so a 15-min flash-confirmation poll never holds the SSH
-    # session that invoked this script (pre-push's `deploy_remote` already
-    # backgrounds the whole SSH call, but the connection itself would stay
-    # open until every foreground child exits without this).
+    # --- ZSA Voyager firmware (self-gating per-hostname, backgrounded) -----
+    # This script runs on whichever machine is the deploy TARGET, so both
+    # calls are safe here: the Mac-gated check script no-ops on Homelab,
+    # the Homelab-gated build script no-ops on the Mac. Detached so a
+    # 15-min flash-confirmation poll (or a slow docker build) never holds
+    # the SSH session that invoked this script (pre-push's `deploy_remote`
+    # already backgrounds the whole SSH call, but the connection itself
+    # would stay open until every foreground child exits without this).
     if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" ]; then
-        REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
+        nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
+    if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-build.sh" ]; then
+        REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-build.sh" </dev/null >/dev/null 2>&1 &
         disown 2>/dev/null || true
     fi
 
