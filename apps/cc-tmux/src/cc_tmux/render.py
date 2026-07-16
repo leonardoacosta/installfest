@@ -921,6 +921,56 @@ def render_accounts_popup(
 # ---------------------------------------------------------------------------
 
 
+def _detect_portrait(client_width: int, client_height: int) -> bool:
+    """Whether the client is in portrait orientation (taller than wide).
+
+    Strictly ``client_height > client_width`` — landscape and the exact
+    square case (equal width/height) both return ``False``. Pure function,
+    no tmux dependency (cc-tmux-mobile-portrait-tabs task 1.2).
+    """
+    return client_height > client_width
+
+
+def _compute_tab_rows(tab_segments: List[str], client_width: int, mobile: bool) -> int:
+    """How many physical rows are needed to fit every tab segment without
+    horizontal overflow.
+
+    Each segment's effective width is ``len(segment)`` at 1x, or
+    ``len(segment) * 3`` when ``mobile`` — matching the padding-based 3x
+    mobile sizing decided by tasks.md task 1.1's live-verification outcome
+    (OSC 66 did not render at scale in this environment, so padding is the
+    active mechanism, not escape-sequence scaling). Sums every segment's
+    effective width, divides by ``client_width`` (ceiling division), and
+    always returns at least ``1`` — even for an empty ``tab_segments`` list
+    or a non-positive ``client_width`` (defensive floor; this function does
+    not itself validate caller-supplied dimensions).
+    """
+    if client_width <= 0:
+        return 1
+    multiplier = 3 if mobile else 1
+    total_width = sum(len(seg) * multiplier for seg in tab_segments)
+    if total_width <= 0:
+        return 1
+    rows = -(-total_width // client_width)  # ceiling division, stdlib-only
+    return max(1, rows)
+
+
+def _osc66_scale(text: str, scale: int = 3) -> str:
+    """Wrap ``text`` in a Kitty/Ghostty OSC 66 text-sizing escape sequence.
+
+    Returns ``ESC ]66;s={scale};{text} BEL`` (``ESC`` = ``0x1B``, ``BEL`` =
+    ``0x07``), built via ``chr()`` rather than backslash-escape notation to
+    sidestep markdown/shell/JSON escaping ambiguity in the source. Dead-but-
+    defined per tasks.md task 1.1's live-verification outcome — OSC 66 did
+    NOT render at scale on this fleet's actual terminal/tmux combination
+    (`tmux display-popup` prototype, 2026-07-16), so PADDING-ONLY is this
+    proposal's active mobile-sizing path. This helper is harmless to keep
+    defined for a future terminal/tmux version that adds real support, but
+    it is not wired into any active render call site by this task.
+    """
+    return f"{chr(0x1B)}]66;s={scale};{text}{chr(0x07)}"
+
+
 def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float) -> str:
     """Row-1 status-format string: one ``index:icon name`` segment per window.
 
