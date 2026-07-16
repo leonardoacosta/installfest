@@ -58,7 +58,11 @@ mkdir -p "$STATE_DIR"
 {
     echo "--- zsa-firmware-build $(date -u +%FT%TZ) ---"
 
-    if [ ! -d "$ZSA_DIR/.git" ]; then
+    # NOTE: a submodule's .git is a FILE (gitdir pointer), not a directory —
+    # `[ -d "$ZSA_DIR/.git" ]` always fails even when properly initialized.
+    # Caught live 2026-07-16: this check silently no-op'd every run against
+    # an already-initialized submodule until fixed. Use -e (file or dir).
+    if [ ! -e "$ZSA_DIR/.git" ]; then
         echo "err: $ZSA_DIR not initialized — run: git -C \"$REPO_ROOT\" submodule update --init apps/zsa-voyager-keymap"
         exit 0
     fi
