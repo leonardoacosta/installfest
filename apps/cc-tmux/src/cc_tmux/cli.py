@@ -1665,6 +1665,42 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
 # and render.render_tabs_row's own row-split (task 3.1) see the same value.
 _TAB_ROWS_OPT = "@cc-tab-rows"
 
+# Portrait multi-row transport (cc-tmux-mobile-portrait-tabs task 3.1). tmux
+# supports at most 5 status lines (`status` 0-5); the session bar and beads bar
+# always occupy the final two physical rows, so at most 3 physical tab rows can
+# be shown while keeping BOTH bars visible. A wider portrait split degrades to
+# 3 tab rows rather than pushing a bar off-screen. Physical rows 1..N-1 of the
+# tabs (row 0 goes to status-format[0] via render-all's stdout) are published to
+# `@cc-tab-row-1`..`@cc-tab-row-{N-1}`, which the theme files' status-format[K]
+# conditionals read when `@cc-tab-rows` > K (task 3.2).
+_MAX_TAB_ROWS = 3
+_TAB_ROW_OPT_PREFIX = "@cc-tab-row-"
+
+
+def _publish_multirow_status(rows: List[str], tab_rows: int) -> None:
+    """Publish the portrait tab-continuation rows + grow ``status`` (task 3.1).
+
+    ``rows`` is :func:`render.render_tabs_row`'s output split on ``\\n``; row 0
+    is returned by :func:`_build_tabs_row` to become ``status-format[0]``
+    (render-all's stdout). This function publishes rows 1..N-1 to
+    ``@cc-tab-row-1``..``@cc-tab-row-{N-1}`` (the theme ``status-format[K]``
+    conditionals read them when ``@cc-tab-rows`` > K) and issues
+    ``set-option -g status <tab_rows + 2>`` so tmux allocates the extra physical
+    lines (session + beads always occupy the final two).
+
+    The FIXED pool ``@cc-tab-row-1``..``@cc-tab-row-{_MAX_TAB_ROWS - 1}`` is
+    ALWAYS (re)written — to the row content when present, else ``""`` — so a
+    stale portrait row can never linger after the client returns to landscape.
+    Landscape (``tab_rows == 1``) therefore clears every continuation option and
+    sets ``status`` back to ``3`` — byte-identical to today's fixed
+    ``set -g status 3``. Fail-open (invariant 5): each tmux write is independent;
+    a partial publish degrades a row, never crashes the render-all tick.
+    """
+    for k in range(1, _MAX_TAB_ROWS):
+        value = rows[k] if k < len(rows) else ""
+        tmux.set_global_option(f"{_TAB_ROW_OPT_PREFIX}{k}", value)
+    tmux.set_global_option("status", str(tab_rows + 2))
+
 
 def _widen_tab_name_for_mobile(name: str) -> str:
     """Pad ``name`` so its length roughly triples (portrait/mobile fallback).
@@ -1730,6 +1766,7 @@ def _build_tabs_row(
     windows = tmux.get_window_tabs()
     if not windows:
         tmux.set_global_option(_TAB_ROWS_OPT, "1")
+        _publish_multirow_status([""], 1)  # reset to landscape (status 3, no extra rows)
         return ""
     # Sub-agent overlay (cc-tmux-subagent-tab-icon): prune each window's raw
     # (unpruned) @cc-subagent-bg union in place before handing windows to
@@ -1759,11 +1796,23 @@ def _build_tabs_row(
     )
     base_segments = [f"{w.index} {w.name}" for w in windows]
     tab_rows = render._compute_tab_rows(base_segments, client_width or 0, mobile)
+    # Clamp to the tmux status-line ceiling (see _MAX_TAB_ROWS) so session +
+    # beads always keep a physical row; publish the CLAMPED value so the theme
+    # conditionals and the actual row split agree.
+    tab_rows = min(tab_rows, _MAX_TAB_ROWS)
     tmux.set_global_option(_TAB_ROWS_OPT, str(tab_rows))
     if mobile:
         for w in windows:
             w.name = _widen_tab_name_for_mobile(w.name)
-    return render.render_tabs_row(windows, active_window_id, now)
+    tabs = render.render_tabs_row(windows, active_window_id, now, tab_rows=tab_rows)
+    # Row 0 -> status-format[0] (this function's return, written to render-all's
+    # stdout); rows 1..N-1 -> @cc-tab-row-K options + grow `status` (task 3.1).
+    # render_tabs_row joins physical rows with "\n"; landscape (tab_rows == 1)
+    # has no newline, so rows == [tabs] and the transport publish resets to the
+    # byte-identical landscape state (status 3, empty continuation options).
+    rows = tabs.split("\n")
+    _publish_multirow_status(rows, tab_rows)
+    return rows[0]
 
 
 # Global user options carrying the pre-rendered rows 2/3 for status-format[1]/[2]
