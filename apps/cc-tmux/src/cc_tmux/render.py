@@ -61,15 +61,15 @@ DEFAULT_ICONS: Dict[str, str] = {
 #     NOT animated — nothing is happening, so nothing should move.
 # ---------------------------------------------------------------------------
 
-SHADE_FRAMES: Tuple[str, ...] = ("░", "▒", "▓", "█", "▓", "▒", "░")
-BLOCK_FRAMES: Tuple[str, ...] = ("▁", "▏", "▔", "▕")
 IDLE_GLYPH = "█"
 
 # cc-tmux-braille-flash-and-permission-pulse (design.md § Glyph picks): dedicated
-# 2-frame flash pairs that replace BLOCK_FRAMES (active/thinking) and SHADE_FRAMES
-# (waiting) in `animated_icon` (task 2.1 wires the actual swap; this task only adds
-# the constants). PERMISSION_PULSE_FRAMES reuses the circle-with-dot glyphs freed by
-# the SUBAGENT_FG_1/SUBAGENT_FG_2PLUS rename below — `◉` is colored YELLOW, `◎`
+# 2-frame flash pairs that replace the former BLOCK_FRAMES (active/thinking) and
+# SHADE_FRAMES (waiting) full-cycle animations in `animated_icon` (task 2.1 wired
+# the swap; those two constants have since been removed — zero remaining
+# references after task 3.1's testing.py rewrite, per the post-wave review gate).
+# PERMISSION_PULSE_FRAMES reuses the circle-with-dot glyphs freed by the
+# SUBAGENT_FG_1/SUBAGENT_FG_2PLUS rename below — `◉` is colored YELLOW, `◎`
 # default/unstyled (task 2.3 wires the color branch in `resolve_tab_glyph`).
 ACTIVE_FLASH_FRAMES: Tuple[str, str] = ("⠋", "⠙")
 PERMISSION_PULSE_FRAMES: Tuple[str, str] = ("◉", "◎")
