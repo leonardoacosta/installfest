@@ -21,18 +21,18 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: `animated_icon` — `active` branch indexes [beads:if-iyir]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: `animated_icon` — `active` branch indexes [beads:if-iyir]
   `ACTIVE_FLASH_FRAMES` by `int(now / FRAME_PERIOD_SEC) % 2` instead of `BLOCK_FRAMES`;
   `waiting` branch indexes `PERMISSION_PULSE_FRAMES` the same way instead of `SHADE_FRAMES`.
   Remove `BLOCK_FRAMES`/`SHADE_FRAMES` if nothing else references them after this change (check
   first — cite the grep result in the commit). [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: `resolve_tab_icon` — each of the four [beads:if-1vyo]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: `resolve_tab_icon` — each of the four [beads:if-1vyo]
   `return SUBAGENT_*` branches becomes `return SUBAGENT_*_FLASH_FRAMES[int(now /
   FRAME_PERIOD_SEC) % 2]` per design.md's mapping (FG>=2 -> FG2PLUS pair, FG==1 -> FG1 pair,
   BG>=2 -> BG2PLUS pair, BG==1 -> BG1 pair). Precedence order and thresholds UNCHANGED — only
   the returned value per branch changes from a static glyph to a flashing pair index.
   [owner:general-purpose] [type:api]
-- [ ] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: `resolve_tab_glyph` — add a new branch: when [beads:if-bb17]
+- [x] [2.3] `apps/cc-tmux/src/cc_tmux/render.py`: `resolve_tab_glyph` — add a new branch: when [beads:if-bb17]
   `state == "waiting"`, compute the current permission-pulse frame and its color (`YELLOW` for
   `PERMISSION_PULSE_FRAMES[0]` i.e. `◉`, `""` for `PERMISSION_PULSE_FRAMES[1]` i.e. `◎`), and
   return `(icon, color)` instead of falling through to the generic `(resolve_tab_icon(...), "")`
