@@ -7,8 +7,12 @@ two HTTP surfaces on nx-agent (port 7400 — the SAME host :mod:`usage` already
 queries for ``/credentials``) in its place:
 
 * ``GET /sessions/:id/context`` — session-id-keyed, in-memory, ~600s TTL. Carries
-  ``usedPercentage`` / ``contextWindowSize`` / ``updatedAt`` / ``sessionId``
-  (nx's ``SessionContextResponse`` type). No model tag.
+  ``usedPercentage`` / ``contextWindowSize`` / ``updatedAt`` / ``sessionId`` /
+  ``model`` (nx-yn6c2 extended ``SessionContextResponse`` with a model tag;
+  :func:`cli.py`'s row-2 SES letter reads it via ``ctx.get("model")``). A
+  session that never forwarded a real model to nx-agent's ``session_start``
+  event (if-bqw.2 — the ``telemetry.sh`` phantom ``CLAUDE_MODEL`` env var bug)
+  gets back ``model: None`` here, not a missing key.
 * ``GET /projects/:id/status`` — project-code-keyed, backed by a 60s-polling
   git-observer. Its optional ``git`` sub-object carries ``branch`` / ``headSha`` /
   ``detached`` / ``dirty: {modified, untracked}`` / ``observedAt``.
