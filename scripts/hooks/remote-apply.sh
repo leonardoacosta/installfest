@@ -67,6 +67,16 @@ PRE_SHA="${1:-}"
         fi
     fi
 
+    # --- ZSA Voyager firmware check (Mac-only, self-gating, backgrounded) ---
+    # Detached so a 15-min flash-confirmation poll never holds the SSH
+    # session that invoked this script (pre-push's `deploy_remote` already
+    # backgrounds the whole SSH call, but the connection itself would stay
+    # open until every foreground child exits without this).
+    if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" ]; then
+        nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    fi
+
     echo "=== exit $rc ==="
 } >> "$LOG" 2>&1
 
