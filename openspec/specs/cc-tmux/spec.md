@@ -139,13 +139,15 @@ user's own `pane-focus-in` hook is never clobbered. Tracking MUST be disableable
 
 ### Requirement: Opt-in window rename supports a project-code + session-title format
 When `@cc-window-rename` is on and `@cc-window-rename-format` is `title`, the plugin SHALL rename
-the pane's window to `<project-code>·<session-title>`, hard-truncated to 20 characters combined.
-The project code SHALL resolve from the dotfiles project registry (`home/projects.toml`) by the
-pane's current directory; the session title SHALL be captured from the `SessionStart` hook
-payload's `session_title` field (the custom title if set via `/rename` or `-n`, else Claude's own
-default) and persisted in `@cc-title`. Either half MAY be absent; the plugin MUST fall back to
-whichever half resolved rather than leaving the window unnamed. The renamed text does NOT include
-a state icon — see "Animated tab icon" below for how the icon is rendered instead. The
+the pane's window to `<project-code>·<session-title>`, hard-truncated to 20 characters combined,
+WHENEVER a session title is present. The project code SHALL resolve from the dotfiles project
+registry (`home/projects.toml`) by the pane's current directory; the session title SHALL be
+captured from the `SessionStart` hook payload's `session_title` field (the custom title if set via
+`/rename` or `-n`, else Claude's own default) and persisted in `@cc-title`. When no session title
+is present (`@cc-title` unset or empty), the plugin SHALL fall back to the raw current-directory
+basename (`os.path.basename(pane_current_path)`) alone — the project-code prefix is used ONLY
+when a title is present, never as a title-absent fallback on its own. The renamed text does NOT
+include a state icon — see "Animated tab icon" below for how the icon is rendered instead. The
 `rename-window` command's actual success or failure SHALL be observed and reported (not assumed
 true once issued) — a failed rename MUST NOT be recorded as having renamed the window.
 
@@ -161,11 +163,19 @@ true once issued) — a failed rename MUST NOT be recorded as having renamed the
 - When: the window is renamed
 - Then: the window name is the title alone, truncated to 20 characters
 
-#### Scenario: no session title yet falls back to the resolved project name
-- Given: `@cc-title` is unset (no `SessionStart` hook has fired yet) and the registry has no code
-  for the pane's cwd
+#### Scenario: no session title falls back to the folder name, even inside a registered project
+- Given: `@cc-title` is unset or empty (no `SessionStart` hook has fired yet, or Claude never set
+  a title), and the pane's cwd IS inside a project registered in `home/projects.toml` with code
+  `if`
 - When: the window is renamed
-- Then: the window name falls back to `@cc-project` (git toplevel basename or dir name)
+- Then: the window name is the raw current-directory basename alone (e.g. `new-service`), NOT
+  `if` — the project-code prefix is not applied when there is no title to prefix
+
+#### Scenario: no session title and no registered project both fall back to the same folder name
+- Given: `@cc-title` is unset or empty, and the registry has no code for the pane's cwd
+- When: the window is renamed
+- Then: the window name is the raw current-directory basename alone — identical fallback whether
+  or not the project happens to be registered
 
 #### Scenario: a failed rename is reported as not fired
 - Given: `tmux rename-window` fails (non-zero exit, e.g. a stale pane id or a race with the
@@ -260,30 +270,33 @@ correctly via exactly this mechanism). No background process or timer SHALL be i
 this plugin to achieve the animation — the row is re-evaluated on tmux's existing
 `status-interval` cadence, identical to how row 2/row 3 already refresh, just via a job placed
 where jobs actually run. Each tracked state SHALL use a distinct visual language: `waiting`
-cycles a rising/falling shade pulse (`░▒▓█▓▒░`); `active` cycles a rotating block edge
-(`▁▏▔▕`); `idle` renders a single-cell session-usage meter (cc-tmux-idle-tab-usage-meter): a
-17-state ramp — `░` at state 0, braille fill `⡀⣀⣄⣤⣦⣶⣷` to `⣿` at 50%, braille drain
-`⢿⠿⠻⠛⠙⠉⠈` toward 93.75%, `▓` at the top state — indexed by `round(clamp(ratio, 0, 1) * 16)`
-where `ratio` is the session's absolute context-token burn over a fixed 1,000,000-token scale.
-The meter glyph's colour MUST come from the existing context-severity ramp
-(`resolve_context_color`) applied to the same raw token count — including its pulsing tiers —
-reused verbatim with no meter-specific colour logic. State 0 (nearly fresh) MUST flash by
-alternating `░` with a same-width blank on the same wall-clock parity the colour pulse uses;
-every other meter state renders a data-driven-static glyph that changes only when the
-underlying token count changes. When the session's raw token count is unavailable (`None`),
-the idle icon MUST fall back to the static glyph `█` with no meter colour applied — a data gap
-MUST NOT render as the fresh-session flash. A window with no tracked Claude pane MUST render
-no icon at all (not even the idle glyph).
+flashes between two braille glyphs (`◉` colored YELLOW, `◎` default/unstyled — a permission/
+question/plan/elicitation pulse, changed from the prior rising/falling shade sequence); `active`
+flashes between two braille glyphs (changed from the prior rotating block edge); `idle` renders a
+single-cell session-usage meter (cc-tmux-idle-tab-usage-meter): a 17-state ramp — `░` at state 0,
+braille fill `⡀⣀⣄⣤⣦⣶⣷` to `⣿` at 50%, braille drain `⢿⠿⠻⠛⠙⠉⠈` toward 93.75%, `▓` at the top
+state — indexed by `round(clamp(ratio, 0, 1) * 16)` where `ratio` is the session's absolute
+context-token burn over a fixed 1,000,000-token scale. The meter glyph's colour MUST come from
+the existing context-severity ramp (`resolve_context_color`) applied to the same raw token
+count — including its pulsing tiers — reused verbatim with no meter-specific colour logic. State
+0 (nearly fresh) MUST flash by alternating `░` with a same-width blank on the same wall-clock
+parity the colour pulse uses; every other meter state renders a data-driven-static glyph that
+changes only when the underlying token count changes. When the session's raw token count is
+unavailable (`None`), the idle icon MUST fall back to the static glyph `█` with no meter colour
+applied — a data gap MUST NOT render as the fresh-session flash. A window with no tracked Claude
+pane MUST render no icon at all (not even the idle glyph).
 
-#### Scenario: waiting state pulses through the shade sequence
+#### Scenario: waiting state pulses between the permission glyphs
 - Given: a window's highest-priority tracked state is `waiting`
 - When: the live tabs row is captured at two different wall-clock seconds one second apart
-- Then: it shows two different frames from `░▒▓█▓▒░` for that window, advancing by one position
+- Then: it shows `◉` (colored YELLOW) at one capture and `◎` (default color) at the other,
+  alternating by wall-clock tick parity
 
-#### Scenario: active state rotates through the block sequence
+#### Scenario: active state flashes between two braille glyphs
 - Given: a window's highest-priority tracked state is `active`
 - When: the live tabs row is captured at two different wall-clock seconds one second apart
-- Then: it shows two different frames from `▁▏▔▕` for that window, advancing by one position
+- Then: it shows two different frames from the dedicated active-state braille pair for that
+  window, alternating by wall-clock tick parity
 
 #### Scenario: idle meter reflects session usage on the 1M scale
 - Given: a window's highest-priority tracked state is `idle` with no sub-agent overlay, and its
@@ -465,12 +478,14 @@ usage" requirement for its (unchanged, now-degrading) sourcing.
 
 ### Requirement: A dedicated tmux status row shows session identity and usage
 The plugin SHALL render a dedicated tmux status row (`status-format[1]`) showing, left-justified,
-a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S), the project code, the git branch,
-and (when any of the six working-tree metrics below is nonzero) working-tree indicators.
-Right-justified on the same row, the plugin SHALL render Claude usage statistics for the active
-nexus-agent credential: a token-count label for SES (e.g. `252.5k:`, unchanged from the prior
-`cc-tmux-context-bar` format) plus exact `5H:xx%`/`7D:xx%` text, followed LAST by a combined
-Unicode Braille usage glyph (10 cells wide) encoding all three values in one glyph run — top two
+a single-letter model tag (Fable=F, Opus=O, Haiku=H, Sonnet=S) colored per model (see "Model
+letter color" below), the project code, the git branch, and (when any of the six working-tree
+metrics below is nonzero) working-tree indicators. Right-justified on the same row, the plugin
+SHALL render Claude usage statistics for the active nexus-agent credential: a token-count label
+for SES with NO trailing colon (e.g. `252.5k`, changed from the prior `cc-tmux-context-bar`
+format's `252.5k:`) plus exact `5H:xx%`/`7D:xx%` text (the `5H:`/`7D:` colons are UNCHANGED),
+followed by a single space and LAST a combined Unicode Braille usage glyph (20 cells wide,
+doubled from the prior 10-cell width) encoding all three values in one glyph run — top two
 dot-rows = SES, third dot-row = 5H, fourth (bottom) dot-row = 7D, each row an independent
 proportional left-to-right fill. The glyph renders in a neutral/unstyled color; the exact text
 values remain the sole color-coded signal (unchanged `usage.color_for`/`_context_color_pair`
@@ -478,10 +493,14 @@ thresholds). The active account's identity (email + org id) is NOT rendered on t
 the beads/proposals row requirement below, which now carries it. This row SHALL remain separate
 from the window-tabs row.
 
-**Model letter** (unchanged sourcing, disclosed degradation) and **branch** (unchanged dual
-source: nx `project_git_status` primary, local `@cc-branch` fallback) are UNCHANGED by this
-requirement version — see the prior MODIFIED delta (`cc-tmux-adopt-nx-context-and-git-status`)
-for their full contract, still in force.
+**Model letter color** (NEW): the model-letter segment SHALL be colored by the resolved model
+name — Opus=YELLOW, Sonnet=GREEN, Haiku=LIGHT_GREEN, Fable=RED — falling back to the prior
+static CYAN for an unrecognized or empty model value (fail-open, matching this row's existing
+"empty field drops out" convention). Model letter SOURCING (unchanged sourcing, disclosed
+degradation) and **branch** (unchanged dual source: nx `project_git_status` primary, local
+`@cc-branch` fallback) are otherwise UNCHANGED by this requirement version — see the prior
+MODIFIED delta (`cc-tmux-adopt-nx-context-and-git-status`) for their full sourcing contract,
+still in force; only the letter's COLOR is new.
 
 **Working-tree indicators** (per-field dual source, six metrics): the plugin SHALL render, in
 this fixed left-to-right order after the branch name, each of the following ONLY when its count
@@ -508,12 +527,13 @@ carries only `modified`/`untracked` — `deleted`/`renamed`/`ahead`/`behind` SHA
 to local until nx's payload is extended (tracked externally; this requirement's per-field
 resolution rule requires no future code change when that happens).
 
-**Combined usage glyph** (`render_usage_glyph`, 10 braille cells): for a metric with ratio `r`
+**Combined usage glyph** (`render_usage_glyph`, 20 braille cells): for a metric with ratio `r`
 (0..1) and a bit-order table of `k` bits per cell (SES: 4 bits/cell, rows 1-2; 5H: 2 bits/cell,
-row 3; 7D: 2 bits/cell, row 4), the total dot budget is `k * 10` and `dots_lit =
+row 3; 7D: 2 bits/cell, row 4), the total dot budget is `k * 20` and `dots_lit =
 round(r * budget)`, filled sequentially cell-by-cell left to right — the same segmented-fill
 principle as the prior token-count bar, generalized to 3 independently-filling rows sharing one
-10-cell run. A metric whose data is unavailable (see the unpolled scenario below) contributes
+20-cell run (doubled from the prior 10-cell run; the fill algorithm itself is unchanged, only the
+cell count). A metric whose data is unavailable (see the unpolled scenario below) contributes
 ZERO dots to its own row(s) only — other metrics' rows are unaffected (per-metric degrade, not an
 all-or-nothing glyph blackout).
 
@@ -521,10 +541,18 @@ all-or-nothing glyph blackout).
 - Given: a tracked Claude pane in project `if` on branch `main`, model Fable, and the active
   nexus-agent credential has usage data
 - When: the session-bar row renders
-- Then: the left side shows `F if > main` (model letter, project, branch) and the right side
-  shows `252.5k: 5H:xx% 7D:xx%` text (SES's token-count label plus 5H/7D percentages) followed
-  LAST by the combined 10-cell braille glyph with each row's fill proportional to that metric's
-  value — no account label or identity text appears anywhere on this row
+- Then: the left side shows `F if > main` (model letter in RED for Fable, project, branch) and
+  the right side shows `252.5k 5H:xx% 7D:xx%` text (SES's token-count label with no trailing
+  colon, plus 5H/7D percentages with their colons unchanged), a single space, then LAST the
+  combined 20-cell braille glyph with each row's fill proportional to that metric's value — no
+  account label or identity text appears anywhere on this row
+
+#### Scenario: the model letter is colored per model
+- Given: four separate tracked panes, one each running Opus, Sonnet, Haiku, and Fable
+- When: each pane's session-bar row renders
+- Then: the model letter renders YELLOW for Opus (`O`), GREEN for Sonnet (`S`), LIGHT_GREEN for
+  Haiku (`H`), and RED for Fable (`F`) — an unrecognized or empty model value falls back to the
+  prior static CYAN
 
 #### Scenario: modified and untracked prefer nx, deleted/renamed/ahead/behind fall back to local
 - Given: a tracked pane in project `if`; `GET /projects/if/status` returns a `git` object with
@@ -700,16 +728,36 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
   gated on the account segment's own absence)
 
 ### Requirement: The tmux status bar is three lines
-`home/dot_config/tmux/tmux.conf.tmpl` SHALL set `status 3`, and each shipped theme
-(`vercel-theme.conf`, `one-hunter-vercel-theme.conf`, `tokyo-night-abyss-theme.conf`,
-`nord-theme.conf`) SHALL define both `status-format[1]` and `status-format[2]`. A theme MUST NOT
-enable the three-line bar without defining both extra rows.
+`home/dot_config/tmux/tmux.conf.tmpl` SHALL set a BASE `status 3` (landscape/desktop default,
+UNCHANGED from the prior requirement version), and each shipped theme (`vercel-theme.conf`,
+`one-hunter-vercel-theme.conf`, `tokyo-night-abyss-theme.conf`, `nord-theme.conf`) SHALL define
+its session/usage and beads/proposals rows via a COMPUTED index (a `@cc-tab-rows` global tmux
+option the render job maintains) rather than the literal `status-format[1]`/`[2]` indices, so
+that on a portrait/mobile client where the tabs row wraps across N > 1 physical lines, the
+session-bar and beads-bar rows land at `status-format[N]`/`[N+1]` instead of colliding with
+wrapped tab content. On a landscape/desktop client (the common case), `@cc-tab-rows` resolves to
+`1` and this is BYTE-IDENTICAL to the prior fixed-index behavior — no visible change. A theme
+MUST NOT enable the three-plus-line bar without defining both extra rows relative to whatever
+`@cc-tab-rows` resolves to.
 
-#### Scenario: all four themes define both extra rows
-- Given: `status 3` is enabled in `tmux.conf.tmpl`
+#### Scenario: landscape client is byte-identical to the prior fixed-index behavior
+- Given: a client where `client_width >= client_height` (landscape/desktop)
+- When: the status bar renders
+- Then: `@cc-tab-rows` resolves to `1`, `status` is `3`, and `status-format[1]`/`[2]` hold the
+  session-bar/beads-bar content exactly as the prior requirement version specified
+
+#### Scenario: portrait client with wrapped tabs shifts the extra rows
+- Given: a client where `client_height > client_width` (portrait/mobile) and enough windows that
+  tabs wrap across 2 physical rows at the mobile tab size
+- When: the status bar renders
+- Then: `@cc-tab-rows` resolves to `2`, `status` is set to `4`, and the session-bar/beads-bar
+  content renders at `status-format[2]`/`[3]` — no row collision, no dropped content
+
+#### Scenario: all four themes define both extra rows relative to the computed index
+- Given: `@cc-tab-rows` has resolved to any value N >= 1
 - When: any of the four shipped themes is active
-- Then: both `status-format[1]` and `status-format[2]` render the session/usage and
-  beads/proposals rows respectively — none falls back to tmux's default pane-list row
+- Then: both extra rows render at `status-format[N]`/`[N+1]` — none falls back to tmux's default
+  pane-list row, regardless of N
 
 ### Requirement: cc-tmux register logs a hook-invocation trace for window-rename diagnostics
 Every `cc-tmux register` invocation SHALL append one line to a debug trace log
@@ -799,14 +847,18 @@ than the pane's true height when the account count would otherwise fit.
   target in this fallback)
 
 ### Requirement: The animated tab icon reflects sub-agent activity
-The animated tab icon SHALL render one of four distinct glyphs when a pane has one or more
-sub-agent dispatches tracked as active — foreground, via a matched `PreToolUse`/`PostToolUse`
-pair on the `Task` tool, or background, via a time-boxed heuristic since no hook signals a
-background dispatch's true completion — instead of its normal `@cc-state`-driven animation. When
-no sub-agent activity is tracked for a pane, the tab icon SHALL render exactly as the existing
-"Animated tab icon" Requirement already specifies (unchanged). Foreground activity SHALL take
-precedence over background activity when both are nonzero, since foreground tracking is an exact
-signal and background tracking is a heuristic.
+The animated tab icon SHALL render one of four distinct FLASHING glyph pairs when a pane has one
+or more sub-agent dispatches tracked as active — foreground, via a matched `PreToolUse`/
+`PostToolUse` pair on the `Task` tool, or background, via a time-boxed heuristic since no hook
+signals a background dispatch's true completion — instead of its normal `@cc-state`-driven
+animation. Each of the four cases (foreground count 1, foreground count 2+, background count 1,
+background count 2+) SHALL flash between two braille glyphs dedicated to that case, alternating
+by wall-clock tick parity — changed from the PRIOR static single-glyph-per-case rendering
+(`◎`/`◉`/`◇`/`◆`, none of which were animated). When no sub-agent activity is tracked for a pane,
+the tab icon SHALL render exactly as the existing "Animated tab icon" Requirement already
+specifies (unchanged). Foreground activity SHALL take precedence over background activity when
+both are nonzero, since foreground tracking is an exact signal and background tracking is a
+heuristic — this precedence rule is UNCHANGED by this requirement version.
 
 #### Scenario: no sub-agents tracked renders the existing icon unchanged
 - Given: a tracked pane with `@cc-subagent-fg` at 0 and no unexpired `@cc-subagent-bg` entries
@@ -830,5 +882,63 @@ signal and background tracking is a heuristic.
 #### Scenario: foreground activity takes precedence over background
 - Given: a pane with both a running foreground sub-agent and an unexpired background entry
 - When: the tab icon renders
-- Then: it reflects the foreground count's glyph, not the background one
+- Then: it reflects the foreground count's flashing glyph pair, not the background one
+
+#### Scenario: each of the four sub-agent cases flashes its own dedicated glyph pair
+- Given: four separate tracked panes, one each in foreground-count-1, foreground-count-2+,
+  background-count-1, and background-count-2+ states
+- When: each pane's tab icon is captured at two different wall-clock seconds one second apart
+- Then: each pane shows two different braille frames from ITS OWN dedicated pair — no two of the
+  four cases share a frame pair, preserving the pre-existing visual distinctness between all
+  four states
+
+### Requirement: The window-tabs row adapts to a portrait/mobile client
+The plugin SHALL detect portrait orientation from `client_width`/`client_height` (passed as job
+arguments to the render-all command, the same pattern `#{window_id}` already uses) and, when
+`client_height > client_width`, render the tabs row at an enlarged size instead of the default
+landscape sizing. Enlargement SHALL be attempted via Kitty's OSC 66 text-sizing escape sequence
+(`s=3`, literal 3x character scale) wrapping each tab's index/icon/name segment, contingent on a
+documented fallback: if live verification (see the Testing section of this capability's owning
+proposal) finds OSC 66 renders incorrectly or corrupts the surrounding status bar in this
+fleet's actual terminal (Ghostty), the plugin SHALL instead render tabs at increased horizontal
+padding/spacing only, with no escape-sequence-based scaling. When the combined width of all
+enlarged tab segments exceeds `client_width`, the plugin SHALL wrap tabs across multiple
+physical status-format rows (see "The tmux status bar is three lines" MODIFIED delta for how the
+extra rows shift to accommodate this) rather than truncating or overflowing off the right edge.
+On a landscape client, this requirement has NO effect — tabs render exactly as the pre-existing
+`render_tabs_row` behavior, single row, default sizing.
+
+#### Scenario: landscape client renders tabs unchanged
+- Given: a client where `client_width >= client_height`
+- When: the tabs row renders
+- Then: every tab renders at default (1x) sizing, in a single physical row, byte-identical to
+  the pre-existing behavior
+
+#### Scenario: portrait client enlarges tabs via OSC 66
+- Given: a client where `client_height > client_width`, and OSC 66 has been confirmed to render
+  correctly in this fleet's terminal (live-verified, not assumed)
+- When: the tabs row renders
+- Then: each tab's index/icon/name segment is wrapped in an OSC 66 `s=3` escape sequence,
+  rendering at approximately 3x the default character size
+
+#### Scenario: portrait client falls back to padding-only sizing if OSC 66 is unreliable
+- Given: a client where `client_height > client_width`, and OSC 66 has been found (via live
+  verification) to render incorrectly or corrupt the status bar in this fleet's terminal
+- When: the tabs row renders
+- Then: tabs render at increased horizontal padding/spacing only — no OSC 66 escape sequence is
+  emitted, and the surrounding status bar renders correctly
+
+#### Scenario: many tabs on a narrow portrait client wrap to a second row
+- Given: a portrait client whose enlarged tab segments' combined width exceeds `client_width`
+  when rendered in a single row
+- When: the tabs row renders
+- Then: tabs wrap across as many physical status-format rows as needed to fit without horizontal
+  overflow, and the session-bar/beads-bar rows shift down to accommodate (per the MODIFIED
+  "three lines" delta)
+
+#### Scenario: a portrait client with few tabs still fits in one row
+- Given: a portrait client whose enlarged tab segments' combined width fits within
+  `client_width` in a single row
+- When: the tabs row renders
+- Then: `@cc-tab-rows` resolves to `1` and no wrapping occurs, even though sizing is enlarged
 
