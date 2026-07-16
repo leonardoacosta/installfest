@@ -48,11 +48,11 @@
 
 ## UI Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/render.py` (`render_tabs_row`): when `@cc-tab-rows` > 1, [beads:if-traq]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/render.py` (`render_tabs_row`): when `@cc-tab-rows` > 1, [beads:if-traq]
   split the composed tab segments across that many physical row strings instead of one, and
   issue `tmux set-option -g status <@cc-tab-rows + 2>` as a side effect (landscape/1-row case:
   `status` stays `3`, byte-identical to today). [owner:general-purpose] [type:ui]
-- [ ] [3.2] All four theme files (`nord-theme.conf`, `one-hunter-vercel-theme.conf`, [beads:if-261k]
+- [x] [3.2] All four theme files (`nord-theme.conf`, `one-hunter-vercel-theme.conf`, [beads:if-261k]
   `vercel-theme.conf`, `tokyo-night-abyss-theme.conf`): replace the hardcoded
   `status-format[1]`/`[2]` `@cc-row-session`/`@cc-row-beads` assignments with a computed index
   read from `@cc-tab-rows` (e.g. via a small tmux conditional or a helper the theme sources) —
