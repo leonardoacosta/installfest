@@ -34,14 +34,14 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`'s `render_session_bar` self-tests: [beads:if-ekqa]
+- [x] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`'s `render_session_bar` self-tests: [beads:if-ekqa]
   assert each of Opus/Sonnet/Haiku/Fable produces its documented `#[fg=...]` color prefix on the
   model letter, and an unrecognized/empty model value falls back to `CYAN`. Assert the SES label
   segment has no trailing colon while `5H:`/`7D:` retain theirs. Assert exactly one space
   precedes `{usage_glyph}`. Assert the glyph itself is 20 characters long (was 10) by checking
   `len()` on the glyph segment, or by asserting `render_usage_glyph` is called with `n=20` if the
   test can intercept the call. [owner:general-purpose] [type:api]
-- [ ] [3.2] Run `python3 -m py_compile` on both touched files and the full self-test suite [beads:if-ct26]
+- [x] [3.2] Run `python3 -m py_compile` on both touched files and the full self-test suite [beads:if-ct26]
   (`cd apps/cc-tmux && python3 -c "import sys; sys.path.insert(0,'src'); from cc_tmux.testing
   import run_self_test; sys.exit(run_self_test())"`) — confirm the total pass count increases
   and zero failures. Run `./scripts/check.sh` at the repo root and confirm it passes. Live-verify
