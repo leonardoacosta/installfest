@@ -1795,7 +1795,15 @@ def _build_tabs_row(
         and render._detect_portrait(client_width, client_height)
     )
     base_segments = [f"{w.index} {w.name}" for w in windows]
-    tab_rows = render._compute_tab_rows(base_segments, client_width or 0, mobile)
+    # Row-wrap is a portrait-only feature (proposal.md Non-Goals: landscape
+    # rendering must be byte-identical to pre-change, regardless of how many/
+    # how long the tab segments are). _compute_tab_rows wraps on overflow at
+    # ANY orientation, so it must only be consulted when mobile is True —
+    # otherwise a landscape client with enough tab segments to overflow
+    # client_width at 1x would still grow `status` and shift session/beads
+    # rows, which the Non-Goals section forbids. Found by the Wave 2
+    # post-wave review gate; landscape always resolves to 1 row.
+    tab_rows = render._compute_tab_rows(base_segments, client_width or 0, mobile) if mobile else 1
     # Clamp to the tmux status-line ceiling (see _MAX_TAB_ROWS) so session +
     # beads always keep a physical row; publish the CLAMPED value so the theme
     # conditionals and the actual row split agree.

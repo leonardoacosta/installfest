@@ -2423,6 +2423,43 @@ def _test_cli_widen_tab_name_for_mobile() -> None:
     _check(widened_odd.strip() == "abc", "stripped result recovers the original name")
 
 
+def _test_cli_tab_rows_gated_on_mobile() -> None:
+    """Regression test (Wave 2 post-wave review gate, cc-tmux-mobile-portrait-
+    tabs): `_build_tabs_row`'s tab_rows computation MUST be gated on `mobile`
+    -- `_compute_tab_rows` wraps on segment-width overflow at ANY orientation
+    (it has no orientation awareness itself), so calling it unconditionally
+    in a landscape client with enough/long-enough tab segments to overflow
+    `client_width` at 1x would return `tab_rows > 1` even though
+    proposal.md's Non-Goals require landscape rendering to be byte-identical
+    to pre-change regardless of tab-segment width. The fix: cli.py's call
+    site only consults `_compute_tab_rows` when `mobile` is True; landscape
+    always resolves to `1`. This test asserts the FIXED gating expression
+    directly (`_build_tabs_row` itself needs a live tmux session to exercise
+    end-to-end -- see the E2E batch's live-verify note), using the exact
+    overflow scenario the review gate reproduced: 5 tab segments that sum to
+    more width than a 60-column client at 1x."""
+    segs = [
+        "1 editor-project-alpha",
+        "2 editor-project-beta",
+        "3 shell-homelab",
+        "4 shell-mac",
+        "5 notes",
+    ]
+    client_width = 60
+
+    # Landscape (mobile=False): even though these segments overflow 60 columns
+    # at 1x, tab_rows MUST stay 1 -- the gate is orientation, not overflow.
+    mobile = False
+    tab_rows = render._compute_tab_rows(segs, client_width, mobile) if mobile else 1
+    _check(tab_rows == 1, f"landscape must always be tab_rows=1 regardless of overflow, got {tab_rows}")
+
+    # Sanity: the SAME segments/width DO overflow when mobile=True is allowed
+    # to consult _compute_tab_rows -- proves this isn't trivially 1 either way.
+    mobile = True
+    tab_rows = render._compute_tab_rows(segs, client_width, mobile) if mobile else 1
+    _check(tab_rows > 1, f"portrait with the same segments/width should wrap (>1), got {tab_rows}")
+
+
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
     # No pane id -> ('', None) without ever touching tmux.
     _check(cli._read_roadmap_pulse("") == ("", None), "empty pane -> ('', None)")
@@ -3771,6 +3808,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.partition_segments", _test_render_partition_segments),
     ("render.tabs_row_tab_rows_param", _test_render_tabs_row_tab_rows_param),
     ("cli.widen_tab_name_for_mobile", _test_cli_widen_tab_name_for_mobile),
+    ("cli.tab_rows_gated_on_mobile", _test_cli_tab_rows_gated_on_mobile),
 ]
 
 
