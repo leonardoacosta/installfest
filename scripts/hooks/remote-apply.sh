@@ -73,7 +73,7 @@ PRE_SHA="${1:-}"
     # backgrounds the whole SSH call, but the connection itself would stay
     # open until every foreground child exits without this).
     if [ -x "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" ]; then
-        nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
+        REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/zsa-firmware-check.sh" </dev/null >/dev/null 2>&1 &
         disown 2>/dev/null || true
     fi
 

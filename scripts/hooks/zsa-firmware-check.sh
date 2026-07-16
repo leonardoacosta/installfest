@@ -1,8 +1,9 @@
 #!/bin/sh
 #
-# zsa-firmware-check.sh — Mac-only: detect a freshly rebuilt ZSA Voyager
-# firmware, stage it in ~/Downloads, and drive the (unavoidably manual)
-# flash step via nx notifications.
+# zsa-firmware-check.sh — Mac-only: check out the pinned ZSA Voyager
+# firmware submodule commit, fetch its GH-Action-built artifact, stage it
+# in ~/Downloads, and drive the (unavoidably manual) flash step via nx
+# notifications.
 #
 # Called from BOTH scripts/hooks/post-commit (local path: commit made
 # directly on the Mac) and scripts/hooks/remote-apply.sh (cross-machine
@@ -13,6 +14,16 @@
 # script itself doesn't SSH — whichever hook path is already running
 # (local on Mac, or post-SSH on Mac) just calls it in place.
 #
+# SOURCE LIVES AS A PINNED SUBMODULE, NOT A FREE-FLOATING CLONE:
+# apps/zsa-voyager-keymap (leonardoacosta/oryx-with-custom-qmk, forked
+# from poulainpi's template) is tracked by installfest itself at a
+# specific commit SHA. Advancing to newer firmware source is a deliberate
+# `git -C apps/zsa-voyager-keymap fetch && git submodule update --remote`
+# + a commit in installfest, not something this script does on its own —
+# its job is just to make sure whatever commit installfest's history
+# currently records is actually checked out on disk, then go get that
+# commit's built artifact.
+#
 # WHY IT CAN'T FULLY AUTOMATE THE FLASH: ZSA's scriptable API (kontroll,
 # talking to Keymapp) exposes no flash RPC — see
 # github.com/zsa/kontroll proto/keymapp.proto (GetStatus/GetKeyboards/
@@ -20,19 +31,18 @@
 # (physical reset button, or a QK_BOOT key mapped in the layout) is a
 # real keypress a human makes on the keyboard itself; nothing on the
 # host side can inject that over USB. So this script automates
-# everything AROUND that one manual step: pull latest firmware repo ->
-# stage the built artifact in ~/Downloads -> notify "ready, go press
-# reset + flash in Keymapp" -> poll for the firmware version to change
-# -> announce success (or a gentle nudge on timeout, never a false
-# failure — see the design note above the poll loop).
+# everything AROUND that one manual step: sync the submodule -> fetch
+# the built .bin for that commit -> stage it in ~/Downloads -> notify
+# "ready, go press reset + flash in Keymapp" -> poll for the firmware
+# version to change -> announce completion (or a gentle nudge on
+# timeout — see the design note above the poll loop).
 #
 # UNVERIFIED — see beads if-cgf5 for the live-verification follow-up:
 #   - Exact `kontroll status` output/exit-code shape connected vs not
 #     (no Mac access / kontroll install from this session to check).
-#   - GH Action artifact naming/location once poulainpi/oryx-with-
-#     custom-qmk is actually forked — the `gh run download --name`
+#   - GH Action artifact naming — the `gh run download --name firmware`
 #     guess below needs confirming against the real workflow's
-#     `actions/upload-artifact` step.
+#     `actions/upload-artifact` step in leonardoacosta/oryx-with-custom-qmk.
 #   - Whether $NEXUS_ATTACH_SECRET loads from ~/.env in this
 #     non-interactive shell without the explicit source below.
 
@@ -45,17 +55,16 @@ case "$(uname -s)" in
 esac
 
 # --- Config ----------------------------------------------------------------
-# Fork https://github.com/poulainpi/oryx-with-custom-qmk, then either:
-#   - clone it yourself to $ZSA_REPO_DIR once, or
-#   - set ZSA_GH_REPO ("you/oryx-with-custom-qmk") and let this script
-#     clone it on first run.
-ZSA_REPO_DIR="${ZSA_REPO_DIR:-$HOME/Downloads/oryx-with-custom-qmk}"
-ZSA_GH_REPO="${ZSA_GH_REPO:-}"
+REPO_ROOT="${REPO_ROOT:-$HOME/dev/personal/installfest}"
+ZSA_SUBMODULE_PATH="apps/zsa-voyager-keymap"
+ZSA_REPO_DIR="$REPO_ROOT/$ZSA_SUBMODULE_PATH"
+ZSA_GH_REPO="${ZSA_GH_REPO:-leonardoacosta/oryx-with-custom-qmk}"
+DOWNLOAD_DIR="$HOME/Downloads/zsa-voyager-firmware"
 POLL_TIMEOUT_SECS="${ZSA_POLL_TIMEOUT_SECS:-900}"   # 15 min
 POLL_INTERVAL_SECS=15
 STATE_DIR="$HOME/.local/state"
 LOG="$STATE_DIR/if-deploy.log"
-mkdir -p "$STATE_DIR"
+mkdir -p "$STATE_DIR" "$DOWNLOAD_DIR"
 
 # nx_notify needs NEXUS_ATTACH_SECRET; non-interactive SSH/git-hook shells
 # don't source ~/.zshrc, so pull it from ~/.env directly (same file
@@ -66,16 +75,8 @@ mkdir -p "$STATE_DIR"
 {
     echo "--- zsa-firmware-check $(date -u +%FT%TZ) ---"
 
-    # --- First-run bootstrap: clone if configured but not present yet ---
-    if [ ! -d "$ZSA_REPO_DIR/.git" ]; then
-        if [ -n "$ZSA_GH_REPO" ] && command -v gh >/dev/null 2>&1; then
-            echo "bootstrap: cloning $ZSA_GH_REPO into $ZSA_REPO_DIR"
-            gh repo clone "$ZSA_GH_REPO" "$ZSA_REPO_DIR" >/dev/null 2>&1 \
-                || echo "err: clone of $ZSA_GH_REPO failed"
-        fi
-    fi
-    if [ ! -d "$ZSA_REPO_DIR/.git" ]; then
-        echo "skip: $ZSA_REPO_DIR not cloned yet (fork the template first, or set ZSA_GH_REPO)"
+    if [ ! -d "$REPO_ROOT/.git" ]; then
+        echo "err: $REPO_ROOT is not a git repo (REPO_ROOT=$REPO_ROOT)"
         exit 0
     fi
 
@@ -84,36 +85,36 @@ mkdir -p "$STATE_DIR"
         exit 0
     fi
 
-    # --- Pull latest source + detect a real change -----------------------
-    # --ff-only (never --hard-reset): this is a working repo you edit
-    # keymap.c in directly, unlike the dotfiles remote-apply flow.
-    PRE_SHA=$(git -C "$ZSA_REPO_DIR" rev-parse HEAD 2>/dev/null)
-    if ! git -C "$ZSA_REPO_DIR" pull --ff-only -q; then
-        echo "err: git pull --ff-only failed in $ZSA_REPO_DIR (local edits/diverged history?)"
+    # --- Sync the submodule to whatever commit installfest pins --------
+    PRE_SHA=""
+    [ -d "$ZSA_REPO_DIR/.git" ] && PRE_SHA=$(git -C "$ZSA_REPO_DIR" rev-parse HEAD 2>/dev/null)
+
+    if ! git -C "$REPO_ROOT" submodule update --init --recursive -- "$ZSA_SUBMODULE_PATH" >/dev/null 2>&1; then
+        echo "err: git submodule update failed for $ZSA_SUBMODULE_PATH"
         exit 0
     fi
     POST_SHA=$(git -C "$ZSA_REPO_DIR" rev-parse HEAD 2>/dev/null)
     REPO_CHANGED=0
     [ "$PRE_SHA" != "$POST_SHA" ] && REPO_CHANGED=1
 
-    # --- Best-effort: pull the latest GH Action artifact too ------------
+    # --- Best-effort: fetch the GH Action's built artifact for this commit ---
     # Artifact name "firmware" is a guess — confirm against the real
     # workflow's upload-artifact step (beads if-cgf5).
-    if [ -n "$ZSA_GH_REPO" ] && command -v gh >/dev/null 2>&1; then
-        gh run download --repo "$ZSA_GH_REPO" --dir "$ZSA_REPO_DIR" --name firmware >/dev/null 2>&1 \
+    if command -v gh >/dev/null 2>&1; then
+        gh run download --repo "$ZSA_GH_REPO" --dir "$DOWNLOAD_DIR" --name firmware >/dev/null 2>&1 \
             && REPO_CHANGED=1
     fi
 
     if [ "$REPO_CHANGED" -eq 0 ]; then
-        echo "skip: no new commits or artifacts in $ZSA_REPO_DIR"
+        echo "skip: submodule unchanged ($POST_SHA) and no new artifact"
         exit 0
     fi
-    echo "firmware repo updated: $PRE_SHA -> $POST_SHA"
+    echo "firmware updated: submodule $PRE_SHA -> $POST_SHA"
 
     # --- Locate the newest built artifact (BSD stat -f, macOS-only) -----
     FW_FILE=""
     FW_MTIME=0
-    for f in "$ZSA_REPO_DIR"/*.bin "$ZSA_REPO_DIR"/*/*.bin; do
+    for f in "$DOWNLOAD_DIR"/*.bin "$DOWNLOAD_DIR"/*/*.bin; do
         [ -f "$f" ] || continue
         m=$(stat -f '%m' "$f" 2>/dev/null) || continue
         if [ "$m" -gt "$FW_MTIME" ]; then
@@ -122,12 +123,12 @@ mkdir -p "$STATE_DIR"
         fi
     done
     if [ -z "$FW_FILE" ]; then
-        echo "skip: no .bin firmware artifact found under $ZSA_REPO_DIR"
+        echo "skip: no .bin firmware artifact found under $DOWNLOAD_DIR"
         exit 0
     fi
     echo "firmware artifact: $FW_FILE"
 
-    # --- Stage a copy in Downloads (may already be there) ----------------
+    # --- Stage a flat copy directly in ~/Downloads for drag-into-Keymapp ---
     DOWNLOADS_COPY="$HOME/Downloads/$(basename "$FW_FILE")"
     [ "$FW_FILE" != "$DOWNLOADS_COPY" ] && cp -f "$FW_FILE" "$DOWNLOADS_COPY"
 

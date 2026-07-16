@@ -1,0 +1,3 @@
+[submodule "apps/zsa-voyager-keymap"]
+	path = apps/zsa-voyager-keymap
+	url = https://github.com/leonardoacosta/oryx-with-custom-qmk.git
