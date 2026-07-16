@@ -452,6 +452,89 @@ def _test_compose_title_name() -> None:
     _check(len(cli.compose_title_name("if", "a very very long title indeed")) == 20, "always capped at 20")
 
 
+def _test_title_window_name_folder_fallback() -> None:
+    """cc-tmux-title-folder-fallback: when ``@cc-title`` is unset/empty,
+    ``_title_window_name`` must return the raw folder basename ALONE — never
+    the project code, and never via a separate branch depending on whether
+    a project code happens to resolve for the pane's cwd. Two cases, same
+    code path:
+
+    1. title absent + a project code WOULD resolve for this cwd (a real
+       registry entry is set up so a regression to the old "code wins" fallback
+       would be caught, not just an incidentally-empty code).
+    2. title absent + no registered project for this cwd (the pre-existing
+       ``@cc-project`` fallback shape, restated here as reached through the
+       same ``if not title`` branch rather than a distinct code path).
+    """
+    pane = tmux.PaneInfo(
+        id="%1", session="sess", window="0", state="idle", timestamp=0.0,
+        project="fallback-proj",
+    )
+    cwd_holder: List[str] = [""]
+
+    def fake_run(args: List[str], *, check_available: bool = True):
+        if args and args[0] == "display-message":
+            return cwd_holder[0]
+        if args and args[0] == "show-options":
+            return ""  # @cc-title unset/empty
+        return ""
+
+    saved_run = tmux._run_tmux
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    try:
+        if registry.tomllib is not None:
+            saved_dotfiles = os.environ.get("DOTFILES")
+            tmpdir = tempfile.mkdtemp(prefix="cc-tmux-title-fallback-test-")
+            try:
+                rel = "cc-tmux-title-fallback-test-project-zzz"
+                os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+                with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+                    f.write(f'[[projects]]\ncode = "zz"\nname = "Test"\npath = "{rel}"\n')
+                os.environ["DOTFILES"] = tmpdir
+
+                # Case 1: cwd IS inside the registered project -- a code would
+                # resolve ("zz") if _title_window_name still consulted the
+                # registry on the no-title path. It must not: the folder
+                # basename alone must win.
+                resolved_cwd = os.path.join(os.path.expanduser("~"), rel, "nested", "dir")
+                cwd_holder[0] = resolved_cwd
+                _check(
+                    registry.resolve_project_code(resolved_cwd) == "zz",
+                    "test setup: registry must actually resolve a code for this cwd",
+                )
+                name = cli._title_window_name(pane)
+                _check(name == "dir", f"title-absent + code-resolves must be folder basename alone, got {name!r}")
+                _check(name != "zz", "title-absent must never render the bare project code")
+
+                # Case 2: cwd is NOT inside any registered project -- same
+                # folder-basename fallback, reached via the identical branch.
+                untracked_cwd = os.path.join(tmpdir, "unregistered-title-fallback-dir")
+                cwd_holder[0] = untracked_cwd
+                _check(
+                    registry.resolve_project_code(untracked_cwd) == "",
+                    "test setup: this cwd must not resolve to any registered project",
+                )
+                name2 = cli._title_window_name(pane)
+                _check(
+                    name2 == "unregistered-title-fallback-dir",
+                    f"title-absent + no-registered-project must be folder basename alone, got {name2!r}",
+                )
+            finally:
+                if saved_dotfiles is None:
+                    os.environ.pop("DOTFILES", None)
+                else:
+                    os.environ["DOTFILES"] = saved_dotfiles
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        else:
+            # No stdlib tomllib (3.10): registry always fails open to "" --
+            # still must verify the folder-basename fallback holds.
+            cwd_holder[0] = "/tmp/some-untracked-title-fallback-dir"
+            name = cli._title_window_name(pane)
+            _check(name == "some-untracked-title-fallback-dir", f"folder basename fallback, got {name!r}")
+    finally:
+        tmux._run_tmux = saved_run  # type: ignore[assignment]
+
+
 def _test_maybe_rename_window_success_failure() -> None:
     """rename-fix-and-truncate: _maybe_rename_window reports actual tmux
     success/failure (``_run_tmux``'s ``None``-on-failure contract), not just
@@ -3818,6 +3901,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("registry.resolve_project_code", _test_registry_resolve_project_code),
     ("registry.resolve_project_code_symlink_alias", _test_registry_resolve_project_code_symlink_alias),
     ("cli.compose_title_name", _test_compose_title_name),
+    ("cli.title_window_name_folder_fallback", _test_title_window_name_folder_fallback),
     ("cli.maybe_rename_window_success_failure", _test_maybe_rename_window_success_failure),
     ("cli.trace_register_rename_succeeded_field", _test_trace_register_rename_succeeded_field),
     ("render.format_duration", _test_render_format_duration),
