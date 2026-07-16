@@ -17,12 +17,12 @@
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: `render_session_bar` (line ~596-597) — replace [beads:if-wx74]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/render.py`: `render_session_bar` (line ~596-597) — replace [beads:if-wx74]
   the static `f"#[fg={CYAN}]{model_letter}"` with a color lookup keyed by model letter/name:
   Opus->`YELLOW`, Sonnet->`GREEN`, Haiku->`LIGHT_GREEN`, Fable->`RED`, falling back to `CYAN` for
   any other/empty value. Import `LIGHT_GREEN` from `usage.py` alongside the other color
   constants already imported at the top of the file. [owner:general-purpose] [type:api]
-- [ ] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in the right-side format string (line [beads:if-dpmo]
+- [x] [2.2] `apps/cc-tmux/src/cc_tmux/render.py`: in the right-side format string (line [beads:if-dpmo]
   ~637-640), drop the trailing `:` from the SES label segment only
   (`f"#[fg={ses_color}]{ses_label}:#[default] "` -> no colon after `{ses_label}`) — `5H:`/`7D:`
   keep their colons unchanged. Insert exactly one space between the 7D percentage segment and
