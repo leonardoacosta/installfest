@@ -48,6 +48,10 @@ RED = "#E61F44"
 GREEN = "#00ac3a"
 BLUE = "#006efe"
 
+# Lighter shade of GREEN — used for Haiku's model-letter color (row 2), distinct
+# enough from both GREEN and CYAN to read as its own color at a glance.
+LIGHT_GREEN = "#4ADE80"
+
 # Context-window bar colour tiers (cc-tmux-context-bar, Leo's ask 2026-07-13) —
 # escalation shades beyond YELLOW/RED for the raw-token-count colour ramp.
 # ORANGE sits between YELLOW and RED; BRIGHT_RED/DARK_RED are the two pulse
