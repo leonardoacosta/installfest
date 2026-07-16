@@ -167,6 +167,25 @@ def build_parser() -> argparse.ArgumentParser:
         "window",
         help="Active window id (#{window_id} from the status-format context).",
     )
+    # cc-tmux-mobile-portrait-tabs task 2.1/2.2: optional trailing dimensions
+    # (#{client_width}/#{client_height}) for portrait-mode tab-padding + row-wrap
+    # detection. nargs="?" + default=None keeps a bare `render-all <window>`
+    # invocation (manual testing, older tmux.conf.tmpl) from erroring out —
+    # cmd_render_all treats a missing value as "unknown / assume landscape".
+    p_render_all.add_argument(
+        "client_width",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Client width in columns (#{client_width}), for portrait-mode tab sizing.",
+    )
+    p_render_all.add_argument(
+        "client_height",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Client height in rows (#{client_height}), for portrait-mode tab sizing.",
+    )
 
     # -- conductor: persistent orchestrator session + task dispatch (Req-9) ----
     p_conductor = sub.add_parser(
