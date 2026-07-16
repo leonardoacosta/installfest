@@ -23,6 +23,7 @@ from .usage import (
     DARK_RED,
     DIM,
     GREEN,
+    LIGHT_GREEN,
     ORANGE,
     RED,
     YELLOW,
@@ -570,6 +571,18 @@ def render_usage_glyph_2metric(
 # letter, project, and gauge labels reuse DIM/CYAN from usage.py.
 BRANCH = "#B267E6"
 
+# Row-2 model-letter colour, keyed by the single-letter family tag
+# _resolve_model_letter (cli.py) returns: Opus=YELLOW, Sonnet=GREEN,
+# Haiku=LIGHT_GREEN, Fable=RED. Any other/empty letter falls back to CYAN
+# (fail-open, matching render_session_bar's existing "empty field drops out"
+# convention) via .get()'s default rather than a KeyError.
+_MODEL_LETTER_COLORS: Dict[str, str] = {
+    "O": YELLOW,
+    "S": GREEN,
+    "H": LIGHT_GREEN,
+    "F": RED,
+}
+
 
 def render_session_bar(
     model_letter: str,
@@ -614,7 +627,9 @@ def render_session_bar(
     #[align=right] directive so tmux fills the gap between them. ``ses_pct``
     / ``five_h_pct`` / ``seven_d_pct`` (each 0..1, or ``None`` when unpolled
     -> that metric's row(s) render blank in the glyph, per-metric degrade;
-    design.md § Staleness) feed the glyph directly at ``n=10``, which itself
+    design.md § Staleness) feed the glyph directly at ``n=20`` (matching the
+    accounts-popup's ``n=20`` "wide" convention,
+    cc-tmux-row2-model-color-usage-format), which itself
     renders in a neutral/unstyled colour (design.md § Color — no severity
     ramp on the glyph). ``raw_tokens`` selects both the SES label's text via
     :func:`format_context_tokens` and its colour via
@@ -630,7 +645,8 @@ def render_session_bar(
     """
     left_parts: List[str] = []
     if model_letter:
-        left_parts.append(f"#[fg={CYAN}]{model_letter}")
+        model_color = _MODEL_LETTER_COLORS.get(model_letter, CYAN)
+        left_parts.append(f"#[fg={model_color}]{model_letter}")
     if project:
         left_parts.append(f"#[fg={DIM}]{project}")
     if branch:
@@ -665,15 +681,18 @@ def render_session_bar(
     # the ramp before, despite the original design.md text assuming it was).
     ses_label = format_context_tokens(raw_tokens)
     ses_color, _ = _context_color_pair(raw_tokens)
-    usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=10)
+    usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=20)
     # Right side: SES label, then 5H, then 7D, then the combined usage glyph
     # LAST (design.md § Decision 2). The account-identity segment + its
     # #[range=user|accounts] click marker moved off this row to row 3
-    # (render_beads_bar).
+    # (render_beads_bar). The SES label drops its trailing colon
+    # (cc-tmux-row2-model-color-usage-format) -- 5H:/7D: keep theirs
+    # unchanged -- and a single space now separates the 7D percentage from
+    # the usage glyph (previously concatenated with zero space).
     right = (
-        f"#[fg={ses_color}]{ses_label}:#[default] "
+        f"#[fg={ses_color}]{ses_label}#[default] "
         f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
-        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default]{usage_glyph}"
+        f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default] {usage_glyph}"
     )
     return f"{left}#[align=right]{right}"
 

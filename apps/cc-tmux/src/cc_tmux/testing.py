@@ -1790,18 +1790,22 @@ def _test_render_session_bar() -> None:
     # render_session_bar no longer takes an account_label parameter
     # (cc-tmux-status-bar-popup-polish design.md § Decision 2).
     out = render.render_session_bar("O", "if", "main", 0.1, 0.5, 0.85)
-    _check(f"#[fg={render.CYAN}]O" in out, "model letter rendered in CYAN")
+    # cc-tmux-row2-model-color-usage-format: model letter colour is now a
+    # per-model lookup, not static CYAN -- "O" (Opus) renders YELLOW.
+    _check(f"#[fg={render.YELLOW}]O" in out, "model letter (Opus) rendered in YELLOW")
     _check("if" in out, "project present on the left")
     _check(f"#[fg={render.BRANCH}]main" in out, "branch present in branch colour")
     _check("#[align=right]" in out, "left/right sides split via align=right")
     _check("#[range=user|accounts]" not in out, "no account-label range marker on row 2 (moved to row 3)")
     _check("SES:" not in out, "SES text is fully replaced by the context bar")
-    _check("--:" in out and "5H:" in out and "7D:" in out, "context bar (no raw_tokens -> '--') + usage gauges render")
+    # SES label no longer carries a trailing colon (cc-tmux-row2-model-color-
+    # usage-format) -- 5H:/7D: keep theirs unchanged.
+    _check("--" in out and "5H:" in out and "7D:" in out, "context bar (no raw_tokens -> '--') + usage gauges render")
     # Combined usage glyph renders strictly AFTER the 7D: percentage, as the
     # LAST thing on the right side (design.md § Decision 2 — glyph moves to
     # the end) — the colour reset now lands before the unstyled glyph, not
     # at the very end of the string.
-    usage_glyph = render.render_usage_glyph(0.1, 0.5, 0.85, n=10)
+    usage_glyph = render.render_usage_glyph(0.1, 0.5, 0.85, n=20)
     _check(usage_glyph in out, f"combined usage glyph present: {out!r}")
     _check(
         out.index("7D:") < out.index(usage_glyph),
@@ -1822,8 +1826,12 @@ def _test_render_session_bar() -> None:
     # cc-tmux-git-status-glyphs task 4.3: git_status= six-field glyph format —
     # each field at a representative nonzero count renders its exact glyph
     # string, in the fixed left-to-right order, with the spec-mandated color.
+    # model_letter="" (not "F") below: since cc-tmux-row2-model-color-usage-
+    # format gave "F" (Fable) its own RED colour, a non-empty letter here
+    # would collide with these tests' "no RED marker" assertions — the model
+    # letter is irrelevant to what this block actually tests.
     gs_all = tmux.GitStatusCounts(modified=3, untracked=1, deleted=2, renamed=1, ahead=4, behind=1)
-    out_all = render.render_session_bar("F", "if", "main", None, None, None, git_status=gs_all)
+    out_all = render.render_session_bar("", "if", "main", None, None, None, git_status=gs_all)
     _check(f"#[fg={render.BRANCH}]main" in out_all, "branch still renders with indicators present")
     expected_run = (
         f"#[fg={render.GREEN}]3M "
@@ -1839,7 +1847,7 @@ def _test_render_session_bar() -> None:
     # specifically — proven by a partial case (only modified nonzero) so the
     # other five are confirmed cleanly omitted, not just the all-zero case.
     gs_partial = tmux.GitStatusCounts(modified=1)
-    out_partial = render.render_session_bar("F", "if", "main", None, None, None, git_status=gs_partial)
+    out_partial = render.render_session_bar("", "if", "main", None, None, None, git_status=gs_partial)
     _check(f"#[fg={render.GREEN}]1M" in out_partial, "modified=1 -> GREEN '1M' marker")
     # Anchored on colour codes (not bare letters) since "7D:" from the usage
     # gauges always contains a literal 'D' regardless of git status —
@@ -1855,7 +1863,7 @@ def _test_render_session_bar() -> None:
     # All-six-zero (explicit GitStatusCounts()) -> no working-tree-indicator
     # segment at all; branch renders alone with nothing appended after it.
     out_zero = render.render_session_bar(
-        "F", "if", "main", None, None, None, git_status=tmux.GitStatusCounts()
+        "", "if", "main", None, None, None, git_status=tmux.GitStatusCounts()
     )
     _check(f"#[fg={render.BRANCH}]main#[default]" in out_zero, "all-zero -> branch renders with no indicator segment")
     _check(f"#[fg={render.GREEN}]" not in out_zero, "all-zero -> no GREEN 'M' marker")
@@ -1866,11 +1874,11 @@ def _test_render_session_bar() -> None:
     _check("⇣" not in out_zero, "all-zero -> no '⇣N' glyph")
 
     # git_status=None renders identically to an explicit all-zero instance.
-    out_none = render.render_session_bar("F", "if", "main", None, None, None, git_status=None)
+    out_none = render.render_session_bar("", "if", "main", None, None, None, git_status=None)
     _check(out_none == out_zero, "git_status=None must match explicit GitStatusCounts() byte-for-byte")
 
     # No-kwargs call (git_status omitted entirely) -> same as explicit None.
-    out_default = render.render_session_bar("F", "if", "main", None, None, None)
+    out_default = render.render_session_bar("", "if", "main", None, None, None)
     _check(out_default == out_zero, "no-kwargs call must match explicit git_status=GitStatusCounts()")
 
 
@@ -2804,16 +2812,18 @@ def _test_render_session_bar_no_glyph() -> None:
 
 def _test_render_session_bar_usage_glyph_wiring() -> None:
     """render_session_bar (row 2, cc-tmux-braille-usage-glyph task 4.4): the
-    combined 3-metric braille glyph (n=10) renders alongside the unchanged
+    combined 3-metric braille glyph (n=20, widened by
+    cc-tmux-row2-model-color-usage-format) renders alongside the unchanged
     SES token-count label + 5H/7D text, replacing the former shade-block
     bar (tasks 3.1/3.3); the SES label is severity-coloured, not DIM (task
-    3.4 correction)."""
+    3.4 correction), and no longer carries a trailing colon
+    (cc-tmux-row2-model-color-usage-format)."""
     out = render.render_session_bar(
         "O", "if", "main", 0.30, 0.88, 0.35, raw_tokens=252_500
     )
-    expected_glyph = render.render_usage_glyph(0.30, 0.88, 0.35, n=10)
-    _check(expected_glyph in out, f"row 2 carries the 10-cell 3-metric glyph: {out!r}")
-    _check("252.5k:" in out, f"row 2 still carries the unchanged SES token-count label: {out!r}")
+    expected_glyph = render.render_usage_glyph(0.30, 0.88, 0.35, n=20)
+    _check(expected_glyph in out, f"row 2 carries the 20-cell 3-metric glyph: {out!r}")
+    _check("252.5k" in out, f"row 2 still carries the unchanged SES token-count label: {out!r}")
     # 5H:/7D: labels and their percentages are separately-coloured segments
     # (not a contiguous "5H:88%" string -- see the f-string in
     # render_session_bar), same convention _test_render_session_bar already
@@ -2825,11 +2835,11 @@ def _test_render_session_bar_usage_glyph_wiring() -> None:
     # 252_500 raw tokens falls in the >200k/<=300k tier -> steady YELLOW (no
     # pulse tier, so this assertion isn't wall-clock-flaky).
     _check(
-        f"#[fg={usage.YELLOW}]252.5k:" in out,
+        f"#[fg={usage.YELLOW}]252.5k" in out,
         f"SES label wrapped in its severity colour (task 3.4), not DIM: {out!r}",
     )
     _check(
-        f"#[fg={render.DIM}]252.5k:" not in out, f"SES label no longer plain DIM: {out!r}"
+        f"#[fg={render.DIM}]252.5k" not in out, f"SES label no longer plain DIM: {out!r}"
     )
     # cc-tmux-status-bar-popup-polish: no account-label text/marker anywhere,
     # and the glyph renders strictly AFTER the 7D: percentage (order
