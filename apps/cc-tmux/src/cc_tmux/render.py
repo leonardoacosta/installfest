@@ -886,7 +886,7 @@ def render_accounts_popup(
 
 
 def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float) -> str:
-    """Row-1 status-format string: one ``index:icon name`` segment per window.
+    """Row-1 status-format string: one ``icon name`` segment per window.
 
     ``windows`` is any sequence of objects with ``id``/``index``/``name``/
     ``state`` attributes (duck-typed via ``getattr``, matching this module's
@@ -895,7 +895,9 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     window's highest-priority tracked ``@cc-state``, or ``""`` for a window
     with no tracked Claude pane — that window renders with no icon (matches
     :func:`resolve_tab_icon`'s documented "untracked window -> no icon" contract),
-    just its bare ``index:name``. ``now`` is the caller-supplied wall-clock
+    just its bare ``name``. The window index is never rendered in the visible
+    label — only carried in the ``#[range=window|<index>]`` click-routing markup
+    (see below). ``now`` is the caller-supplied wall-clock
     time (``time.time()`` in production) handed straight to
     :func:`resolve_tab_icon` (which falls through to :func:`animated_icon` for
     the animation frame when no sub-agent is active — cc-tmux-subagent-tab-icon)
@@ -922,7 +924,7 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     ``color`` is non-empty (the idle-usage-meter case), ONLY the glyph is
     wrapped in it — ``#[fg={color}]{glyph}#[fg={label_colour}] `` — restoring
     the segment's own active/inactive label colour immediately after, so the
-    trailing index/name text keeps rendering CYAN-bold/DIM exactly as before.
+    trailing name text keeps rendering CYAN-bold/DIM exactly as before.
     When ``color`` is empty, the composition is byte-identical to the prior
     plain-icon rendering — no ``#[fg=]`` wrap is added.
 
@@ -953,7 +955,7 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
             icon_part = f"#[fg={meter_color}]{glyph}#[fg={colour}] "
         else:
             icon_part = f"{glyph} " if glyph else ""
-        label = f"{index} {icon_part}{name}"
+        label = f"{icon_part}{name}"
 
         segments.append(
             f"#[fg={colour}]#[range=window|{index}] {label} #[norange]#[default]"

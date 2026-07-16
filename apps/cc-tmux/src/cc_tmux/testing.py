@@ -694,10 +694,10 @@ def _test_render_render_tabs_row_idle_meter_wiring() -> None:
     _check(
         out == (
             f"#[fg={render.DIM}]#[range=window|1] "
-            f"1 #[fg={expected_color}]{expected_glyph}#[fg={render.DIM}] work "
+            f"#[fg={expected_color}]{expected_glyph}#[fg={render.DIM}] work "
             f"#[norange]#[default]"
         ),
-        f"inactive idle window w/ raw_tokens: meter glyph + colour, DIM restored, range markup intact: {out!r}",
+        f"inactive idle window w/ raw_tokens: meter glyph + colour, DIM restored, range markup intact, no index: {out!r}",
     )
 
     # Active window (CYAN-bold label colour): same wiring, CYAN-bold restored
@@ -707,15 +707,15 @@ def _test_render_render_tabs_row_idle_meter_wiring() -> None:
     _check(
         out_active == (
             f"#[fg={active_colour}]#[range=window|1] "
-            f"1 #[fg={expected_color}]{expected_glyph}#[fg={active_colour}] work "
+            f"#[fg={expected_color}]{expected_glyph}#[fg={active_colour}] work "
             f"#[norange]#[default]"
         ),
-        f"active idle window w/ raw_tokens: meter glyph + colour, CYAN-bold restored, range markup intact: {out_active!r}",
+        f"active idle window w/ raw_tokens: meter glyph + colour, CYAN-bold restored, range markup intact, no index: {out_active!r}",
     )
 
     # Same window with raw_tokens explicitly None -> byte-identical to the
     # prior plain-icon rendering (no colour wrap around the icon at all).
-    static_expected = f"#[fg={render.DIM}]#[range=window|1] 1 {render.IDLE_GLYPH} work #[norange]#[default]"
+    static_expected = f"#[fg={render.DIM}]#[range=window|1] {render.IDLE_GLYPH} work #[norange]#[default]"
     idle_window_none = _FakeWindow(id="@1", index="1", name="work", state="idle")
     idle_window_none.raw_tokens = None  # type: ignore[attr-defined]
     out_none = render.render_tabs_row([idle_window_none], "@2", now=0.0)
@@ -2205,22 +2205,21 @@ def _test_render_tabs_row() -> None:
     # Active window (id == active_window_id) renders bold CYAN; the animated
     # icon for its tracked state is reused verbatim from animated_icon, not
     # re-derived (window @1 is NOT active here — inactive windows still get
-    # their icon, only the colour differs). Index/icon/name are space-
-    # separated (not colon-separated), matching the old #I #(icon)#W
-    # convention, and each segment is wrapped in #[range=window|N]/#[norange]
-    # so the default MouseDown1Status binding can route clicks.
+    # their icon, only the colour differs). The window index is never part of
+    # the visible label (icon/name only) — it's carried solely in the
+    # #[range=window|N]/#[norange] markup so MouseDown1Status can route clicks.
     icon_waiting = render.animated_icon("waiting", 1.0)
     _check(
-        f"#[fg={render.DIM}]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]" in out,
-        "inactive window: DIM, icon present, range=window|1, space-separated",
+        f"#[fg={render.DIM}]#[range=window|1] {icon_waiting} editor #[norange]#[default]" in out,
+        "inactive window: DIM, icon present, range=window|1, no index in label",
     )
 
     # Untracked window (state == '') renders no icon at all — bare
-    # 'index name', matching resolve_tab_icon's untracked contract —
+    # 'name', matching resolve_tab_icon's untracked contract —
     # and IS styled as the active window here (bold CYAN).
     _check(
-        f"#[fg={render.CYAN},bold]#[range=window|2] 2 shell #[norange]#[default]" in out,
-        "active + untracked: CYAN bold, no icon glyph, range=window|2",
+        f"#[fg={render.CYAN},bold]#[range=window|2] shell #[norange]#[default]" in out,
+        "active + untracked: CYAN bold, no icon glyph, no index, range=window|2",
     )
     _check("2:  shell" not in out, "untracked window never renders a double space where the icon would be")
     _check(":" not in out, "no colon separator anywhere in the rendered row")
@@ -2228,10 +2227,10 @@ def _test_render_tabs_row() -> None:
     # Swap which window is active -> the CYAN/DIM assignment flips accordingly.
     out2 = render.render_tabs_row(windows, "@1", now=1.0)
     _check(
-        f"#[fg={render.CYAN},bold]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]" in out2,
+        f"#[fg={render.CYAN},bold]#[range=window|1] {icon_waiting} editor #[norange]#[default]" in out2,
         "window @1 active -> CYAN bold, range=window|1",
     )
-    _check(f"#[fg={render.DIM}]#[range=window|2] 2 shell #[norange]#[default]" in out2, "window @2 inactive -> DIM")
+    _check(f"#[fg={render.DIM}]#[range=window|2] shell #[norange]#[default]" in out2, "window @2 inactive -> DIM")
 
     # No matching active_window_id (e.g. tmux.current_window_id() failed and
     # returned '') -> every window renders DIM, none crash on the empty-string
