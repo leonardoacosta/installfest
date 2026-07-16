@@ -971,7 +971,33 @@ def _osc66_scale(text: str, scale: int = 3) -> str:
     return f"{chr(0x1B)}]66;s={scale};{text}{chr(0x07)}"
 
 
-def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float) -> str:
+def _partition_segments(segments: List[str], tab_rows: int) -> List[str]:
+    """Split ``segments`` into exactly ``tab_rows`` contiguous, joined row strings.
+
+    Front-loaded balanced partition (the first ``len(segments) % tab_rows``
+    rows each get one extra segment) so windows stay in index order across the
+    rows — window 0/1 land on physical row 0, later windows flow onto rows
+    1..N-1, never scattered round-robin. A window's segment is never split
+    mid-way. Always returns a list of length ``tab_rows`` (trailing rows are
+    ``""`` when there are fewer segments than rows). Pure, no tmux dependency
+    (cc-tmux-mobile-portrait-tabs task 3.1).
+    """
+    base, extra = divmod(len(segments), tab_rows)
+    rows: List[str] = []
+    idx = 0
+    for r in range(tab_rows):
+        take = base + (1 if r < extra else 0)
+        rows.append("".join(segments[idx:idx + take]))
+        idx += take
+    return rows
+
+
+def render_tabs_row(
+    windows: Sequence[object],
+    active_window_id: str,
+    now: float,
+    tab_rows: int = 1,
+) -> str:
     """Row-1 status-format string: one ``index:icon name`` segment per window.
 
     ``windows`` is any sequence of objects with ``id``/``index``/``name``/
@@ -1019,6 +1045,23 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
     per-window rendering with this custom job (see module docstring) means we
     must emit that markup ourselves or clicks land nowhere.
 
+    ``tab_rows`` (cc-tmux-mobile-portrait-tabs task 3.1) is the number of
+    PHYSICAL status rows the tabs should span — the value
+    :func:`cc_tmux.cli._build_tabs_row` derives from
+    :func:`_compute_tab_rows` and publishes as ``@cc-tab-rows``. The default
+    ``1`` (landscape) is BYTE-IDENTICAL to the pre-task-3.1 behaviour: all
+    segments joined into one string, no newline. When ``tab_rows > 1``
+    (portrait), the per-window segments are partitioned across that many rows
+    via :func:`_partition_segments` and the rows are joined with a single
+    ``\\n`` — a safe delimiter since no segment ever contains a newline
+    (segments are ``#[...]``-markup + ``index name`` only). The caller splits
+    on ``\\n``: row 0 becomes ``status-format[0]`` (render-all stdout), rows
+    1..N-1 are published to ``@cc-tab-row-1``..``@cc-tab-row-{N-1}`` for the
+    theme ``status-format[K]`` conditionals (task 3.2). This function performs
+    NO tmux side effects itself — publishing the extra rows and growing
+    ``status`` are the caller's job (module invariant: this module is a pure
+    function of its inputs, tmux I/O lives in :mod:`cc_tmux.cli`).
+
     Pure function of its inputs (no tmux/subprocess). Empty ``windows`` ->
     ``""`` (nothing to show).
     """
@@ -1044,7 +1087,9 @@ def render_tabs_row(windows: Sequence[object], active_window_id: str, now: float
         segments.append(
             f"#[fg={colour}]#[range=window|{index}] {label} #[norange]#[default]"
         )
-    return "".join(segments)
+    if tab_rows <= 1:
+        return "".join(segments)
+    return "\n".join(_partition_segments(segments, tab_rows))
 
 
 # Row 3 stale threshold: the roadmap-pulse cache is written under a ~5-minute
