@@ -2284,6 +2284,145 @@ def _test_render_tabs_row() -> None:
     _check("#[range=window|1]" in out3 and "#[range=window|2]" in out3, "range markup present regardless of active id")
 
 
+# ---------------------------------------------------------------------------
+# render.py mobile-portrait-tabs tests (cc-tmux-mobile-portrait-tabs, task 4.1)
+# ---------------------------------------------------------------------------
+
+def _test_render_detect_portrait() -> None:
+    """_detect_portrait: strictly ``client_height > client_width`` — landscape
+    AND the exact square-aspect edge case both return False (task 1.2's own
+    docstring: "landscape and the exact square case ... both return False")."""
+    _check(render._detect_portrait(100, 50) is False, "landscape (wider than tall) -> False")
+    _check(render._detect_portrait(50, 100) is True, "portrait (taller than wide) -> True")
+    _check(render._detect_portrait(80, 80) is False, "square (equal width/height) -> False, not True")
+    _check(render._detect_portrait(1, 2) is True, "smallest portrait case still True")
+
+
+def _test_render_compute_tab_rows() -> None:
+    """_compute_tab_rows: fits-in-one-row and needs-multiple-rows cases, plus
+    the documented defensive floor (always >= 1) for an empty segment list and
+    a non-positive client_width."""
+    # Fits in one row: small total width relative to client_width, landscape (1x).
+    _check(render._compute_tab_rows(["1 a", "2 b"], 80, False) == 1, "small total width -> 1 row")
+
+    # Needs multiple rows: mobile 3x multiplier pushes the total over client_width.
+    segs = ["1 aaaaaaaaaa", "2 bbbbbbbbbb", "3 cccccccccc"]  # each 12 chars
+    total_mobile = sum(len(s) * 3 for s in segs)  # 108
+    expected_rows = -(-total_mobile // 40)  # ceil(108/40) == 3
+    _check(expected_rows == 3, "sanity: worked example expects 3 rows")
+    _check(render._compute_tab_rows(segs, 40, True) == 3, "mobile 3x multiplier -> multi-row")
+
+    # Same segments at 1x (landscape) fit in fewer rows than at 3x (mobile).
+    landscape_rows = render._compute_tab_rows(segs, 40, False)
+    mobile_rows = render._compute_tab_rows(segs, 40, True)
+    _check(mobile_rows > landscape_rows, "mobile multiplier needs more rows than landscape for the same segments")
+
+    # Defensive floor: always >= 1, even for degenerate inputs.
+    _check(render._compute_tab_rows([], 80, False) == 1, "empty segment list -> 1 (nothing to overflow)")
+    _check(render._compute_tab_rows(["1 a"], 0, False) == 1, "non-positive client_width -> 1 (defensive floor)")
+    _check(render._compute_tab_rows(["1 a"], -10, True) == 1, "negative client_width -> 1 (defensive floor)")
+
+
+def _test_render_osc66_scale() -> None:
+    """_osc66_scale: exact ESC ]66;s={scale};{text} BEL escape-sequence output
+    (task 1.2), built via chr(0x1B)/chr(0x07) rather than backslash escapes —
+    dead-but-defined per task 1.1's live-verification outcome (padding-only is
+    the active path), so this only needs byte-exact output coverage, not a
+    live rendering assertion."""
+    out = render._osc66_scale("hi", 3)
+    _check(out == "\x1b]66;s=3;hi\x07", f"exact ESC/BEL-wrapped sequence, got {out!r}")
+    _check(out[0] == chr(0x1B), "first byte is ESC (0x1B)")
+    _check(out[-1] == chr(0x07), "last byte is BEL (0x07)")
+    _check(out[1:-1] == "]66;s=3;hi", "middle is the literal ]66;s={scale};{text} text")
+
+    # Default scale=3 when omitted.
+    _check(render._osc66_scale("x") == "\x1b]66;s=3;x\x07", "default scale is 3")
+
+    # A different explicit scale threads through unchanged.
+    out2 = render._osc66_scale("y", scale=2)
+    _check(out2 == "\x1b]66;s=2;y\x07", f"scale=2 threads through, got {out2!r}")
+
+
+def _test_render_partition_segments() -> None:
+    """_partition_segments: front-loaded balanced partition — the first
+    ``len(segments) % tab_rows`` rows get one extra segment, windows stay in
+    index order (never round-robin), and the result is ALWAYS length
+    ``tab_rows`` (trailing rows are "" when there are fewer segments than
+    rows)."""
+    # Evenly divisible: 4 segments / 2 rows -> 2 each, in order.
+    _check(
+        render._partition_segments(["a", "b", "c", "d"], 2) == ["ab", "cd"],
+        "even split stays in index order",
+    )
+    # Front-loaded remainder: 5 segments / 2 rows -> row 0 gets the extra one.
+    _check(
+        render._partition_segments(["a", "b", "c", "d", "e"], 2) == ["abc", "de"],
+        "remainder segment front-loads onto row 0, not round-robin",
+    )
+    # Fewer segments than rows: trailing rows are "" but length is still tab_rows.
+    result = render._partition_segments(["a", "b"], 3)
+    _check(len(result) == 3, "result length always equals tab_rows")
+    _check(result == ["a", "b", ""], "trailing row is '' when segments run out")
+
+
+def _test_render_tabs_row_tab_rows_param() -> None:
+    """render_tabs_row's tab_rows parameter (task 3.1, covered here per task
+    4.1): default tab_rows=1 is byte-identical to explicitly passing
+    tab_rows=1 (pre-change landscape behavior), and tab_rows > 1 splits the
+    composed per-window segments across that many physical rows via
+    _partition_segments, joined with a single '\\n'."""
+    windows = [
+        _FakeWindow(id="@1", index="1", name="editor", state="waiting"),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+
+    # Default (tab_rows omitted) is byte-identical to explicit tab_rows=1.
+    out_default = render.render_tabs_row(windows, "@2", now=1.0)
+    out_explicit1 = render.render_tabs_row(windows, "@2", now=1.0, tab_rows=1)
+    _check(out_default == out_explicit1, "default tab_rows is byte-identical to explicit tab_rows=1")
+    _check("\n" not in out_default, "tab_rows=1 (landscape) never contains a newline")
+
+    # tab_rows > 1 partitions the two per-window segments across N rows via
+    # _partition_segments, joined with exactly one '\n' per row boundary.
+    out_multi = render.render_tabs_row(windows, "@2", now=1.0, tab_rows=2)
+    parts = out_multi.split("\n")
+    _check(len(parts) == 2, f"tab_rows=2 -> exactly 2 physical rows, got {len(parts)}")
+
+    # Rebuild the expected per-window segments the same way render_tabs_row
+    # does internally, then partition them the same way _partition_segments
+    # would, and confirm the two rows match exactly (front-loaded: window 1
+    # alone on row 0, window 2 alone on row 1, for a 2-segment/2-row split).
+    icon_waiting = render.animated_icon("waiting", 1.0)
+    seg1 = f"#[fg={render.DIM}]#[range=window|1] 1 {icon_waiting} editor #[norange]#[default]"
+    seg2 = f"#[fg={render.CYAN},bold]#[range=window|2] 2 shell #[norange]#[default]"
+    expected_rows = render._partition_segments([seg1, seg2], 2)
+    _check(parts == expected_rows, f"tab_rows=2 output matches _partition_segments of the built segments: {parts!r}")
+    _check(parts[0] == seg1, "row 0 carries window 1's segment alone")
+    _check(parts[1] == seg2, "row 1 carries window 2's segment alone")
+
+
+def _test_cli_widen_tab_name_for_mobile() -> None:
+    """_widen_tab_name_for_mobile (task 2.2, covered here per task 4.1):
+    pads a name so its length triples, split as evenly as possible across
+    both sides so the name stays visually centered; empty name is unchanged
+    (nothing to widen)."""
+    _check(cli._widen_tab_name_for_mobile("") == "", "empty name -> unchanged")
+
+    # Even-length name: padding splits exactly evenly on both sides.
+    widened_even = cli._widen_tab_name_for_mobile("abcd")
+    _check(len(widened_even) == 12, f"length triples (4 -> 12), got {len(widened_even)}")
+    _check(widened_even == "    abcd    ", f"even-length name pads symmetrically, got {widened_even!r}")
+
+    # Odd-length name: total padding is still even (2x original length), so
+    # it still splits exactly evenly left/right.
+    widened_odd = cli._widen_tab_name_for_mobile("abc")
+    _check(len(widened_odd) == 9, f"length triples (3 -> 9), got {len(widened_odd)}")
+    _check(widened_odd == "   abc   ", f"odd-length name still pads symmetrically (extra is always even), got {widened_odd!r}")
+
+    # The name itself is preserved unchanged in the middle (only whitespace added).
+    _check(widened_odd.strip() == "abc", "stripped result recovers the original name")
+
+
 def _test_cli_read_roadmap_pulse_fail_open() -> None:
     # No pane id -> ('', None) without ever touching tmux.
     _check(cli._read_roadmap_pulse("") == ("", None), "empty pane -> ('', None)")
@@ -3626,6 +3765,12 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.register_captures_session_id", _test_cli_register_captures_session_id),
     ("cli.resolve_git_status_dual_source", _test_cli_resolve_git_status_dual_source),
     ("cli.resolve_model_letter", _test_cli_resolve_model_letter),
+    ("render.detect_portrait", _test_render_detect_portrait),
+    ("render.compute_tab_rows", _test_render_compute_tab_rows),
+    ("render.osc66_scale", _test_render_osc66_scale),
+    ("render.partition_segments", _test_render_partition_segments),
+    ("render.tabs_row_tab_rows_param", _test_render_tabs_row_tab_rows_param),
+    ("cli.widen_tab_name_for_mobile", _test_cli_widen_tab_name_for_mobile),
 ]
 
 
