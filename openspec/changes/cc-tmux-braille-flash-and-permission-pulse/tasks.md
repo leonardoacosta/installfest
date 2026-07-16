@@ -42,7 +42,7 @@
 
 ## E2E Batch
 
-- [ ] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-tests for `animated_icon` [beads:if-ewn3]
+- [x] [3.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-tests for `animated_icon` [beads:if-ewn3]
   (`active` cycles `ACTIVE_FLASH_FRAMES` by tick parity, `waiting` cycles
   `PERMISSION_PULSE_FRAMES` by tick parity — both replacing their prior 4-frame/7-frame cycles),
   for `resolve_tab_icon` (all four sub-agent branches flash their own dedicated pair by tick
@@ -50,7 +50,7 @@
   `resolve_tab_glyph` (the new `waiting` branch returns `(◉, YELLOW)` and `(◎, "")` on alternating
   ticks; the idle-usage-meter and other existing branches are unaffected).
   [owner:general-purpose] [type:api]
-- [ ] [3.2] Run `python3 -m py_compile` and the full self-test suite (`cd apps/cc-tmux && [beads:if-xe10]
+- [x] [3.2] Run `python3 -m py_compile` and the full self-test suite (`cd apps/cc-tmux && [beads:if-xe10]
   python3 -c "import sys; sys.path.insert(0,'src'); from cc_tmux.testing import
   run_self_test; sys.exit(run_self_test())"`) — confirm pass count increases, zero failures.
   Run `./scripts/check.sh` at the repo root. Live-verify via
