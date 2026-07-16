@@ -194,9 +194,9 @@ def animated_icon(state: str, now: float) -> str:
     then to ``""`` — callers should treat an empty result as "print nothing".
     """
     if state == "waiting":
-        return SHADE_FRAMES[int(now / FRAME_PERIOD_SEC) % len(SHADE_FRAMES)]
+        return PERMISSION_PULSE_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if state == "active":
-        return BLOCK_FRAMES[int(now / FRAME_PERIOD_SEC) % len(BLOCK_FRAMES)]
+        return ACTIVE_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if state == "idle":
         return IDLE_GLYPH
     return DEFAULT_ICONS.get(state, "")
@@ -255,13 +255,13 @@ def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> st
     (proposal.md Non-Goals).
     """
     if fg_count >= 2:
-        return SUBAGENT_FG_2PLUS
+        return SUBAGENT_FG2PLUS_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if fg_count == 1:
-        return SUBAGENT_FG_1
+        return SUBAGENT_FG1_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if bg_count >= 2:
-        return SUBAGENT_BG_2PLUS
+        return SUBAGENT_BG2PLUS_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if bg_count == 1:
-        return SUBAGENT_BG_1
+        return SUBAGENT_BG1_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     return animated_icon(state, now)
 
 
@@ -272,22 +272,31 @@ def resolve_tab_glyph(
     bg_count: int,
     raw_tokens: Optional[float] = None,
 ) -> Tuple[str, str]:
-    """``(glyph, color)`` tab-icon pair, idle-usage-meter-aware
-    (cc-tmux-idle-tab-usage-meter overlay).
+    """``(glyph, color)`` tab-icon pair, idle-usage-meter- and
+    permission-pulse-aware (cc-tmux-idle-tab-usage-meter overlay +
+    cc-tmux-braille-flash-and-permission-pulse).
 
     Pure additive wrapper — :func:`resolve_tab_icon` itself is untouched and
     remains the glyph-precedence core that this wrapper extends, rendering
     the plain, monochrome glyph unchanged. Precedence is IDENTICAL
-    to :func:`resolve_tab_icon`'s documented order: sub-agent overlays and the
-    waiting/active animations beat the meter — only the plain, un-overlaid idle
-    case (``fg_count == 0 and bg_count == 0 and state == "idle"``) swaps in
-    :func:`idle_usage_meter`'s ramp glyph + severity colour. Every other case
-    returns ``(resolve_tab_icon(...), "")`` — an empty colour, so callers never
-    wrap the existing waiting/active/sub-agent glyphs in a stray ``#[fg=...]``
+    to :func:`resolve_tab_icon`'s documented order: sub-agent overlays beat
+    both the meter and the pulse. Two plain, un-overlaid cases swap in a
+    coloured pair instead of the bare glyph: ``fg_count == 0 and bg_count ==
+    0 and state == "idle"`` uses :func:`idle_usage_meter`'s ramp glyph +
+    severity colour, and ``fg_count == 0 and bg_count == 0 and state ==
+    "waiting"`` uses :data:`PERMISSION_PULSE_FRAMES` coloured YELLOW on
+    ``◉`` and unstyled on ``◎`` (design.md § "Coloring the permission
+    pulse"). Every other case returns ``(resolve_tab_icon(...), "")`` — an
+    empty colour, so callers never wrap the existing active/sub-agent glyphs
+    in a stray ``#[fg=...]``
     (design.md § "API shape: additive wrapper, `resolve_tab_icon` untouched").
     """
     if fg_count == 0 and bg_count == 0 and state == "idle":
         return idle_usage_meter(raw_tokens, now)
+    if fg_count == 0 and bg_count == 0 and state == "waiting":
+        icon = PERMISSION_PULSE_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
+        color = YELLOW if icon == PERMISSION_PULSE_FRAMES[0] else ""
+        return icon, color
     return resolve_tab_icon(state, now, fg_count, bg_count), ""
 
 
