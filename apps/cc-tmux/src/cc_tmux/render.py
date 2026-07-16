@@ -65,6 +65,15 @@ SHADE_FRAMES: Tuple[str, ...] = ("░", "▒", "▓", "█", "▓", "▒", "░"
 BLOCK_FRAMES: Tuple[str, ...] = ("▁", "▏", "▔", "▕")
 IDLE_GLYPH = "█"
 
+# cc-tmux-braille-flash-and-permission-pulse (design.md § Glyph picks): dedicated
+# 2-frame flash pairs that replace BLOCK_FRAMES (active/thinking) and SHADE_FRAMES
+# (waiting) in `animated_icon` (task 2.1 wires the actual swap; this task only adds
+# the constants). PERMISSION_PULSE_FRAMES reuses the circle-with-dot glyphs freed by
+# the SUBAGENT_FG_1/SUBAGENT_FG_2PLUS rename below — `◉` is colored YELLOW, `◎`
+# default/unstyled (task 2.3 wires the color branch in `resolve_tab_glyph`).
+ACTIVE_FLASH_FRAMES: Tuple[str, str] = ("⠋", "⠙")
+PERMISSION_PULSE_FRAMES: Tuple[str, str] = ("◉", "◎")
+
 # Seconds per frame. Matches the (default 1s-floor) status-interval driving
 # re-renders — a shorter period than the actual refresh cadence would just
 # mean some frames are silently skipped, which is harmless.
@@ -208,10 +217,28 @@ def animated_icon(state: str, now: float) -> str:
 # fallback) — see :func:`resolve_tab_icon`.
 # ---------------------------------------------------------------------------
 
-SUBAGENT_FG_1 = "◎"       # 1 foreground sub-agent running
-SUBAGENT_FG_2PLUS = "◉"   # 2+ foreground sub-agents running
+#
+# cc-tmux-braille-flash-and-permission-pulse (design.md, task 1.1): SUBAGENT_FG_1/
+# SUBAGENT_FG_2PLUS renamed "◎"->"□" / "◉"->"■" (hollow/filled square, distinct
+# from the circle and diamond families) to free "◎"/"◉" for PERMISSION_PULSE_FRAMES
+# above — a collision the original subagent-tab-icon proposal didn't anticipate.
+# These two are now the STATIC identity reference only; resolve_tab_icon below
+# still returns them directly until task 2.2 swaps each branch to index its
+# SUBAGENT_*_FLASH_FRAMES pair instead (kept, not removed, precisely because
+# resolve_tab_icon's four branches are out of this task's scope and still need a
+# valid name to return in the interim).
+
+SUBAGENT_FG_1 = "□"       # 1 foreground sub-agent running (static identity only)
+SUBAGENT_FG_2PLUS = "■"   # 2+ foreground sub-agents running (static identity only)
 SUBAGENT_BG_1 = "◇"       # 0 foreground, 1 unexpired background sub-agent
 SUBAGENT_BG_2PLUS = "◆"   # 0 foreground, 2+ unexpired background sub-agents
+
+# Dedicated 2-frame braille flash pairs (design.md § Glyph picks) that task 2.2
+# wires into resolve_tab_icon's four branches, replacing the static glyphs above.
+SUBAGENT_FG1_FLASH_FRAMES: Tuple[str, str] = ("⠒", "⠲")
+SUBAGENT_FG2PLUS_FLASH_FRAMES: Tuple[str, str] = ("⠶", "⠦")
+SUBAGENT_BG1_FLASH_FRAMES: Tuple[str, str] = ("⠂", "⠄")
+SUBAGENT_BG2PLUS_FLASH_FRAMES: Tuple[str, str] = ("⠆", "⠇")
 
 
 def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> str:
