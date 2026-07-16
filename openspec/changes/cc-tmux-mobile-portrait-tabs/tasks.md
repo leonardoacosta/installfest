@@ -61,11 +61,11 @@
 
 ## E2E Batch
 
-- [ ] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-tests for `_detect_portrait` [beads:if-dh5x]
+- [x] [4.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-tests for `_detect_portrait` [beads:if-dh5x]
   (landscape/portrait/square-aspect edge case), `_compute_tab_rows` (fits-in-one-row and
   needs-multiple-rows cases), and `_osc66_scale`'s exact escape-sequence output.
   [owner:general-purpose] [type:api]
-- [ ] [4.2] Run `python3 -m py_compile` and the full self-test suite (`cd apps/cc-tmux && [beads:if-p6jj]
+- [x] [4.2] Run `python3 -m py_compile` and the full self-test suite (`cd apps/cc-tmux && [beads:if-p6jj]
   python3 -c "import sys; sys.path.insert(0,'src'); from cc_tmux.testing import
   run_self_test; sys.exit(run_self_test())"`) — confirm pass count increases, zero failures.
   Run `./scripts/check.sh` at the repo root (covers the tmux.conf.tmpl/theme-file template
