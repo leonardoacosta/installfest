@@ -21,14 +21,14 @@
 
 ## E2E Batch
 
-- [ ] [2.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test covering title-absent + [beads:if-pe3p]
+- [x] [2.1] Extend `apps/cc-tmux/src/cc_tmux/testing.py`: self-test covering title-absent + [beads:if-pe3p]
   project-code-resolves — asserts the window name is the folder basename alone, not the code.
   Extend or add a second case for title-absent + no-registered-project, asserting the same
   folder-basename fallback (unchanged from today's behavior in that specific case, but now
   reached via the same code path as the code-resolves case rather than a separate branch).
   Existing tests for title-present composition (code-prefixed and title-alone) must keep
   passing unmodified. [owner:general-purpose] [type:api]
-- [ ] [2.2] Run `python3 -m py_compile` on the touched file and the full self-test suite [beads:if-o1fb]
+- [x] [2.2] Run `python3 -m py_compile` on the touched file and the full self-test suite [beads:if-o1fb]
   (`cd apps/cc-tmux && python3 -c "import sys; sys.path.insert(0,'src'); from cc_tmux.testing
   import run_self_test; sys.exit(run_self_test())"`) — confirm the total pass count increases
   (new tests added) and zero failures. Run `./scripts/check.sh` at the repo root and confirm it
