@@ -1659,7 +1659,37 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
 
 
 
-def _build_tabs_row(active_window_id: str) -> str:
+# @cc-tab-rows (cc-tmux-mobile-portrait-tabs task 2.2): row count needed for the
+# window-tabs row at the current client size, published once per render-all
+# tick so the UI batch's theme-file status-format[N] index lookups (task 3.2)
+# and render.render_tabs_row's own row-split (task 3.1) see the same value.
+_TAB_ROWS_OPT = "@cc-tab-rows"
+
+
+def _widen_tab_name_for_mobile(name: str) -> str:
+    """Pad ``name`` so its length roughly triples (portrait/mobile fallback).
+
+    Padding-only mobile-sizing mechanism (tasks.md task 1.1 live-verified OSC
+    66 does not render at scale here) — adds whitespace split across both
+    sides rather than one, so the name stays visually centered in its widened
+    segment. Triples length to match the same ``* 3`` multiplier
+    :func:`render._compute_tab_rows` uses internally for its row-count math
+    (see :func:`_build_tabs_row`'s docstring). Empty ``name`` -> unchanged
+    (nothing to widen).
+    """
+    if not name:
+        return name
+    extra = len(name) * 2
+    left = extra // 2
+    right = extra - left
+    return f"{' ' * left}{name}{' ' * right}"
+
+
+def _build_tabs_row(
+    active_window_id: str,
+    client_width: Optional[int] = None,
+    client_height: Optional[int] = None,
+) -> str:
     """Build the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
 
     Body of the former ``cmd_tabs_row`` handler, extracted (plan 005) so
@@ -1675,10 +1705,31 @@ def _build_tabs_row(active_window_id: str) -> str:
     ``render-all``), this is also the reconcile heartbeat: the call below is
     rate-limited by @cc-last-reconcile / @cc-reconcile-interval (tmux.py), so
     status-interval 1 costs at most one process scan per interval.
+
+    ``client_width``/``client_height`` (cc-tmux-mobile-portrait-tabs task 2.2)
+    are ``#{client_width}``/``#{client_height}`` from the status-format job
+    (``None`` when the caller omits them — treated as "assume landscape", the
+    same fail-open posture the rest of this function already uses). When
+    :func:`render._detect_portrait` reports portrait, each window's ``name``
+    is padded (in place, same mutation style this function already uses for
+    ``w.bg``/``w.raw_tokens``) so the rendered tab segment widens roughly 3x
+    — padding-only, NO escape sequence (tasks.md task 1.1 live-verified OSC 66
+    does not render at scale on this fleet's terminal/tmux). The padding
+    factor intentionally matches the same ``* 3`` mobile multiplier
+    :func:`render._compute_tab_rows` applies internally, so the row-count this
+    function derives and the actual widened row width stay consistent.
+    :func:`render._compute_tab_rows` itself is always called on the
+    UNPADDED base segments (before the in-place name widening below) since it
+    already applies the mobile multiplier itself — padding the segments first
+    would double-count the widening. The resulting row count is published as
+    the ``@cc-tab-rows`` global option BEFORE the tab-row content is composed,
+    so the UI batch's theme-file row lookups see the correct value on the same
+    render tick.
     """
     tmux.reconcile(_pane_ids_running_claude)  # rate-limited self-heal, <=1 scan/10s
     windows = tmux.get_window_tabs()
     if not windows:
+        tmux.set_global_option(_TAB_ROWS_OPT, "1")
         return ""
     # Sub-agent overlay (cc-tmux-subagent-tab-icon): prune each window's raw
     # (unpruned) @cc-subagent-bg union in place before handing windows to
@@ -1700,9 +1751,19 @@ def _build_tabs_row(active_window_id: str) -> str:
                 w.raw_tokens = _resolve_ses_tokens(_resolve_session_pane(w.id))
             except Exception:
                 w.raw_tokens = None
+
+    mobile = (
+        client_width is not None
+        and client_height is not None
+        and render._detect_portrait(client_width, client_height)
+    )
+    base_segments = [f"{w.index} {w.name}" for w in windows]
+    tab_rows = render._compute_tab_rows(base_segments, client_width or 0, mobile)
+    tmux.set_global_option(_TAB_ROWS_OPT, str(tab_rows))
+    if mobile:
+        for w in windows:
+            w.name = _widen_tab_name_for_mobile(w.name)
     return render.render_tabs_row(windows, active_window_id, now)
-
-
 
 
 # Global user options carrying the pre-rendered rows 2/3 for status-format[1]/[2]
@@ -1722,14 +1783,22 @@ def cmd_render_all(args) -> int:
     and shared by both row builders. Fail-open: any failure inside a builder
     degrades that row to '' (options are ALWAYS rewritten, so a failing tick
     blanks a row rather than freezing stale content).
+
+    ``args.client_width``/``args.client_height`` (cc-tmux-mobile-portrait-tabs
+    task 2.1/2.2) are the parser's optional trailing positionals — ``None``
+    when the invoking tmux.conf.tmpl job predates this change or a manual
+    invocation omits them (:func:`_build_tabs_row` treats that as "assume
+    landscape").
     """
     window = args.window
+    client_width = getattr(args, "client_width", None)
+    client_height = getattr(args, "client_height", None)
     pane = _resolve_session_pane(window)
     session_row = _build_session_bar(window, pane=pane) if pane else ""
     beads_row = _build_beads_bar(window, pane=(pane or tmux.get_window_active_pane(window)))
     tmux.set_global_option(_ROW_SESSION_OPT, session_row)
     tmux.set_global_option(_ROW_BEADS_OPT, beads_row)
-    tabs = _build_tabs_row(window)
+    tabs = _build_tabs_row(window, client_width, client_height)
     if tabs:
         sys.stdout.write(tabs)
     return 0
