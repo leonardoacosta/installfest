@@ -197,6 +197,20 @@ bind -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel "pbcopy
 bind [ copy-mode
 bind -n PageUp copy-mode -u
 
+# Half-page scroll (Voyager firmware remaps Page Up/Down to Ctrl+U/Ctrl+D —
+# see poulainpi/oryx-with-custom-qmk keymap.c, LCTL(KC_U)/LCTL(KC_D)).
+# No bind-key needed here: tmux's own copy-mode-vi defaults already map
+# C-u -> halfpage-up and C-d -> halfpage-down (verified: `tmux list-keys -T
+# copy-mode-vi`, tmux 3.6a) — it's PPage/NPage that default to full page-up/
+# page-down, which is the behavior being replaced by the firmware remap.
+#
+# CAVEAT: the root `bind -n PageUp copy-mode -u` above only fires while the
+# keyboard still emits a literal PageUp keycode. If the Voyager key that used
+# to send KC_PGUP is repointed to LCTL(KC_U), this binding goes dead (no more
+# raw "PageUp" event to trigger it) — the quick jump-into-scrollback shortcut
+# is lost unless a different physical key still sends KC_PGUP, or `prefix +
+# [` (line above, `bind [ copy-mode`) is used instead as the entry point.
+
 # Scroll speed — 3 lines per tick (default 5)
 bind -T copy-mode-vi WheelUpPane   send-keys -X -N 3 scroll-up
 bind -T copy-mode-vi WheelDownPane send-keys -X -N 3 scroll-down
