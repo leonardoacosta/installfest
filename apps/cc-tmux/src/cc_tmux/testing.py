@@ -643,10 +643,10 @@ def _test_render_animated_icon() -> None:
     _check(render.animated_icon("waiting", 0.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting frame 0")
     _check(render.animated_icon("waiting", 1.0) == render.PERMISSION_PULSE_FRAMES[1], "waiting frame 1s later")
     _check(render.animated_icon("waiting", 2.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting wraps around by tick parity")
-    # active, no raw_tokens -> pulses ramp indices 0/1 (uncoloured, motion without data).
-    _check(render.animated_icon("active", 0.0) == render.IDLE_METER_RAMP[0], "active frame 0, raw_tokens=None -> ramp idx 0")
+    # active, no raw_tokens -> pulses blank/ramp-idx-1 (uncoloured, motion without data).
+    _check(render.animated_icon("active", 0.0) == " ", "active frame 0, raw_tokens=None -> blank, not ramp idx 0")
     _check(render.animated_icon("active", 1.0) == render.IDLE_METER_RAMP[1], "active frame 1s later, raw_tokens=None -> ramp idx 1")
-    _check(render.animated_icon("active", 2.0) == render.IDLE_METER_RAMP[0], "active wraps around by tick parity")
+    _check(render.animated_icon("active", 2.0) == " ", "active wraps around by tick parity")
     # active, with raw_tokens -> pulses between the ramp index for that burn and its neighbour.
     idx = render._idle_meter_index(300_000 / render.IDLE_METER_SCALE_TOKENS)
     _check(idx == 5, f"sanity: 300K/1M ratio 0.3 -> ramp idx 5, got {idx}")

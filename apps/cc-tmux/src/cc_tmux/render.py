@@ -185,9 +185,11 @@ def animated_icon(state: str, now: float, raw_tokens: Optional[float] = None) ->
     motion that carries session burn — same visual language the idle meter
     already speaks, plus motion. ``raw_tokens is None`` (caller has no token
     data for this window yet — the ``optional`` default keeps this parameter
-    backward compatible for every pre-existing caller) pulses ramp indices
-    0/1 (``░``/``⡀``) uncoloured — motion without data still speaks ramp.
-    Otherwise the ramp index ``i`` is :func:`_idle_meter_index` against
+    backward compatible for every pre-existing caller) pulses ramp index 1
+    against a blank cell (``" "``/``⡀``) uncoloured, not the ramp's own
+    index-0 glyph — motion without data still speaks ramp, but the 0-6.25%
+    low frame reads as "nothing yet" rather than the shade-block ``░``
+    glyph. Otherwise the ramp index ``i`` is :func:`_idle_meter_index` against
     :data:`IDLE_METER_SCALE_TOKENS`, pulsing between ``i`` and
     ``min(i + 1, 16)``; at ``i == 16`` (already at the top of the ramp) both
     frames would degenerate to the same glyph, so that case special-cases to
@@ -205,7 +207,11 @@ def animated_icon(state: str, now: float, raw_tokens: Optional[float] = None) ->
         else:
             i = _idle_meter_index(raw_tokens / IDLE_METER_SCALE_TOKENS)
             lo, hi = (15, 16) if i >= 16 else (i, min(i + 1, 16))
-        return (IDLE_METER_RAMP[lo], IDLE_METER_RAMP[hi])[int(now / FRAME_PERIOD_SEC) % 2]
+        # The 0-6.25% low frame reads as a blank cell, not the ramp's own
+        # index-0 shade-block glyph (░) — every other index still pulses
+        # between its own two ramp glyphs.
+        low_frame = " " if lo == 0 else IDLE_METER_RAMP[lo]
+        return (low_frame, IDLE_METER_RAMP[hi])[int(now / FRAME_PERIOD_SEC) % 2]
     if state == "idle":
         return IDLE_GLYPH
     return DEFAULT_ICONS.get(state, "")
