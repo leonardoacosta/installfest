@@ -1341,3 +1341,90 @@ def render_beads_bar(
     if right:
         return f"{left}#[default]#[align=right]{right}#[default]"
     return f"{left}#[default]"
+
+
+# ---------------------------------------------------------------------------
+# Agents row (row 4 -- cc-tmux-row4-session-title)
+#
+# Pure composition function, same "no I/O, no tmux dependency" contract as
+# render_session_bar/render_beads_bar above. Unlike those two rows, this
+# function's OUTPUT IS DELIBERATELY UNSTYLED -- no `#[fg=...]` wrap around
+# either the title text or the glyph strip. tasks.md task 3.2 (UI batch,
+# theme files) describes the row as "title text unstyled, glyphs inherit
+# theme accent": the busy/settled distinction is carried entirely by glyph
+# SHAPE (`◌`/`○` vs `●`), never colour, so there is no colour decision left
+# for THIS function to make -- colour for the row as a whole (DIM-leaning,
+# per task 3.2) is applied once, per-theme, around the whole `@cc-row-agents`
+# slot, the same `#[bg=...]`-style wrapping the four theme `.conf` files
+# already do for rows 2/3 (see render_session_bar's docstring "No wrapping
+# bg colour is applied ... theme .conf files wrap the whole row"). This is a
+# narrower contract than render_session_bar/render_beads_bar, which DO own
+# their per-segment `#[fg=...]` colouring -- row 4 is the first row-composer
+# in this module that hands ALL colour to the theme layer.
+# ---------------------------------------------------------------------------
+
+# Busy-glyph flash pair (same 2-frame flash idiom as PERMISSION_PULSE_FRAMES/
+# SUBAGENT_ACTIVITY_FLASH_FRAMES above): `◌` hollow-dotted <-> `○` hollow,
+# alternated on the module's shared FRAME_PERIOD_SEC wall-clock parity while
+# a background dispatch is still inside its busy window. `●` (filled,
+# static -- reused from DEFAULT_ICONS["waiting"], no new glyph) marks a
+# settled entry: past busy_window but not yet aged out by the caller's prune.
+AGENTS_BUSY_FLASH_FRAMES: Tuple[str, str] = ("◌", "○")
+AGENTS_SETTLED_GLYPH = "●"
+
+# Single space between per-agent glyphs in the strip -- no established
+# precedent to match exactly (render_tabs_row's segments already carry their
+# own internal spacing so its "".join(...) isn't directly comparable to a
+# strip of bare single-character glyphs); a plain space keeps multiple
+# glyphs visually distinct without adding markup weight to a row this small.
+_AGENTS_GLYPH_SEP = " "
+
+
+def render_agents_row(
+    title: str,
+    bg_entries: List[float],
+    now: float,
+    busy_window: float,
+    client_width: Optional[int],
+) -> str:
+    """Row-4 status-format string: per-agent glyph strip, or the session title.
+
+    ``bg_entries`` is a list of background-dispatch launch epoch timestamps
+    -- same shape as a window's ``w.bg`` after
+    :func:`cc_tmux.cli.prune_background_entries` -- already pruned/aged-out
+    by the caller. This function has no aging logic of its own, mirroring
+    :func:`resolve_tab_icon`'s "caller already pruned" contract for its own
+    ``bg_count`` parameter.
+
+    Nonempty ``bg_entries`` -> ONE glyph per entry, in launch order (the
+    list's own order -- never re-sorted), joined with :data:`_AGENTS_GLYPH_SEP`.
+    Per entry: ``now - entry < busy_window`` (still inside its busy window)
+    flashes between :data:`AGENTS_BUSY_FLASH_FRAMES`' ``"◌"``/``"○"`` on the
+    same wall-clock parity every other flash in this module uses
+    (``int(now / FRAME_PERIOD_SEC) % 2``, see :data:`FRAME_PERIOD_SEC`);
+    otherwise (past ``busy_window`` but not yet aged out by the caller's
+    prune) renders the static :data:`AGENTS_SETTLED_GLYPH` (``"●"``).
+
+    Empty ``bg_entries`` and nonempty ``title`` -> ``title`` truncated to
+    ``client_width`` characters (plain ``title[:client_width]`` slice); a
+    falsy ``client_width`` (``None``/``0``) leaves ``title`` untruncated --
+    fail-open, matching this module's other missing-width-param handling
+    (e.g. :func:`_compute_tab_rows`'s ``client_width <= 0`` floor).
+
+    Both empty -> ``""`` (row omitted entirely -- proposal.md's content
+    contract; the caller drops the row and the line-count arithmetic when
+    this returns empty).
+
+    Pure function of its inputs (no tmux/subprocess).
+    """
+    if bg_entries:
+        glyphs: List[str] = []
+        for entry in bg_entries:
+            if now - entry < busy_window:
+                glyphs.append(AGENTS_BUSY_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2])
+            else:
+                glyphs.append(AGENTS_SETTLED_GLYPH)
+        return _AGENTS_GLYPH_SEP.join(glyphs)
+    if title:
+        return title[:client_width] if client_width else title
+    return ""
