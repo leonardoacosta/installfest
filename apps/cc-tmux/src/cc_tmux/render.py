@@ -1017,6 +1017,16 @@ def render_tabs_row(
     applied (theme ``.conf`` files wrap the whole row, same as
     ``status-format[1]``/``[2]`` — see :func:`render_session_bar`).
 
+    ``model_letter`` (duck-typed via ``getattr``, defaulting to ``""``) is
+    set by the caller (:func:`cc_tmux.cli._build_tabs_row`) ONLY for the
+    active window — resolving it per-window would mean an nx-agent call per
+    tab per render tick. When the active window's ``model_letter == "F"``
+    (Fable), its tab text renders bold RED instead of the normal bold CYAN;
+    any other letter (or no letter) and inactive windows are unaffected —
+    same ``"F": RED`` mapping :data:`_MODEL_LETTER_COLORS` already uses for
+    the row-2 model-letter segment, reused here rather than a second RED
+    reference.
+
     :func:`resolve_tab_glyph` returns a ``(glyph, color)`` pair. When
     ``color`` is non-empty (the idle-usage-meter case), ONLY the glyph is
     wrapped in it — ``#[fg={color}]{glyph}#[fg={label_colour}] `` — restoring
@@ -1061,8 +1071,13 @@ def render_tabs_row(
         index = getattr(w, "index", "")
         name = getattr(w, "name", "")
 
+        model_letter = getattr(w, "model_letter", "") or ""
+
         is_active = active_window_id and getattr(w, "id", None) == active_window_id
-        colour = f"{CYAN},bold" if is_active else DIM
+        if is_active and model_letter == "F":
+            colour = f"{RED},bold"
+        else:
+            colour = f"{CYAN},bold" if is_active else DIM
 
         glyph, meter_color = resolve_tab_glyph(state, now, fg_count, bg_count, raw_tokens)
         if meter_color:

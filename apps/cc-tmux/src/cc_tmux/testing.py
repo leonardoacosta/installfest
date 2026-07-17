@@ -2284,6 +2284,66 @@ def _test_render_tabs_row() -> None:
     _check("#[range=window|1]" in out3 and "#[range=window|2]" in out3, "range markup present regardless of active id")
 
 
+def _test_render_tabs_row_fable_red() -> None:
+    """render_tabs_row: active window running Fable (model_letter == 'F')
+    renders bold RED instead of the normal active bold CYAN — the scoped-down
+    version of a larger per-window feature (only the active tab is coloured
+    by model; inactive tabs never resolve model_letter at all, see
+    cli._build_tabs_row)."""
+    windows = [
+        _FakeWindow(id="@1", index="1", name="editor", state=""),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+
+    # Active window with model_letter == "F" -> bold RED, not bold CYAN.
+    windows[1].model_letter = "F"  # type: ignore[attr-defined]
+    out = render.render_tabs_row(windows, "@2", now=1.0)
+    _check(
+        f"#[fg={render.RED},bold]#[range=window|2] shell #[norange]#[default]" in out,
+        f"active Fable window: bold RED, got {out!r}",
+    )
+    _check(f"#[fg={render.CYAN},bold]" not in out, "active Fable window: no CYAN,bold segment at all")
+
+    # Same active window with no model_letter (attribute absent) -> unchanged
+    # normal bold CYAN behavior.
+    windows_no_letter = [
+        _FakeWindow(id="@1", index="1", name="editor", state=""),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+    out_no_letter = render.render_tabs_row(windows_no_letter, "@2", now=1.0)
+    _check(
+        f"#[fg={render.CYAN},bold]#[range=window|2] shell #[norange]#[default]" in out_no_letter,
+        "active window, no model_letter attribute: unchanged bold CYAN",
+    )
+
+    # Active window with a different model_letter (e.g. "O", Opus) -> also
+    # unchanged bold CYAN, RED is Fable-specific.
+    windows_opus = [
+        _FakeWindow(id="@1", index="1", name="editor", state=""),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+    windows_opus[1].model_letter = "O"  # type: ignore[attr-defined]
+    out_opus = render.render_tabs_row(windows_opus, "@2", now=1.0)
+    _check(
+        f"#[fg={render.CYAN},bold]#[range=window|2] shell #[norange]#[default]" in out_opus,
+        "active Opus window: unchanged bold CYAN, RED is Fable-only",
+    )
+
+    # Inactive window with model_letter == "F" set -> NOT coloured red, stays
+    # DIM. Proves the scoping is real (active-window-only), not accidental.
+    windows_inactive_fable = [
+        _FakeWindow(id="@1", index="1", name="editor", state=""),
+        _FakeWindow(id="@2", index="2", name="shell", state=""),
+    ]
+    windows_inactive_fable[0].model_letter = "F"  # type: ignore[attr-defined]
+    out_inactive = render.render_tabs_row(windows_inactive_fable, "@2", now=1.0)
+    _check(
+        f"#[fg={render.DIM}]#[range=window|1] editor #[norange]#[default]" in out_inactive,
+        f"inactive Fable window: stays DIM, never RED, got {out_inactive!r}",
+    )
+    _check(f"#[fg={render.RED}" not in out_inactive, "inactive Fable window: no RED segment anywhere")
+
+
 # ---------------------------------------------------------------------------
 # render.py mobile-portrait-tabs tests (cc-tmux-mobile-portrait-tabs, task 4.1)
 # ---------------------------------------------------------------------------
@@ -3851,6 +3911,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.beads_bar", _test_render_beads_bar),
     ("render.beads_bar_account_segment", _test_render_beads_bar_account_segment),
     ("render.tabs_row", _test_render_tabs_row),
+    ("render.tabs_row_fable_red", _test_render_tabs_row_fable_red),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
     ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),

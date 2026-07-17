@@ -1781,6 +1781,17 @@ def _build_tabs_row(
                 w.raw_tokens = _resolve_ses_tokens(_resolve_session_pane(w.id))
             except Exception:
                 w.raw_tokens = None
+        # cc-tmux-red-fable-tab: model_letter is resolved ONLY for the active
+        # window (an nx-agent call per window per render tick is the larger,
+        # deliberately-deferred per-window feature this was scoped down from
+        # — see render.render_tabs_row's model_letter docstring). Fail-open
+        # per this function's existing convention.
+        w.model_letter = ""
+        if active_window_id and w.id == active_window_id:
+            try:
+                w.model_letter = _resolve_model_letter(_resolve_session_pane(w.id))
+            except Exception:
+                w.model_letter = ""
 
     mobile = (
         client_width is not None
