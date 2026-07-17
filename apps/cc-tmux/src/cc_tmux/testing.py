@@ -2817,15 +2817,14 @@ def _test_cli_read_roadmap_pulse_nx_agent_success() -> None:
     project code without a real tomllib/projects.toml roundtrip);
     nx_agent.roadmap_pulse per the _test_cli_resolve_ses_tokens save/restore
     convention (testing.py:1610)."""
-    from datetime import datetime, timedelta, timezone
-
-    updated_at_dt = datetime.now(timezone.utc) - timedelta(seconds=120)
-    updated_at = updated_at_dt.isoformat().replace("+00:00", "Z")
+    # Real nx-agent response shape (op/bd, no updatedAt) — see
+    # _build_roadmap_pulse_content's docstring for the post-shipping field-name
+    # correction (the endpoint actually serves "op"/"bd", not the originally
+    # guessed "openspec"/"beads", and sends no "updatedAt" at all).
     pulse = {
-        "openspec": {"open": 5, "in_progress": 2, "ua": 1},
-        "beads": {"open": 10, "ready": 3, "blocked": 1},
+        "op": {"open": 5, "in_progress": 2, "ua": 1},
+        "bd": {"open": 10, "ready": 3, "blocked": 1},
         "next": "/apply zz-thing",
-        "updatedAt": updated_at,
     }
 
     saved_run_tmux = tmux._run_tmux
@@ -2846,8 +2845,8 @@ def _test_cli_read_roadmap_pulse_nx_agent_success() -> None:
             f"content parseable by the existing counts parser: {parsed!r}",
         )
         _check(
-            isinstance(age_sec, float) and 110.0 <= age_sec < 200.0,
-            f"age_sec derived from updatedAt (~120s ago): {age_sec!r}",
+            age_sec is None,
+            f"age_sec is None since the real response carries no updatedAt: {age_sec!r}",
         )
     finally:
         tmux._run_tmux = saved_run_tmux  # type: ignore[assignment]
@@ -3730,11 +3729,13 @@ def _test_nx_agent_roadmap_pulse_cache() -> None:
     saved_query = usage._query
     tmpdir = tempfile.mkdtemp(prefix="cc-tmux-nx-pulse-test-")
     path = os.path.join(tmpdir, "pulse.json")
+    # Real nx-agent response shape (op/bd, no updatedAt) — nx_agent.roadmap_pulse
+    # itself is opaque to field names (it just caches/returns the dict as-is), but
+    # the fixture mirrors the real payload for accuracy.
     payload = {
-        "openspec": {"open": 5, "in_progress": 2, "ua": 1},
-        "beads": {"open": 10, "ready": 3, "blocked": 1},
+        "op": {"open": 5, "in_progress": 2, "ua": 1},
+        "bd": {"open": 10, "ready": 3, "blocked": 1},
         "next": "/apply zz-thing",
-        "updatedAt": "2026-07-17T18:00:00Z",
     }
     try:
         # --- cache HIT: a fresh, well-formed cache file skips the HTTP fetch ---

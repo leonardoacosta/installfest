@@ -864,24 +864,25 @@ def _cc_state_dir() -> Path:
 def _build_roadmap_pulse_content(pulse: dict) -> Tuple[str, Optional[float]]:
     """Build ``(content, age_sec)`` from a nx-agent ``GET /projects/{code}/pulse`` dict.
 
-    PROVISIONAL contract (cc-tmux-nx-agent-roadmap-pulse task 2.1) — the
-    nx-side endpoint's real response shape is a SEPARATE, not-yet-authored
-    spec in ``~/dev/personal/nexus`` (see this change's proposal.md § Context
-    / Risks), so this shape may need a follow-up adjustment once that spec
-    locks the actual response. Until then, this function expects::
+    Real contract (cc-tmux-nx-agent-roadmap-pulse task 2.1, corrected post-shipping
+    once the actual nx-agent endpoint landed — the original PROVISIONAL shape this
+    function was authored against had guessed ``"openspec"``/``"beads"``/``"updatedAt"``
+    keys that do not match what nx-agent actually serves). The live response shape is::
 
         {
-          "openspec": {"open": int, "in_progress": int, "ua": int},
-          "beads": {"open": int, "ready": int, "blocked": int},
-          "next": "optional truncated next-action text" | None,
-          "updatedAt": "2026-07-17T18:00:00Z"  # ISO8601, Z or +00:00 offset
+          "op": {"open": int, "in_progress": int, "ua": int},
+          "bd": {"open": int, "ready": int, "blocked": int},
+          "next": "optional truncated next-action text" | None
         }
+
+    Note there is no ``updatedAt`` field in the real response — nx-agent does not
+    send one, so ``age_sec`` always comes back ``None`` (see below).
 
     ``content`` is built as the literal ``op: {open}o {in_progress}ip {ua}ua``
     and ``bd: {open}o {ready}r {blocked}b`` lines — exactly matching
     :data:`_OPENSPEC_LINE_RE` / :data:`_BEADS_LINE_RE` below (no extra
     whitespace) — plus a trailing ``next: {next}`` line when ``next`` is a
-    non-empty string. A missing or malformed ``openspec``/``beads`` sub-dict
+    non-empty string. A missing or malformed ``op``/``bd`` sub-dict
     (or a field within one) just omits that line, matching
     :func:`_parse_roadmap_pulse_counts`'s existing per-half fail-open
     tolerance for a missing ``op:``/``bd:`` line.
@@ -890,11 +891,13 @@ def _build_roadmap_pulse_content(pulse: dict) -> Tuple[str, Optional[float]]:
     trailing ``Z`` since ``datetime.fromisoformat`` only accepts ``Z`` natively
     on Python 3.11+ and this package targets 3.10+ per ``pyproject.toml``) as
     ``max(0.0, time.time() - parsed_epoch)``. Any parse failure or missing
-    ``updatedAt`` yields ``age_sec = None`` rather than raising.
+    ``updatedAt`` yields ``age_sec = None`` rather than raising — this is the
+    normal, expected outcome against the real response today since it carries
+    no ``updatedAt`` key at all.
     """
     lines: List[str] = []
 
-    openspec = pulse.get("openspec")
+    openspec = pulse.get("op")
     if isinstance(openspec, dict):
         try:
             lines.append(
@@ -904,7 +907,7 @@ def _build_roadmap_pulse_content(pulse: dict) -> Tuple[str, Optional[float]]:
         except (KeyError, TypeError, ValueError):
             pass
 
-    beads = pulse.get("beads")
+    beads = pulse.get("bd")
     if isinstance(beads, dict):
         try:
             lines.append(
