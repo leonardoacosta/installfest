@@ -625,19 +625,55 @@ def _test_render_resolve_icons() -> None:
 
 
 def _test_render_animated_icon() -> None:
-    """cc-tmux-braille-flash-and-permission-pulse (task 2.1): `waiting` now cycles
-    `PERMISSION_PULSE_FRAMES` (replacing `SHADE_FRAMES`) and `active` cycles
-    `ACTIVE_FLASH_FRAMES` (replacing `BLOCK_FRAMES`) — both 2-frame pairs indexed by
-    `FRAME_PERIOD_SEC` tick PARITY (`% 2`), not the old 4-/7-frame full-cycle index."""
+    """cc-tmux-braille-flash-and-permission-pulse (task 2.1): `waiting` cycles
+    `PERMISSION_PULSE_FRAMES` (replacing `SHADE_FRAMES`) by `FRAME_PERIOD_SEC` tick
+    PARITY (`% 2`). `idle` (a window with NO tracked pane data at all -- a different
+    code path than `idle_usage_meter`'s own no-data fallback) still returns the
+    static `IDLE_GLYPH`, unchanged.
+
+    cc-tmux-glyph-unification: `active` no longer cycles the fixed
+    `ACTIVE_FLASH_FRAMES` braille pair -- it now pulses between two adjacent
+    `IDLE_METER_RAMP` glyphs, same ramp language `idle_usage_meter` speaks.
+    `raw_tokens is None` pulses ramp indices 0/1; otherwise it pulses between
+    `_idle_meter_index(raw_tokens/IDLE_METER_SCALE_TOKENS)` and its neighbour,
+    special-casing to 15<->16 at the top of the ramp so the two frames never
+    degenerate to the same glyph."""
     _check(render.animated_icon("idle", 0.0) == render.IDLE_GLYPH, "idle -> static glyph")
     _check(render.animated_icon("idle", 999.0) == render.IDLE_GLYPH, "idle never changes with time")
     _check(render.animated_icon("waiting", 0.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting frame 0")
     _check(render.animated_icon("waiting", 1.0) == render.PERMISSION_PULSE_FRAMES[1], "waiting frame 1s later")
     _check(render.animated_icon("waiting", 2.0) == render.PERMISSION_PULSE_FRAMES[0], "waiting wraps around by tick parity")
-    _check(render.animated_icon("active", 0.0) == render.ACTIVE_FLASH_FRAMES[0], "active frame 0")
-    _check(render.animated_icon("active", 1.0) == render.ACTIVE_FLASH_FRAMES[1], "active frame 1s later")
-    _check(render.animated_icon("active", 2.0) == render.ACTIVE_FLASH_FRAMES[0], "active wraps around by tick parity")
+    # active, no raw_tokens -> pulses ramp indices 0/1 (uncoloured, motion without data).
+    _check(render.animated_icon("active", 0.0) == render.IDLE_METER_RAMP[0], "active frame 0, raw_tokens=None -> ramp idx 0")
+    _check(render.animated_icon("active", 1.0) == render.IDLE_METER_RAMP[1], "active frame 1s later, raw_tokens=None -> ramp idx 1")
+    _check(render.animated_icon("active", 2.0) == render.IDLE_METER_RAMP[0], "active wraps around by tick parity")
+    # active, with raw_tokens -> pulses between the ramp index for that burn and its neighbour.
+    idx = render._idle_meter_index(300_000 / render.IDLE_METER_SCALE_TOKENS)
+    _check(idx == 5, f"sanity: 300K/1M ratio 0.3 -> ramp idx 5, got {idx}")
+    _check(
+        render.animated_icon("active", 0.0, raw_tokens=300_000) == render.IDLE_METER_RAMP[5],
+        "active frame 0 w/ raw_tokens=300K -> ramp idx 5",
+    )
+    _check(
+        render.animated_icon("active", 1.0, raw_tokens=300_000) == render.IDLE_METER_RAMP[6],
+        "active frame 1s later w/ raw_tokens=300K -> ramp idx 6",
+    )
+    # active, at the very top of the ramp -> special-cases to 15<->16 (both
+    # frames would otherwise degenerate to the same glyph at i==16).
+    _check(
+        render.animated_icon("active", 0.0, raw_tokens=render.IDLE_METER_SCALE_TOKENS) == render.IDLE_METER_RAMP[15],
+        "active frame 0 w/ raw_tokens at scale ceiling -> ramp idx 15 (top-of-ramp special case)",
+    )
+    _check(
+        render.animated_icon("active", 1.0, raw_tokens=render.IDLE_METER_SCALE_TOKENS) == render.IDLE_METER_RAMP[16],
+        "active frame 1s later w/ raw_tokens at scale ceiling -> ramp idx 16",
+    )
     _check(render.animated_icon("bogus-state", 0.0) == "", "unknown state -> ''")
+    # ACTIVE_FLASH_FRAMES is no longer wired into animated_icon's active branch
+    # (cc-tmux-glyph-unification) but render.py keeps the constant defined --
+    # assert its own value directly so render.py's "kept defined, testing.py
+    # still asserts the old braille-pair behavior" comment stays honest.
+    _check(render.ACTIVE_FLASH_FRAMES == ("⠋", "⠙"), "legacy ACTIVE_FLASH_FRAMES value unchanged, though unused by animated_icon now")
 
 
 # ---------------------------------------------------------------------------
@@ -679,10 +715,15 @@ def _test_render_idle_meter_index0_flash() -> None:
 
 
 def _test_render_idle_meter_none_fallback() -> None:
+    """cc-tmux-glyph-unification: raw_tokens=None now renders the ramp's own
+    state-0 glyph (IDLE_METER_RAMP[0], '░') STATIC in DIM -- never flashing,
+    and never the old IDLE_GLYPH solid block. Distinct from the genuinely-
+    fresh state-0 case (idx0_flash test above), which DOES flash '░' against
+    a blank cell -- a data gap must not render as the fresh-session flash."""
     for now in (0.0, 1.0, 42.5):
         glyph, color = render.idle_usage_meter(None, now)
-        _check(glyph == render.IDLE_GLYPH, f"None raw_tokens -> IDLE_GLYPH at now={now}, got {glyph!r}")
-        _check(color == "", f"None raw_tokens -> empty color at now={now}, got {color!r}")
+        _check(glyph == render.IDLE_METER_RAMP[0], f"None raw_tokens -> static ramp idx0 glyph at now={now}, got {glyph!r}")
+        _check(color == render.DIM, f"None raw_tokens -> DIM colour at now={now}, got {color!r}")
 
 
 def _test_render_idle_meter_color_matches_resolve_context_color() -> None:
@@ -720,7 +761,12 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     state=="waiting") routes to the permission-pulse colour branch — see
     :func:`_test_render_resolve_tab_glyph_permission_pulse` for that case's own
     dedicated coverage (it no longer byte-matches the bare resolve_tab_icon
-    passthrough this test asserts for every OTHER case)."""
+    passthrough this test asserts for every OTHER case). Sub-agent-active
+    sanity values now check the single ``SUBAGENT_ACTIVITY_FLASH_FRAMES``
+    diamond pair (cc-tmux-glyph-unification collapsed the former 4-way
+    fg/bg-count-keyed braille glyphs down to one presence signal — see
+    :func:`_test_render_resolve_tab_icon` for the full collapsed-mapping
+    coverage)."""
     # active state, no subagents -> plain resolve_tab_icon passthrough.
     icon = render.resolve_tab_icon("active", 2.0, 0, 0)
     _check(
@@ -731,7 +777,7 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     # fg=1 (foreground sub-agent), even with state=="idle" -> subagent overlay
     # wins, never the meter.
     icon = render.resolve_tab_icon("idle", 0.0, 1, 0)
-    _check(icon == render.SUBAGENT_FG1_FLASH_FRAMES[0], "sanity: fg=1 -> FG1 flash frame 0")
+    _check(icon == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "sanity: fg=1 -> diamond flash frame 0")
     _check(
         render.resolve_tab_glyph("idle", 0.0, 1, 0) == (icon, ""),
         "fg=1: byte-identical to resolve_tab_icon, empty colour, not the meter",
@@ -740,7 +786,7 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     # fg=1 (foreground sub-agent) with state=="waiting" -> subagent overlay wins,
     # never the permission-pulse colour branch either (it only fires at fg=0,bg=0).
     icon = render.resolve_tab_icon("waiting", 0.0, 1, 0)
-    _check(icon == render.SUBAGENT_FG1_FLASH_FRAMES[0], "sanity: fg=1 -> FG1 flash frame 0 (waiting state ignored)")
+    _check(icon == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "sanity: fg=1 -> diamond flash frame 0 (waiting state ignored)")
     _check(
         render.resolve_tab_glyph("waiting", 0.0, 1, 0) == (icon, ""),
         "fg=1+waiting: byte-identical to resolve_tab_icon, empty colour, not the permission pulse",
@@ -749,7 +795,7 @@ def _test_render_resolve_tab_glyph_precedence() -> None:
     # bg=2 (background sub-agents), fg=0, state=="idle" -> subagent overlay
     # wins, never the meter.
     icon = render.resolve_tab_icon("idle", 0.0, 0, 2)
-    _check(icon == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "sanity: fg=0,bg=2 -> BG2+ flash frame 0")
+    _check(icon == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "sanity: fg=0,bg=2 -> diamond flash frame 0")
     _check(
         render.resolve_tab_glyph("idle", 0.0, 0, 2) == (icon, ""),
         "bg=2: byte-identical to resolve_tab_icon, empty colour, not the meter",
@@ -804,10 +850,16 @@ def _test_render_render_tabs_row_idle_meter_wiring() -> None:
     """render_tabs_row wiring (task 4.2): a plain-idle window with raw_tokens set
     renders the idle-usage-meter ramp glyph wrapped in its own #[fg=...] colour,
     with the segment's own label colour (CYAN-bold active / DIM inactive)
-    restored immediately after — #[range=window|...] markup unchanged. The same
-    window WITHOUT raw_tokens (None, or the attribute absent entirely) renders
-    byte-identical to today's static-icon segment: no #[fg=] wrap around the
-    icon at all."""
+    restored immediately after — #[range=window|...] markup unchanged.
+
+    cc-tmux-glyph-unification: the same window WITHOUT raw_tokens (None, or
+    the attribute absent entirely) is NO LONGER byte-identical to the old
+    static-icon segment. `idle_usage_meter(None, now)` now returns the ramp's
+    state-0 glyph (`IDLE_METER_RAMP[0]`, '░') with a non-empty DIM colour
+    (unifying the no-data fallback onto the ramp, see that function's
+    docstring) — since `meter_color` is truthy, render_tabs_row DOES wrap the
+    glyph in `#[fg=DIM]`, same composition shape as the raw_tokens-present
+    case, just a different glyph/colour pair."""
     idle_window = _FakeWindow(id="@1", index="1", name="work", state="idle")
     idle_window.raw_tokens = 500_000  # type: ignore[attr-defined]  # 500K/1M -> ratio 0.5 -> ramp idx 8
 
@@ -840,14 +892,22 @@ def _test_render_render_tabs_row_idle_meter_wiring() -> None:
         f"active idle window w/ raw_tokens: meter glyph + colour, CYAN-bold restored, range markup intact, no index: {out_active!r}",
     )
 
-    # Same window with raw_tokens explicitly None -> byte-identical to the
-    # prior plain-icon rendering (no colour wrap around the icon at all).
-    static_expected = f"#[fg={render.DIM}]#[range=window|1] {render.IDLE_GLYPH} work #[norange]#[default]"
+    # Same window with raw_tokens explicitly None -> cc-tmux-glyph-unification:
+    # idle_usage_meter's None-fallback now returns the ramp's state-0 glyph
+    # wrapped in DIM (non-empty colour), NOT the old bare/unwrapped IDLE_GLYPH.
+    none_glyph, none_color = render.idle_usage_meter(None, 0.0)
+    _check(none_glyph == render.IDLE_METER_RAMP[0] == "░", f"sanity: None raw_tokens -> ramp idx0 glyph, got {none_glyph!r}")
+    _check(none_color == render.DIM, f"sanity: None raw_tokens -> DIM colour, got {none_color!r}")
+    static_expected = (
+        f"#[fg={render.DIM}]#[range=window|1] "
+        f"#[fg={none_color}]{none_glyph}#[fg={render.DIM}] work "
+        f"#[norange]#[default]"
+    )
     idle_window_none = _FakeWindow(id="@1", index="1", name="work", state="idle")
     idle_window_none.raw_tokens = None  # type: ignore[attr-defined]
     out_none = render.render_tabs_row([idle_window_none], "@2", now=0.0)
-    _check(out_none == static_expected, f"idle window, raw_tokens=None: byte-identical to static glyph, no wrap: {out_none!r}")
-    _check(f"#[fg={expected_color}]" not in out_none, "raw_tokens=None: meter colour never appears")
+    _check(out_none == static_expected, f"idle window, raw_tokens=None: wraps ramp idx0 glyph in DIM (unified no-data fallback): {out_none!r}")
+    _check(f"#[fg={expected_color}]" not in out_none, "raw_tokens=None: the raw_tokens=500K meter colour (ORANGE tier) never leaks in")
 
     # Same window with the raw_tokens attribute absent entirely (getattr
     # default) -> identical to the explicit-None case — the real shape
@@ -3219,28 +3279,31 @@ def _test_cli_prune_background_entries() -> None:
 
 def _test_render_resolve_tab_icon() -> None:
     """Resolved glyph mapping (tasks.md task 1.1, updated by cc-tmux-braille-flash-
-    and-permission-pulse task 2.2): fg=1 -> flashes SUBAGENT_FG1_FLASH_FRAMES
-    regardless of bg; fg=2+ -> flashes SUBAGENT_FG2PLUS_FLASH_FRAMES regardless of
-    bg; fg=0 with bg=1/2+ -> flashes SUBAGENT_BG1_FLASH_FRAMES/
-    SUBAGENT_BG2PLUS_FLASH_FRAMES; fg=0 and bg=0 (or fully pruned) falls through to
-    the existing state-based animated_icon result. Every flash pair cycles by
-    FRAME_PERIOD_SEC tick PARITY (`% 2`), same idiom as animated_icon. Precedence
-    order and thresholds are UNCHANGED from the pre-flash static-glyph mapping —
-    only what each branch RETURNS changed."""
-    _check(render.resolve_tab_icon("idle", 0.0, 1, 0) == render.SUBAGENT_FG1_FLASH_FRAMES[0], "fg=1 -> FG1 flash frame 0")
-    _check(render.resolve_tab_icon("idle", 1.0, 1, 0) == render.SUBAGENT_FG1_FLASH_FRAMES[1], "fg=1 -> FG1 flash frame 1s later")
-    _check(render.resolve_tab_icon("idle", 0.0, 2, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=2 -> FG2+ flash frame 0")
-    _check(render.resolve_tab_icon("idle", 1.0, 2, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[1], "fg=2 -> FG2+ flash frame 1s later")
-    _check(render.resolve_tab_icon("idle", 0.0, 5, 0) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=5 -> FG2+ flash frame 0")
-    # Foreground takes precedence over background whenever fg is nonzero.
-    _check(render.resolve_tab_icon("idle", 0.0, 1, 9) == render.SUBAGENT_FG1_FLASH_FRAMES[0], "fg=1 wins over any bg count")
-    _check(render.resolve_tab_icon("idle", 0.0, 2, 9) == render.SUBAGENT_FG2PLUS_FLASH_FRAMES[0], "fg=2+ wins over any bg count")
-    # fg=0 falls through to the background heuristic.
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 1) == render.SUBAGENT_BG1_FLASH_FRAMES[0], "fg=0,bg=1 -> BG1 flash frame 0")
-    _check(render.resolve_tab_icon("idle", 1.0, 0, 1) == render.SUBAGENT_BG1_FLASH_FRAMES[1], "fg=0,bg=1 -> BG1 flash frame 1s later")
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 2) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "fg=0,bg=2 -> BG2+ flash frame 0")
-    _check(render.resolve_tab_icon("idle", 1.0, 0, 2) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[1], "fg=0,bg=2 -> BG2+ flash frame 1s later")
-    _check(render.resolve_tab_icon("idle", 0.0, 0, 7) == render.SUBAGENT_BG2PLUS_FLASH_FRAMES[0], "fg=0,bg=7 -> BG2+ flash frame 0")
+    and-permission-pulse task 2.2, collapsed by cc-tmux-glyph-unification): ANY
+    nonzero fg_count OR bg_count now flashes a single SUBAGENT_ACTIVITY_FLASH_FRAMES
+    diamond pair (`◇`/`◆`) — the former 6-way fg/bg-count-keyed mapping (fg=1 vs
+    fg=2+ vs bg=1 vs bg=2+, each its own braille pair, foreground taking precedence
+    over background) is GONE from the rendered glyph; only "some sub-agent activity
+    is present" survives as a signal, not "which kind, how many." fg=0 and bg=0 (or
+    fully pruned) falls through to the existing state-based animated_icon result,
+    unchanged. The diamond pair cycles by FRAME_PERIOD_SEC tick PARITY (`% 2`), same
+    idiom as animated_icon and the pair it replaces."""
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 0) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=1 -> diamond flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 1, 0) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[1], "fg=1 -> diamond flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 0) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=2 -> diamond flash frame 0 (count no longer distinguishes the glyph)")
+    _check(render.resolve_tab_icon("idle", 1.0, 2, 0) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[1], "fg=2 -> diamond flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 5, 0) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=5 -> diamond flash frame 0")
+    # Foreground and background both flash the identical diamond pair now — no
+    # rendered precedence distinction (fg-vs-bg precedence still matters upstream
+    # for pruning/tracking, just not for this glyph's appearance).
+    _check(render.resolve_tab_icon("idle", 0.0, 1, 9) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=1 + any bg -> diamond flash")
+    _check(render.resolve_tab_icon("idle", 0.0, 2, 9) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=2+ + any bg -> diamond flash")
+    # fg=0 with bg nonzero -> same diamond pair, any bg count.
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 1) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=0,bg=1 -> diamond flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 0, 1) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[1], "fg=0,bg=1 -> diamond flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 2) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=0,bg=2 -> diamond flash frame 0")
+    _check(render.resolve_tab_icon("idle", 1.0, 0, 2) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[1], "fg=0,bg=2 -> diamond flash frame 1s later")
+    _check(render.resolve_tab_icon("idle", 0.0, 0, 7) == render.SUBAGENT_ACTIVITY_FLASH_FRAMES[0], "fg=0,bg=7 -> diamond flash frame 0")
     # Neither active (or bg fully pruned by the caller before this call) -> falls
     # through to the plain state-based animated_icon result, not a subagent glyph.
     _check(render.resolve_tab_icon("idle", 0.0, 0, 0) == render.IDLE_GLYPH, "fg=0,bg=0 -> idle glyph (fallthrough)")
@@ -3249,21 +3312,30 @@ def _test_render_resolve_tab_icon() -> None:
         "fg=0,bg=0 -> waiting animation frame preserved",
     )
     _check(
-        render.resolve_tab_icon("active", 1.0, 0, 0) == render.ACTIVE_FLASH_FRAMES[1],
-        "fg=0,bg=0 -> active animation frame preserved",
+        render.resolve_tab_icon("active", 1.0, 0, 0) == render.animated_icon("active", 1.0),
+        "fg=0,bg=0 -> active animation frame preserved (ramp-adjacent pulse, cc-tmux-glyph-unification, not the old fixed braille pair)",
     )
     _check(render.resolve_tab_icon("", 0.0, 0, 0) == "", "no tracked pane, no subagents -> ''")
 
-    # Distinctness contract (proposal.md "Distinctness decision"): no two of the
-    # four sub-agent flash pairs share a frame, so each of the four states stays
-    # visually distinguishable at a glance even mid-flash.
+    # Legacy 4-way constants (SUBAGENT_FG1/FG2PLUS/BG1/BG2PLUS_FLASH_FRAMES) are
+    # no longer wired into resolve_tab_icon (cc-tmux-glyph-unification collapsed
+    # them all to SUBAGENT_ACTIVITY_FLASH_FRAMES above) but render.py keeps them
+    # defined — assert their own values + mutual distinctness directly here so
+    # render.py's "kept defined... testing.py still asserts the old four-pair
+    # behavior directly" comment stays honest (proposal.md "Distinctness
+    # decision" is now historical: it applied to the mapping this test used to
+    # exercise through resolve_tab_icon, not to the currently-rendered glyph).
+    _check(render.SUBAGENT_FG1_FLASH_FRAMES == ("⠒", "⠲"), "legacy SUBAGENT_FG1_FLASH_FRAMES value unchanged")
+    _check(render.SUBAGENT_FG2PLUS_FLASH_FRAMES == ("⠶", "⠦"), "legacy SUBAGENT_FG2PLUS_FLASH_FRAMES value unchanged")
+    _check(render.SUBAGENT_BG1_FLASH_FRAMES == ("⠂", "⠄"), "legacy SUBAGENT_BG1_FLASH_FRAMES value unchanged")
+    _check(render.SUBAGENT_BG2PLUS_FLASH_FRAMES == ("⠆", "⠇"), "legacy SUBAGENT_BG2PLUS_FLASH_FRAMES value unchanged")
     all_frames = (
         render.SUBAGENT_FG1_FLASH_FRAMES
         + render.SUBAGENT_FG2PLUS_FLASH_FRAMES
         + render.SUBAGENT_BG1_FLASH_FRAMES
         + render.SUBAGENT_BG2PLUS_FLASH_FRAMES
     )
-    _check(len(set(all_frames)) == len(all_frames), "no two sub-agent flash pairs share a frame")
+    _check(len(set(all_frames)) == len(all_frames), "no two legacy sub-agent flash pairs share a frame (historical distinctness contract)")
 
 
 def _test_cli_register_subagent_start_stop_branching() -> None:
