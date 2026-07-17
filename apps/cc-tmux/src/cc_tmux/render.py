@@ -72,6 +72,13 @@ IDLE_GLYPH = "█"
 # PERMISSION_PULSE_FRAMES reuses the circle-with-dot glyphs freed by the
 # SUBAGENT_FG_1/SUBAGENT_FG_2PLUS rename below — `◉` is colored YELLOW, `◎`
 # default/unstyled (task 2.3 wires the color branch in `resolve_tab_glyph`).
+#
+# cc-tmux-glyph-unification: ACTIVE_FLASH_FRAMES's fixed braille pair is no
+# longer used by `animated_icon`'s active branch — active now pulses between
+# two adjacent :data:`IDLE_METER_RAMP` glyphs bracketing the session's current
+# burn (see `animated_icon` below), the same ramp language the idle meter
+# already speaks. Kept defined (not deleted): `testing.py` still asserts the
+# old braille-pair behavior — see this task's final report for the citation.
 ACTIVE_FLASH_FRAMES: Tuple[str, str] = ("⠋", "⠙")
 PERMISSION_PULSE_FRAMES: Tuple[str, str] = ("◉", "◎")
 
@@ -126,21 +133,28 @@ def _idle_meter_index(ratio: float) -> int:
 def idle_usage_meter(raw_tokens: Optional[float], now: float) -> Tuple[str, str]:
     """``(glyph, color)`` for the idle-tab usage meter at wall-clock ``now``.
 
-    ``raw_tokens is None`` renders byte-identical to today's static idle glyph
-    — :data:`IDLE_GLYPH` with an empty color string (no ``#[fg=...]`` wrap) —
-    never the flash glyph, since missing data is not the same as a fresh
-    session (design.md § "`None` fallback: static `█`, never `░`").
+    ``raw_tokens is None`` (cc-tmux-glyph-unification: unifies the idle
+    no-data fallback onto the ramp) renders the ramp's own state-0 glyph
+    (:data:`IDLE_METER_RAMP` index 0, ``░``) STATIC in DIM — never flashing,
+    and never :data:`IDLE_GLYPH`'s old solid block. This stays visually
+    distinct from the genuinely-fresh state-0 case just below (which DOES
+    flash ``░`` against a blank cell): a data gap MUST NOT render as the
+    fresh-session flash, but it also must not collapse to a second,
+    meaning-free idle glyph — both now speak the same ramp language, just one
+    moves and one doesn't.
 
     Otherwise the glyph is :data:`IDLE_METER_RAMP` indexed by
     :func:`_idle_meter_index` against :data:`IDLE_METER_SCALE_TOKENS`; index 0
     additionally flashes between the ramp glyph and a blank braille cell
     (U+2800, same column width) on :data:`FRAME_PERIOD_SEC` parity
     (design.md § "Flash"). Color is always :func:`resolve_context_color`
-    reused verbatim — no meter-specific color logic (locked decision,
-    design.md § "Color + pulse").
+    reused verbatim for the data-present case — no meter-specific color logic
+    (locked decision, design.md § "Color + pulse"); the no-data case uses
+    :data:`DIM` directly (there is no raw-token count for
+    :func:`resolve_context_color` to grade).
     """
     if raw_tokens is None:
-        return IDLE_GLYPH, ""
+        return IDLE_METER_RAMP[0], DIM
     ratio = raw_tokens / IDLE_METER_SCALE_TOKENS
     idx = _idle_meter_index(ratio)
     if idx == 0:
@@ -150,20 +164,48 @@ def idle_usage_meter(raw_tokens: Optional[float], now: float) -> Tuple[str, str]
     return glyph, resolve_context_color(raw_tokens, now)
 
 
-def animated_icon(state: str, now: float) -> str:
+def animated_icon(state: str, now: float, raw_tokens: Optional[float] = None) -> str:
     """The tab-icon glyph for ``state`` at wall-clock ``now``.
 
     Pure function of its inputs (testable without a live clock or tmux) —
     callers supply the real ``time.time()`` (see :func:`cc_tmux.cli._build_tabs_row`).
-    ``waiting``/``active`` cycle their frame tuple by ``now // FRAME_PERIOD_SEC``;
-    ``idle`` always returns the same static glyph. Any other state (or an
-    empty string, meaning no tracked pane) falls back to :data:`DEFAULT_ICONS`,
-    then to ``""`` — callers should treat an empty result as "print nothing".
+    ``waiting`` cycles :data:`PERMISSION_PULSE_FRAMES` by ``now // FRAME_PERIOD_SEC``.
+    ``idle`` always returns the same static glyph (:data:`IDLE_GLYPH`) — this
+    branch is for a window with NO tracked pane data at all, a different code
+    path than :func:`idle_usage_meter`'s own no-data fallback, which speaks
+    the ramp instead (cc-tmux-glyph-unification; see that function's
+    docstring). Any other state (or an empty string, meaning no tracked pane)
+    falls back to :data:`DEFAULT_ICONS`, then to ``""`` — callers should treat
+    an empty result as "print nothing".
+
+    ``active`` (cc-tmux-glyph-unification: ramp-adjacent active pulse) pulses
+    between two adjacent :data:`IDLE_METER_RAMP` glyphs on the same
+    :data:`FRAME_PERIOD_SEC` wall-clock parity every other branch here uses,
+    replacing the old fixed :data:`ACTIVE_FLASH_FRAMES` braille pair with
+    motion that carries session burn — same visual language the idle meter
+    already speaks, plus motion. ``raw_tokens is None`` (caller has no token
+    data for this window yet — the ``optional`` default keeps this parameter
+    backward compatible for every pre-existing caller) pulses ramp indices
+    0/1 (``░``/``⡀``) uncoloured — motion without data still speaks ramp.
+    Otherwise the ramp index ``i`` is :func:`_idle_meter_index` against
+    :data:`IDLE_METER_SCALE_TOKENS`, pulsing between ``i`` and
+    ``min(i + 1, 16)``; at ``i == 16`` (already at the top of the ramp) both
+    frames would degenerate to the same glyph, so that case special-cases to
+    15<->16 instead, preserving two-frame contrast. This function only
+    returns the glyph — colour (``resolve_context_color(raw_tokens, now)``
+    when data is present) is the caller's problem, matching
+    :func:`resolve_tab_icon`'s existing plain-``str`` contract rather than
+    widening it (see :func:`resolve_tab_glyph`, which composes the pair).
     """
     if state == "waiting":
         return PERMISSION_PULSE_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     if state == "active":
-        return ACTIVE_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
+        if raw_tokens is None:
+            lo, hi = 0, 1
+        else:
+            i = _idle_meter_index(raw_tokens / IDLE_METER_SCALE_TOKENS)
+            lo, hi = (15, 16) if i >= 16 else (i, min(i + 1, 16))
+        return (IDLE_METER_RAMP[lo], IDLE_METER_RAMP[hi])[int(now / FRAME_PERIOD_SEC) % 2]
     if state == "idle":
         return IDLE_GLYPH
     return DEFAULT_ICONS.get(state, "")
@@ -172,36 +214,30 @@ def animated_icon(state: str, now: float) -> str:
 # ---------------------------------------------------------------------------
 # Sub-agent tab-icon overlay (cc-tmux-subagent-tab-icon)
 #
-# Resolved 6-way glyph mapping (Leo, 2026-07-12, tasks.md task 1.1): foreground
-# (exact, hook-verified via the Task tool's own PreToolUse/PostToolUse pair)
-# and background (heuristic, timeout-aged) sub-agent activity get DISTINCT
-# shape families — circle for foreground, diamond for background — so the two
-# are visually distinguishable at a glance rather than colliding on the same
-# two marks. Within each family, hollow=1 / filled=2+ mirrors the "hollow=one,
-# filled=multiple" language DEFAULT_ICONS already uses elsewhere in this
-# module. Foreground always takes precedence over background when both are
-# nonzero (foreground is the exact signal; background is only a heuristic
-# fallback) — see :func:`resolve_tab_icon`.
+# cc-tmux-glyph-unification collapses what was a 6-way glyph mapping (Leo,
+# 2026-07-12, superseded) down to ONE legible presence signal: any tracked
+# sub-agent activity (foreground OR background, any count) flashes a single
+# `◇`/`◆` diamond pair. The old distinction — circle vs diamond shape family
+# for foreground vs background, hollow=1/filled=2+ within each family — is
+# GONE from the rendered glyph; foreground-precedence and background age-out
+# PRUNING logic are unchanged upstream (:func:`cc_tmux.cli.prune_background_entries`),
+# they just no longer produce a distinguishable glyph. Per-agent detail moves
+# to a dedicated status row instead (sibling proposal
+# `cc-tmux-row4-session-title`) — the tab overlay's job is now just "some
+# sub-agent is running," not "which kind, how many."
 # ---------------------------------------------------------------------------
 
-#
-# cc-tmux-braille-flash-and-permission-pulse (design.md, task 1.1): SUBAGENT_FG_1/
-# SUBAGENT_FG_2PLUS renamed "◎"->"□" / "◉"->"■" (hollow/filled square, distinct
-# from the circle and diamond families) to free "◎"/"◉" for PERMISSION_PULSE_FRAMES
-# above — a collision the original subagent-tab-icon proposal didn't anticipate.
-# These two are now the STATIC identity reference only; resolve_tab_icon below
-# still returns them directly until task 2.2 swaps each branch to index its
-# SUBAGENT_*_FLASH_FRAMES pair instead (kept, not removed, precisely because
-# resolve_tab_icon's four branches are out of this task's scope and still need a
-# valid name to return in the interim).
+# Single diamond flash pair (cc-tmux-glyph-unification) replacing the four
+# fg/bg-count-keyed pairs below. `SUBAGENT_FG1_FLASH_FRAMES` /
+# `SUBAGENT_FG2PLUS_FLASH_FRAMES` / `SUBAGENT_BG1_FLASH_FRAMES` /
+# `SUBAGENT_BG2PLUS_FLASH_FRAMES` are no longer referenced by
+# `resolve_tab_icon` below — kept defined only because `testing.py` still
+# asserts the old four-pair behavior directly (see this task's final report
+# for the citation); the four now-dead STATIC identity constants they
+# replaced (`SUBAGENT_FG_1`/`SUBAGENT_FG_2PLUS`/`SUBAGENT_BG_1`/
+# `SUBAGENT_BG_2PLUS`) had zero remaining callers anywhere and are removed.
+SUBAGENT_ACTIVITY_FLASH_FRAMES: Tuple[str, str] = ("◇", "◆")
 
-SUBAGENT_FG_1 = "□"       # 1 foreground sub-agent running (static identity only)
-SUBAGENT_FG_2PLUS = "■"   # 2+ foreground sub-agents running (static identity only)
-SUBAGENT_BG_1 = "◇"       # 0 foreground, 1 unexpired background sub-agent
-SUBAGENT_BG_2PLUS = "◆"   # 0 foreground, 2+ unexpired background sub-agents
-
-# Dedicated 2-frame braille flash pairs (design.md § Glyph picks) that task 2.2
-# wires into resolve_tab_icon's four branches, replacing the static glyphs above.
 SUBAGENT_FG1_FLASH_FRAMES: Tuple[str, str] = ("⠒", "⠲")
 SUBAGENT_FG2PLUS_FLASH_FRAMES: Tuple[str, str] = ("⠶", "⠦")
 SUBAGENT_BG1_FLASH_FRAMES: Tuple[str, str] = ("⠂", "⠄")
@@ -213,22 +249,20 @@ def resolve_tab_icon(state: str, now: float, fg_count: int, bg_count: int) -> st
 
     Pure function of its inputs — ``bg_count`` MUST already be the caller's
     PRUNED count (:func:`cc_tmux.cli.prune_background_entries`); this function
-    has no clock-aging logic of its own, it only branches on counts. Foreground
-    takes precedence over background whenever ``fg_count`` is nonzero (it is
-    the exact signal; background is only a time-boxed heuristic). Falls
+    has no clock-aging logic of its own, it only branches on counts. ANY
+    nonzero ``fg_count`` or ``bg_count`` flashes a single ``◇``/``◆`` diamond
+    pair (:data:`SUBAGENT_ACTIVITY_FLASH_FRAMES`) on :data:`FRAME_PERIOD_SEC`
+    wall-clock parity (cc-tmux-glyph-unification: foreground vs background
+    precedence and count no longer affect the RENDERED glyph — only whether
+    the overlay activates at all; per-agent detail moved to a dedicated
+    status row, sibling proposal ``cc-tmux-row4-session-title``). Falls
     through to the plain :func:`animated_icon` state-based glyph
     (waiting/active/idle) when neither is active — this is an ADDITIVE overlay
     on top of the existing ``@cc-state`` animation, not a replacement for it
     (proposal.md Non-Goals).
     """
-    if fg_count >= 2:
-        return SUBAGENT_FG2PLUS_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
-    if fg_count == 1:
-        return SUBAGENT_FG1_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
-    if bg_count >= 2:
-        return SUBAGENT_BG2PLUS_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
-    if bg_count == 1:
-        return SUBAGENT_BG1_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
+    if fg_count > 0 or bg_count > 0:
+        return SUBAGENT_ACTIVITY_FLASH_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
     return animated_icon(state, now)
 
 
@@ -247,15 +281,21 @@ def resolve_tab_glyph(
     remains the glyph-precedence core that this wrapper extends, rendering
     the plain, monochrome glyph unchanged. Precedence is IDENTICAL
     to :func:`resolve_tab_icon`'s documented order: sub-agent overlays beat
-    both the meter and the pulse. Two plain, un-overlaid cases swap in a
+    both the meter and the pulse. Three plain, un-overlaid cases swap in a
     coloured pair instead of the bare glyph: ``fg_count == 0 and bg_count ==
     0 and state == "idle"`` uses :func:`idle_usage_meter`'s ramp glyph +
-    severity colour, and ``fg_count == 0 and bg_count == 0 and state ==
+    severity colour, ``fg_count == 0 and bg_count == 0 and state ==
     "waiting"`` uses :data:`PERMISSION_PULSE_FRAMES` coloured YELLOW on
     ``◉`` and unstyled on ``◎`` (design.md § "Coloring the permission
-    pulse"). Every other case returns ``(resolve_tab_icon(...), "")`` — an
-    empty colour, so callers never wrap the existing active/sub-agent glyphs
-    in a stray ``#[fg=...]``
+    pulse"), and ``fg_count == 0 and bg_count == 0 and state == "active"``
+    (cc-tmux-glyph-unification: ramp-adjacent active pulse) uses
+    :func:`animated_icon`'s new ramp-pulse glyph coloured via
+    :func:`resolve_context_color` on the same ``raw_tokens`` — reusing that
+    helper verbatim, exactly as :func:`idle_usage_meter` does, no new colour
+    logic — or left uncoloured when ``raw_tokens is None`` (the no-data pulse
+    carries motion but no severity signal). Every other case returns
+    ``(resolve_tab_icon(...), "")`` — an empty colour, so callers never wrap
+    the existing sub-agent glyphs in a stray ``#[fg=...]``
     (design.md § "API shape: additive wrapper, `resolve_tab_icon` untouched").
     """
     if fg_count == 0 and bg_count == 0 and state == "idle":
@@ -263,6 +303,10 @@ def resolve_tab_glyph(
     if fg_count == 0 and bg_count == 0 and state == "waiting":
         icon = PERMISSION_PULSE_FRAMES[int(now / FRAME_PERIOD_SEC) % 2]
         color = YELLOW if icon == PERMISSION_PULSE_FRAMES[0] else ""
+        return icon, color
+    if fg_count == 0 and bg_count == 0 and state == "active":
+        icon = animated_icon(state, now, raw_tokens)
+        color = resolve_context_color(raw_tokens, now) if raw_tokens is not None else ""
         return icon, color
     return resolve_tab_icon(state, now, fg_count, bg_count), ""
 
