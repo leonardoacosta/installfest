@@ -665,7 +665,11 @@ caller-supplied wall-clock time at render (the same daemon-free, `status-interva
   open/in_progress/blocked, alongside the pre-existing `ready`/`blocked` counts. Each half's
   numeric values SHALL be coloured by semantic threshold (DIM for a healthy zero/low count on
   `open`/`in_progress`/`ready`, YELLOW when `ua > 0` or `standalone_blocked > 0`, RED above a
-  documented high-count threshold).
+  documented high-count threshold). **Exception — both halves present and all-zero**: when
+  `openspec_open`/`openspec_in_progress`/`openspec_ua` AND `beads_open`/`beads_ready`/
+  `beads_blocked` are ALL resolved (not absent) AND every one of those six values is `0`, this
+  form is superseded by the "All caught up" collapsed state below instead of rendering the
+  six-zero text verbatim.
 - **Phase 1** (next): the row instead renders the cache's `next:` line verbatim (already
   pre-truncated by the producer script) in place of the `op:`/`bd:` segments — the two never
   render simultaneously.
@@ -677,11 +681,31 @@ caller-supplied wall-clock time at render (the same daemon-free, `status-interva
   reads the same cache nexus-statusline's own `getRoadmapPulse()` already maintains; this row
   parses it a second, independent time.
 
+**Collapsed states (new).** The openspec/beads halves are each independently either fully
+present (all three of that half's counts resolved, including real zeros) or fully absent (all
+three `None` — no cache, or a malformed/unparseable half). Two collapsed left-side states replace
+the raw per-count rendering when BOTH halves land in the same one of these states simultaneously:
+
+- **All caught up** — both halves fully present AND all six counts are `0`. The left side renders
+  the literal text `All caught up` (DIM) instead of `op: 0o 0ip 0ua | bd: 0o 0r 0b`. Applies in
+  phase 0 only (phase 1's `next:` line, when present, still takes priority per the existing
+  phase-1 rule above).
+- **Not available** — both halves fully absent (`None`). The left side renders the literal text
+  `Not available` (DIM) instead of rendering nothing. This is independent of the account-identity
+  segment: `Not available` renders on the left whether or not an active nexus-agent credential
+  resolves on the right — it no longer depends on the account segment's own presence/absence the
+  way the row's overall emptiness used to.
+
+Neither collapsed state applies when only ONE half is empty/zero and the other half carries real,
+non-zero data — that half's existing single-segment rendering (the other segment simply omitted)
+is unchanged.
+
 **Account identity segment**: the plugin SHALL append the active credential's identity as a
-third segment, independent of the openspec/beads/next cycle — present whenever an active
-nexus-agent credential resolves, regardless of cycle phase or whether the roadmap-pulse cache
-exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`, via the same
-`#[range=user|accounts]` mouse-range marker mechanism, in both phases.
+third segment, independent of the openspec/beads/next cycle and independent of the collapsed
+states above — present whenever an active nexus-agent credential resolves, regardless of cycle
+phase, collapsed state, or whether the roadmap-pulse cache exists at all. The segment SHALL be
+clickable, bound to `cc-tmux accounts-popup`, via the same `#[range=user|accounts]` mouse-range
+marker mechanism, in both phases.
 
 #### Scenario: phase 0 renders counts with the countdown glyph, plus the account identity
 - Given: a cached roadmap-pulse file whose counts are `1o 0ip 0ua` (openspec) and `1o 1r 0b`
@@ -709,26 +733,51 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
   blank phase-1 slot — the row never goes empty just because the cycle landed on an unavailable
   phase
 
-#### Scenario: no roadmap-pulse cache, but an active account resolves
-- Given: no roadmap-pulse cache file exists yet for the current project, and an active
-  nexus-agent credential resolves
+#### Scenario: both halves resolve to all-zero renders "All caught up"
+- Given: a cached roadmap-pulse file whose counts are `0o 0ip 0ua` (openspec) and `0o 0r 0b`
+  (standalone beads), a render `now` that resolves to phase 0
 - When: the beads-bar row renders
-- Then: the row shows ONLY the account identity segment (`leo@priceless.dev·bc7da511`) — not an
-  empty row, in either phase, since the account segment is independent of the cycle
+- Then: the left side shows `All caught up` (DIM) instead of `op: 0o 0ip 0ua | bd: 0o 0r 0b` —
+  no numbers, no separator, no countdown glyph text change beyond the substituted string
+
+#### Scenario: one half all-zero, the other half has real non-zero data — no collapse
+- Given: a cached roadmap-pulse file whose counts are `0o 0ip 0ua` (openspec) and `3o 2r 1b`
+  (standalone beads)
+- When: the beads-bar row renders
+- Then: the left side shows both segments verbatim (`op: 0o 0ip 0ua (<age>) | bd: 3o 2r 1b
+  (<age>)`) — "All caught up" does NOT apply, since only one half is zero and the other carries
+  real pending work
+
+#### Scenario: no roadmap-pulse cache resolves, no account — shows "Not available"
+- Given: no roadmap-pulse cache file exists yet for the current project (both halves resolve to
+  `None`), and no active nexus-agent credential resolves
+- When: the beads-bar row renders
+- Then: the left side shows the literal text `Not available` (DIM) — no error, no countdown
+  glyph, no raw empty string (superseding the prior requirement version's "the row is empty, no
+  placeholder text" contract for this exact state)
+
+#### Scenario: no roadmap-pulse cache resolves, but an active account resolves
+- Given: no roadmap-pulse cache file exists yet for the current project (both halves resolve to
+  `None`), and an active nexus-agent credential resolves
+- When: the beads-bar row renders
+- Then: the row shows `Not available` on the left AND the account identity segment
+  (`leo@priceless.dev·bc7da511`) on the right, in either phase — the two are independent, and
+  "Not available" no longer depends on the account segment's own absence the way the prior
+  requirement version's "shows ONLY the account identity segment" contract implied
 
 #### Scenario: openspec/beads/next cache present, no active account resolves
 - Given: a cached roadmap-pulse file with real counts and a `next:` line, and nexus-agent is
   unreachable (no active credential resolves)
 - When: the beads-bar row renders
-- Then: the row shows only the cycling left-side content (counts or next, per phase) — no empty
-  account segment, no error
+- Then: the row shows only the cycling left-side content (counts, "All caught up" if applicable,
+  or next, per phase) — no empty account segment, no error
 
 #### Scenario: a stray radar: line never renders, in either phase
 - Given: a cached roadmap-pulse file containing a `next: …` line, a `radar:stale` line (stale
   pre-fix content), and a counts line
 - When: the beads-bar row renders, in both phase 0 and phase 1
 - Then: the `radar:` line never appears on the row in either phase — only the phase-appropriate
-  content (counts or next) and, if applicable, the account segment
+  content (counts, "All caught up", or next) and, if applicable, the account segment
 
 #### Scenario: standalone beads exclude OpenSpec-tracked work
 - Given: 5 open beads total, 3 of which are tasks under a `[SPEC] some-proposal` feature (itself
@@ -736,14 +785,6 @@ exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`
 - When: the standalone-beads count is computed
 - Then: only the 2 unparented beads count toward `bd: {open}o {ready}r {blocked}b` — the 3
   OpenSpec-tracked tasks do not, since they're already represented by the `op:` half
-
-#### Scenario: nothing available renders nothing
-- Given: no roadmap-pulse cache file exists yet for the current project, and no active
-  nexus-agent credential resolves
-- When: the beads-bar row renders
-- Then: the row is empty — no error, no placeholder text, no countdown glyph with nothing to
-  prefix/render (unchanged from the prior requirement version's "no cache yet" contract, now also
-  gated on the account segment's own absence)
 
 ### Requirement: The tmux status bar is three lines
 `home/dot_config/tmux/tmux.conf.tmpl` SHALL set a BASE `status 3` (landscape/desktop default),
