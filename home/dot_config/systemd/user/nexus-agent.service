@@ -49,6 +49,14 @@ Restart=always
 RestartSec=5
 StartLimitBurst=5
 StartLimitIntervalSec=60
+# Hardware watchdog (nexus-self-healing-infra): covers the gap Restart=always
+# does not — a process that is alive but hung (blocked event loop, deadlocked
+# connection pool) never exits, so crash-restart never triggers. The agent
+# feeds WATCHDOG=1 to $NOTIFY_SOCKET every ~15s (services/sd-notify.ts);
+# systemd force-kills + restarts the unit if 30s pass with no notification.
+# NotifyAccess= is intentionally omitted — per systemd.service(5), setting
+# WatchdogSec= with NotifyAccess= unset implicitly sets it to `main`.
+WatchdogSec=30
 Environment=LOG_LEVEL=info
 # %h/.local/share/mise/shims is on PATH so the `openspec` CLI resolves under
 # systemd (nx-cblfj). handleGetSpec (routes/specs.ts) shells to `openspec show`
