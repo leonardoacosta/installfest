@@ -2026,13 +2026,14 @@ def cmd_render_all(args) -> int:
     tabs, focused_bg, tab_rows = _build_tabs_row(window, client_width, client_height)
 
     title = tmux.get_pane_option(pane, tmux.OPT_TITLE) if pane else ""
-    agents_row = (
-        ""
-        if tab_rows >= _MAX_TAB_ROWS
-        else render.render_agents_row(
-            title, focused_bg, time.time(), _subagent_bg_busy_window(), client_width
-        )
-    )
+    # Row 4 disabled 2026-07-17 per user request: get_window_tabs()'s fail-open
+    # tmux subprocess reads (see tmux.py's `list-panes -s` call, ~line 309-376)
+    # occasionally return empty under status-interval 1 with a live client,
+    # blanking this row for one tick before it recovers next tick -- visible
+    # as a status-bar height flicker (3<->4 lines). Re-enable once that
+    # fail-open path holds last-good value on a transient read failure
+    # instead of blanking, rather than re-deriving agents_row here.
+    agents_row = ""
     tmux.set_global_option(tmux.OPT_ROW_AGENTS, agents_row)
     if agents_row:
         tmux.set_global_option("status", str(min(tab_rows + 3, 5)))
