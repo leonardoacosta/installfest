@@ -234,6 +234,43 @@ def project_git_status(
     return git if isinstance(git, dict) else None
 
 
+def session_usage(
+    session_id: str,
+    ttl: float = CACHE_TTL_SECS,
+    cache_path: Optional[str] = None,
+    now: Optional[float] = None,
+) -> Optional[dict]:
+    """Cached ``GET /statusline?sessionId={session_id}``, returning only its ``session`` sub-object.
+
+    nx's ``redesign-status-usage-endpoints`` (archived 2026-07-14) composes this route's
+    ``sessionId`` mode from the session's OWN credential (``sessions.credentialId``), not
+    a global "freshest active" pick across every known account — the fix
+    :func:`cli._resolve_session_usage` needs for row 2 to show the account actually
+    driving the running session rather than whichever other account last polled as
+    active (nx's ``adaptive-usage-poll-cadence`` proposal, archived 2026-07-17, flagged
+    this exact drift as a cross-repo follow-up).
+
+    Returns the ``session`` dict (``sessionId`` / ``model`` / ``fiveHour`` / ``sevenDay``
+    — each of the latter two ``{"used": float, "limit": float, "resetsAt": str|None}`` —
+    plus ``usage`` / ``project`` / ``next`` / context fields per nx's
+    ``SessionStatusResponse``) on success. Returns ``None`` — and negatively caches it
+    for ``ttl`` — when: ``session_id`` is empty, nx-agent is unreachable, the response is
+    non-2xx (including a 404 when nx has no session row for that id yet), or the body is
+    malformed/has no ``session`` key. Same short-TTL on-disk cache pair as
+    :func:`session_context` / :func:`project_git_status` — a render-tick caller probes
+    the network at most once per ``ttl``. ``cache_path`` / ``now`` are injectable for
+    self-test.
+    """
+    if not session_id:
+        return None
+    url = f"{_BASE_URL}/statusline?sessionId={session_id}"
+    payload = _fetch_cached("usage", session_id, url, ttl, cache_path, now)
+    if not isinstance(payload, dict):
+        return None
+    session = payload.get("session")
+    return session if isinstance(session, dict) else None
+
+
 def roadmap_pulse(
     code: str,
     ttl: float = CACHE_TTL_SECS,

@@ -3790,6 +3790,155 @@ def _test_nx_agent_roadmap_pulse_cache() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_nx_agent_session_usage_cache() -> None:
+    """nx_agent.session_usage (if-6351): cache hit/miss/negative-cache,
+    mirroring _test_nx_agent_project_git_status_cache's shape — like
+    project_git_status, this extracts a sub-object (``session``) from nx's
+    ``GET /statusline?sessionId=`` response rather than returning the full
+    payload as-is (roadmap_pulse's shape)."""
+    calls = {"n": 0}
+    saved_query = usage._query
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-nx-usage-test-")
+    path = os.path.join(tmpdir, "usage.json")
+    session_obj = {
+        "sessionId": "s1",
+        "fiveHour": {"used": 50.0, "limit": 100.0, "resetsAt": None},
+        "sevenDay": {"used": 30.0, "limit": 100.0, "resetsAt": None},
+    }
+    payload = {"session": session_obj}
+    try:
+        # --- cache HIT: fresh full-response cache -> session sub-object, no fetch ---
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        def boom(url=None, timeout=None):
+            raise AssertionError("fetch must not run on a fresh cache hit")
+
+        usage._query = boom  # type: ignore[assignment]
+        hit = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(hit == session_obj, f"fresh cache hit returns the session sub-object: {hit!r}")
+
+        # --- cache MISS: fetch full /statusline dict, write it, extract session ---
+        os.unlink(path)
+
+        def counting_query(url=None, timeout=None):
+            calls["n"] += 1
+            return payload
+
+        usage._query = counting_query  # type: ignore[assignment]
+        miss = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(miss == session_obj and calls["n"] == 1, f"miss fetches + extracts session: {miss!r}")
+        with open(path, "r", encoding="utf-8") as f:
+            _check(json.load(f) == payload, "FULL /statusline dict cached (not just the session sub-object)")
+
+        # fresh cache now suppresses a second fetch
+        second = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(second == session_obj and calls["n"] == 1, "fresh cache -> NO second fetch")
+
+        # --- response present but WITHOUT a session field (404 unknown session) -> None ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def nosession_query(url=None, timeout=None):
+            calls["n"] += 1
+            return {"error": "unknown session"}
+
+        usage._query = nosession_query  # type: ignore[assignment]
+        nosession = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(nosession is None, "response without a session field -> None")
+        _check(calls["n"] == 1, "no-session response fetched once")
+        nosession2 = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(nosession2 is None and calls["n"] == 1, "cached no-session dict served without refetch")
+
+        # --- unreachable / malformed -> None, negatively cached ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def failing_query(url=None, timeout=None):
+            calls["n"] += 1
+            return None
+
+        usage._query = failing_query  # type: ignore[assignment]
+        down = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(down is None and calls["n"] == 1, "unreachable -> None, fetched once")
+        down2 = nx_agent.session_usage("s1", ttl=45.0, cache_path=path, now=time.time())
+        _check(down2 is None and calls["n"] == 1, "negative cache served without refetch")
+
+        # empty session_id short-circuits to None, never touches the network
+        usage._query = boom  # type: ignore[assignment]
+        _check(nx_agent.session_usage("", cache_path=path) is None, "empty session_id -> None, no fetch")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_cli_extract_util_dict() -> None:
+    """cli._extract_util_dict (if-6351): used/limit -> 0..1 float from nx's
+    ``{"used","limit"}`` sub-object shape, mirroring usage._extract_util's
+    fail-open semantics on the nested (not flat-key-pair) form."""
+    _check(cli._extract_util_dict({"used": 50.0, "limit": 100.0}) == 0.5, "50/100 -> 0.5")
+    _check(cli._extract_util_dict({"used": 0.0, "limit": 100.0}) == 0.0, "a present 0 used -> 0.0, not None")
+    _check(cli._extract_util_dict(None) is None, "None -> None")
+    _check(cli._extract_util_dict("not-a-dict") is None, "non-dict -> None")
+    _check(cli._extract_util_dict({}) is None, "missing used/limit -> None")
+    _check(cli._extract_util_dict({"used": 50.0, "limit": 0.0}) is None, "limit<=0 -> None")
+    _check(cli._extract_util_dict({"used": True, "limit": 100.0}) is None, "bool used excluded like usage._extract_util")
+
+
+def _test_cli_resolve_session_usage() -> None:
+    """cli._resolve_session_usage (if-6351): session-scoped 5H/7D via nx-agent
+    GET /statusline?sessionId=, falling back PER-FIELD to the global
+    _active_usage() when the session-scoped value is unavailable — the fix
+    for row 2 showing the wrong account's usage when multiple accounts are
+    concurrently active (nx's adaptive-usage-poll-cadence cross-repo note)."""
+    saved_get_pane_option = tmux.get_pane_option
+    saved_session_usage = nx_agent.session_usage
+    saved_active_usage = cli._active_usage
+    tmux.get_pane_option = lambda pane, opt: "sid-1"  # type: ignore[assignment]
+
+    def _active_usage_must_not_run():
+        raise AssertionError("_active_usage must not be called when session data is complete")
+
+    try:
+        # --- full session-scoped data present -> used verbatim, no global fallback call ---
+        nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
+            "fiveHour": {"used": 40.0, "limit": 100.0},
+            "sevenDay": {"used": 20.0, "limit": 100.0},
+        }
+        cli._active_usage = _active_usage_must_not_run  # type: ignore[assignment]
+        five_h, seven_d = cli._resolve_session_usage("%1")
+        _check((five_h, seven_d) == (0.4, 0.2), f"session-scoped 5H/7D used verbatim: {(five_h, seven_d)!r}")
+
+        # --- 7D missing from session data -> falls back to global for that field only ---
+        nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
+            "fiveHour": {"used": 40.0, "limit": 100.0},
+        }
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
+        five_h, seven_d = cli._resolve_session_usage("%1")
+        _check(five_h == 0.4, "5H still session-scoped (0.4), not overwritten by fallback's 0.9")
+        _check(seven_d == 0.7, "missing 7D falls back to the global figure (0.7)")
+
+        # --- nx unreachable (session_usage -> None) -> both fields fall back to global ---
+        nx_agent.session_usage = lambda *a, **k: None  # type: ignore[assignment]
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
+        five_h, seven_d = cli._resolve_session_usage("%1")
+        _check((five_h, seven_d) == (0.9, 0.7), f"nx unreachable -> both fields use global fallback: {(five_h, seven_d)!r}")
+
+        # --- empty session_id -> session_usage never called, straight to global fallback ---
+        def _session_usage_must_not_run(*a, **k):
+            raise AssertionError("session_usage must not be called for an empty session_id")
+
+        tmux.get_pane_option = lambda pane, opt: ""  # type: ignore[assignment]
+        nx_agent.session_usage = _session_usage_must_not_run  # type: ignore[assignment]
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
+        five_h, seven_d = cli._resolve_session_usage("%1")
+        _check((five_h, seven_d) == (0.9, 0.7), "empty session-id -> straight to global fallback, no nx call")
+    finally:
+        tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
+        nx_agent.session_usage = saved_session_usage  # type: ignore[assignment]
+        cli._active_usage = saved_active_usage  # type: ignore[assignment]
+
+
 # ---------------------------------------------------------------------------
 # tmux._git_status against real throwaway git repos (cc-tmux-git-status-glyphs
 # task 4.1, replacing the prior spec's tmux._git_dirty/_git_ahead fixture —
@@ -4256,6 +4405,9 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("nx_agent.session_context_cache", _test_nx_agent_session_context_cache),
     ("nx_agent.project_git_status_cache", _test_nx_agent_project_git_status_cache),
     ("nx_agent.roadmap_pulse_cache", _test_nx_agent_roadmap_pulse_cache),
+    ("nx_agent.session_usage_cache", _test_nx_agent_session_usage_cache),
+    ("cli.extract_util_dict", _test_cli_extract_util_dict),
+    ("cli.resolve_session_usage", _test_cli_resolve_session_usage),
     ("tmux.git_status_clean_no_upstream", _test_tmux_git_status_clean_no_upstream),
     ("tmux.git_status_dirty_counts", _test_tmux_git_status_dirty_counts),
     ("tmux.git_status_renamed", _test_tmux_git_status_renamed),

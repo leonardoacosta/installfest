@@ -1004,6 +1004,66 @@ def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
         return "", None, None
 
 
+def _extract_util_dict(value: object) -> Optional[float]:
+    """``used/limit`` as a 0..1 float from a nx ``{"used","limit"}`` sub-object, or ``None``.
+
+    Mirrors :func:`usage._extract_util`'s fail-open semantics (missing/non-numeric/
+    ``limit<=0`` -> ``None``) but reads nx's ``GET /statusline`` nested shape
+    (``fiveHour``/``sevenDay``, each ``{"used": float, "limit": float, "resetsAt": ...}``)
+    instead of :mod:`usage`'s flat ``usage5hUsed``/``usage5hLimit`` key pair.
+    """
+    if not isinstance(value, dict):
+        return None
+    used = value.get("used")
+    limit = value.get("limit")
+    if isinstance(used, bool) or isinstance(limit, bool):
+        return None
+    try:
+        used_f = float(used)
+        limit_f = float(limit)
+    except (TypeError, ValueError):
+        return None
+    if limit_f <= 0:
+        return None
+    return used_f / limit_f
+
+
+def _resolve_session_usage(pane: str) -> Tuple[Optional[float], Optional[float]]:
+    """``(5H util, 7D util)`` for ``pane``'s OWN session, or the global fallback.
+
+    Primary source: nx-agent ``GET /statusline?sessionId=`` (:func:`nx_agent.
+    session_usage`), keyed by the pane's ``@cc-session-id`` option — this composes
+    the 5H/7D figures from the session's OWN credential (``sessions.credentialId``),
+    fixing the drift class :func:`_active_usage` cannot: a global "freshest
+    ``isActive: true``" pick across every known account is wrong the moment two
+    accounts/sessions are concurrently active, since it can render a DIFFERENT
+    account's usage than the one actually driving this pane (flagged as a
+    cross-repo follow-up in nx's ``adaptive-usage-poll-cadence`` proposal,
+    archived 2026-07-17).
+
+    Each of the two fields falls back to :func:`_active_usage`'s global figure
+    INDEPENDENTLY when the session-scoped value is unavailable (empty session-id,
+    nx unreachable, 404 — no session row yet — or a malformed/zero-limit field) —
+    same per-field dual-source shape :func:`_resolve_git_status` already uses for
+    branch/dirty-counts, so a session with e.g. a fresh 5H window but no 7D data
+    yet still shows what it has instead of blanking both. The global fallback call
+    is made at most once (lazily), only when at least one field actually needs it.
+    """
+    session_id = tmux.get_pane_option(pane, tmux.OPT_SESSION_ID)
+    session = nx_agent.session_usage(session_id) if session_id else None
+    five_h = _extract_util_dict(session.get("fiveHour")) if isinstance(session, dict) else None
+    seven_d = _extract_util_dict(session.get("sevenDay")) if isinstance(session, dict) else None
+
+    if five_h is None or seven_d is None:
+        _label, fallback_five_h, fallback_seven_d = _active_usage()
+        if five_h is None:
+            five_h = fallback_five_h
+        if seven_d is None:
+            seven_d = fallback_seven_d
+
+    return five_h, seven_d
+
+
 def _resolve_session_pane(window: str) -> str:
     """The window's representative pane for row 2 — tmux-active pane first.
 
@@ -1266,10 +1326,11 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
       unified ``@cc-git-status`` JSON blob and this per-field dual-source
       resolution.
 
-    5H / 7D usage comes from :func:`_active_usage` (the account-label half of
-    that tuple no longer feeds this row — it moved to row 3, see
-    :func:`_build_beads_bar`). Left side is model/project/git identity; right
-    side is the SES:/5H:/7D: gauges plus the combined usage glyph.
+    5H / 7D usage comes from :func:`_resolve_session_usage` — the pane's OWN
+    session-scoped account via nx-agent ``GET /statusline?sessionId=``, falling
+    back per-field to :func:`_active_usage`'s global freshest-active pick only
+    when the session-scoped value is unavailable. Left side is model/project/git
+    identity; right side is the SES:/5H:/7D: gauges plus the combined usage glyph.
     Fail-open: any missing piece degrades to a partial render; no pane -> ``""``.
     """
     if pane is None:
@@ -1294,17 +1355,15 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # _resolve_branch_dirty plus the separate always-local @cc-ahead read).
     branch, git_status = _resolve_git_status(pane)
 
-    account_label, five_h_pct, seven_d_pct = _active_usage()
+    five_h_pct, seven_d_pct = _resolve_session_usage(pane)
 
     # render.render_session_bar's `git_status` kwarg (task 3.1, UI batch) now
     # consumes the six-field GitStatusCounts directly — the old `dirty` tuple
     # / `ahead` int params are gone from its signature. `raw_tokens` drives
     # the context-bar's colour tier (cc-tmux-context-bar); `now` defaults to
-    # time.time() inside render_session_bar when omitted. `account_label`
-    # is still computed above (5H/7D from the same call still feed this
-    # row's own gauge) but no longer passes through to render_session_bar —
-    # the account-identity segment moved off row 2 to row 3
-    # (render_beads_bar, task 2.2/2.3).
+    # time.time() inside render_session_bar when omitted. The account-identity
+    # segment stays off row 2 (moved to row 3, render_beads_bar task 2.2/2.3);
+    # _resolve_session_usage above returns only the (5H, 7D) pair, not a label.
     return render.render_session_bar(
         model_letter, project, branch,
         ses_pct, five_h_pct, seven_d_pct,
