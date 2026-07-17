@@ -2807,6 +2807,109 @@ def _test_cli_read_roadmap_pulse_radar_strip() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_cli_read_roadmap_pulse_nx_agent_success() -> None:
+    """_read_roadmap_pulse (task 2.1) builds ``(content, age_sec)`` straight
+    from a non-``None`` nx_agent.roadmap_pulse dict via
+    _build_roadmap_pulse_content, never touching the .line file fallback.
+    tmux._run_tmux / registry.resolve_project_code are monkeypatched at the
+    module level per _test_cli_resolve_git_status_dual_source's pattern
+    (testing.py:3930-3936, the simplest fixture for pinning a resolved
+    project code without a real tomllib/projects.toml roundtrip);
+    nx_agent.roadmap_pulse per the _test_cli_resolve_ses_tokens save/restore
+    convention (testing.py:1610)."""
+    from datetime import datetime, timedelta, timezone
+
+    updated_at_dt = datetime.now(timezone.utc) - timedelta(seconds=120)
+    updated_at = updated_at_dt.isoformat().replace("+00:00", "Z")
+    pulse = {
+        "openspec": {"open": 5, "in_progress": 2, "ua": 1},
+        "beads": {"open": 10, "ready": 3, "blocked": 1},
+        "next": "/apply zz-thing",
+        "updatedAt": updated_at,
+    }
+
+    saved_run_tmux = tmux._run_tmux
+    saved_resolve_code = registry.resolve_project_code
+    saved_roadmap_pulse = nx_agent.roadmap_pulse
+    tmux._run_tmux = lambda args, *, check_available=True: "/some/cwd"  # type: ignore[assignment]
+    registry.resolve_project_code = lambda cwd: "zz"  # type: ignore[assignment]
+    try:
+        nx_agent.roadmap_pulse = lambda *a, **k: pulse  # type: ignore[assignment]
+        content, age_sec = cli._read_roadmap_pulse("%1")
+        _check(
+            content == "op: 5o 2ip 1ua\nbd: 10o 3r 1b\nnext: /apply zz-thing",
+            f"nx-agent success builds op:/bd:/next: lines from the payload: {content!r}",
+        )
+        parsed = cli._parse_roadmap_pulse_counts(content)
+        _check(
+            parsed == (5, 2, 1, 10, 3, 1),
+            f"content parseable by the existing counts parser: {parsed!r}",
+        )
+        _check(
+            isinstance(age_sec, float) and 110.0 <= age_sec < 200.0,
+            f"age_sec derived from updatedAt (~120s ago): {age_sec!r}",
+        )
+    finally:
+        tmux._run_tmux = saved_run_tmux  # type: ignore[assignment]
+        registry.resolve_project_code = saved_resolve_code  # type: ignore[assignment]
+        nx_agent.roadmap_pulse = saved_roadmap_pulse  # type: ignore[assignment]
+
+
+def _test_cli_read_roadmap_pulse_nx_agent_down_fallback() -> None:
+    """_read_roadmap_pulse (task 2.1) falls through to the .line file read,
+    byte-for-byte unchanged, whenever nx_agent.roadmap_pulse returns None.
+    Mirrors _test_cli_read_roadmap_pulse_fail_open's file fixture
+    (testing.py:2680) but pins the nx-agent-down branch explicitly via
+    monkeypatch rather than relying on there being no real nx-agent
+    listening, so the test is deterministic regardless of the machine's
+    local nx-agent state."""
+    if registry.tomllib is None:
+        return  # 3.10 interpreter: the resolved-code path below needs tomllib.
+
+    saved_dotfiles = os.environ.get("DOTFILES")
+    saved_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    saved_run = tmux._run_tmux
+    saved_roadmap_pulse = nx_agent.roadmap_pulse
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-pulse-nxdown-test-")
+    try:
+        rel = "cc-tmux-pulse-nxdown-project-zzz"
+        os.makedirs(os.path.join(tmpdir, "home"), exist_ok=True)
+        with open(os.path.join(tmpdir, "home", "projects.toml"), "w") as f:
+            f.write(f'[[projects]]\ncode = "zn"\nname = "T"\npath = "{rel}"\n')
+        os.environ["DOTFILES"] = tmpdir
+
+        cfg = os.path.join(tmpdir, "cfg")
+        state_dir = os.path.join(cfg, "scripts", "state")
+        os.makedirs(state_dir, exist_ok=True)
+        os.environ["CLAUDE_CONFIG_DIR"] = cfg
+
+        cwd = os.path.join(os.path.expanduser("~"), rel, "sub")
+        tmux._run_tmux = lambda args, *, check_available=True: cwd  # type: ignore[assignment]
+        nx_agent.roadmap_pulse = lambda *a, **k: None  # type: ignore[assignment]
+        pulse_file = os.path.join(state_dir, "roadmap-pulse.zn.line")
+
+        with open(pulse_file, "w") as f:
+            f.write("op: 7o 1ip 0ua\nbd: 2o 1r 0b\n")
+        content, age = cli._read_roadmap_pulse("%1")
+        _check(
+            content == "op: 7o 1ip 0ua\nbd: 2o 1r 0b",
+            f"nx-agent down -> falls back to the .line file content unchanged: {content!r}",
+        )
+        _check(
+            isinstance(age, float) and 0.0 <= age < 60.0,
+            "file-fallback age still derived from the file's own mtime",
+        )
+    finally:
+        tmux._run_tmux = saved_run  # type: ignore[assignment]
+        nx_agent.roadmap_pulse = saved_roadmap_pulse  # type: ignore[assignment]
+        for key, val in (("DOTFILES", saved_dotfiles), ("CLAUDE_CONFIG_DIR", saved_cfg)):
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def _test_cli_parse_roadmap_pulse_counts() -> None:
     # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): parse the abbreviated
     # "op: {N}o {M}ip {K}ua" / "bd: {N}o {M}r {K}b" cache format into
@@ -3616,6 +3719,77 @@ def _test_nx_agent_project_git_status_cache() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def _test_nx_agent_roadmap_pulse_cache() -> None:
+    """nx_agent.roadmap_pulse (cc-tmux-nx-agent-roadmap-pulse task 1.1) cache
+    hit/miss/negative-cache, mirroring _test_nx_agent_session_context_cache
+    above. Unlike project_git_status, roadmap_pulse does NOT extract a
+    sub-object — it returns the full response dict as-is (cli.py's task 2.1
+    caller reads specific fields itself), so this test's shape is closer to
+    the session_context test than the project_git_status one."""
+    calls = {"n": 0}
+    saved_query = usage._query
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-nx-pulse-test-")
+    path = os.path.join(tmpdir, "pulse.json")
+    payload = {
+        "openspec": {"open": 5, "in_progress": 2, "ua": 1},
+        "beads": {"open": 10, "ready": 3, "blocked": 1},
+        "next": "/apply zz-thing",
+        "updatedAt": "2026-07-17T18:00:00Z",
+    }
+    try:
+        # --- cache HIT: a fresh, well-formed cache file skips the HTTP fetch ---
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+
+        def boom(url=None, timeout=None):
+            raise AssertionError("fetch must not run on a fresh cache hit")
+
+        usage._query = boom  # type: ignore[assignment]
+        hit = nx_agent.roadmap_pulse("zz", ttl=45.0, cache_path=path, now=time.time())
+        _check(hit == payload, f"fresh cache hit returns cached dict unchanged: {hit!r}")
+
+        # --- cache MISS: live fetch, and the result is written to the cache file ---
+        os.unlink(path)
+
+        def counting_query(url=None, timeout=None):
+            calls["n"] += 1
+            return payload
+
+        usage._query = counting_query  # type: ignore[assignment]
+        miss = nx_agent.roadmap_pulse("zz", ttl=45.0, cache_path=path, now=time.time())
+        _check(miss == payload, f"miss fetches the payload: {miss!r}")
+        _check(calls["n"] == 1, "miss hit the network exactly once")
+        with open(path, "r", encoding="utf-8") as f:
+            _check(json.load(f) == payload, "fetched payload written back to the cache file")
+
+        # fresh cache now suppresses a second fetch
+        second = nx_agent.roadmap_pulse("zz", ttl=45.0, cache_path=path, now=time.time())
+        _check(second == payload and calls["n"] == 1, "fresh cache -> NO second fetch")
+
+        # --- fetch FAILURE: None returned AND negatively cached (no refetch in TTL) ---
+        os.unlink(path)
+        calls["n"] = 0
+
+        def failing_query(url=None, timeout=None):
+            calls["n"] += 1
+            return None
+
+        usage._query = failing_query  # type: ignore[assignment]
+        down = nx_agent.roadmap_pulse("zz", ttl=45.0, cache_path=path, now=time.time())
+        _check(down is None, "fetch failure -> None")
+        _check(calls["n"] == 1, "failure fetched exactly once")
+        _check(os.path.exists(path), "negative result cached to disk")
+        down2 = nx_agent.roadmap_pulse("zz", ttl=45.0, cache_path=path, now=time.time())
+        _check(down2 is None and calls["n"] == 1, "negative cache served without refetch")
+
+        # empty code short-circuits to None, never touches the network
+        usage._query = boom  # type: ignore[assignment]
+        _check(nx_agent.roadmap_pulse("", cache_path=path) is None, "empty code -> None, no fetch")
+    finally:
+        usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # tmux._git_status against real throwaway git repos (cc-tmux-git-status-glyphs
 # task 4.1, replacing the prior spec's tmux._git_dirty/_git_ahead fixture —
@@ -4050,6 +4224,8 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.tabs_row_fable_red", _test_render_tabs_row_fable_red),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
+    ("cli.read_roadmap_pulse_nx_agent_success", _test_cli_read_roadmap_pulse_nx_agent_success),
+    ("cli.read_roadmap_pulse_nx_agent_down_fallback", _test_cli_read_roadmap_pulse_nx_agent_down_fallback),
     ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
     ("cli.beads_pane_active_tracked_preferred", _test_cli_beads_pane_active_tracked_preferred),
@@ -4079,6 +4255,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("cli.register_subagent_start_stop_branching", _test_cli_register_subagent_start_stop_branching),
     ("nx_agent.session_context_cache", _test_nx_agent_session_context_cache),
     ("nx_agent.project_git_status_cache", _test_nx_agent_project_git_status_cache),
+    ("nx_agent.roadmap_pulse_cache", _test_nx_agent_roadmap_pulse_cache),
     ("tmux.git_status_clean_no_upstream", _test_tmux_git_status_clean_no_upstream),
     ("tmux.git_status_dirty_counts", _test_tmux_git_status_dirty_counts),
     ("tmux.git_status_renamed", _test_tmux_git_status_renamed),

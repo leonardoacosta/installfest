@@ -35,7 +35,7 @@ stack: cc-meta
 
 ## E2E Batch
 
-- [ ] [3.1] `apps/cc-tmux/src/cc_tmux/testing.py`: add self-tests — `nx_agent.roadmap_pulse` [beads:if-y2jg]
+- [x] [3.1] `apps/cc-tmux/src/cc_tmux/testing.py`: add self-tests — `nx_agent.roadmap_pulse` [beads:if-y2jg]
   cache hit/miss/negative-cache (mirror `_test_nx_agent_session_context_cache` at
   `testing.py:3426`), `_read_roadmap_pulse` nx-agent-success path (monkeypatch
   `nx_agent.roadmap_pulse` per the save/restore pattern at `testing.py:1610`), and
