@@ -283,6 +283,23 @@ set -g status 3
 # palette regardless of active theme), so no #[bg=...] wrapper here.
 set -g status-format[0] "#(~/.tmux/plugins/cc-tmux/bin/cc-tmux render-all #{window_id} #{client_width} #{client_height})"
 
+# Row 4 (cc-tmux-row4-session-title): the SAME render-all job above also
+# publishes @cc-row-agents — the focused window's tracked-pane session title
+# (foreground-only) or a per-sub-agent glyph strip (background dispatches in
+# flight). It occupies status-format[N+2] where N == @cc-tab-rows (the theme
+# files' own computed-index conditionals, see their "Portrait multi-row"
+# comment blocks) and grows `status` to N+2+1 (still capped at 5) ONLY when
+# @cc-row-agents is nonempty — omitted entirely (row dropped, `status` stays
+# N+2) when there is neither a title nor sub-agent activity. At the portrait
+# 3-row tab-wrap cap (N==3, `status` already at the 5-line ceiling), the
+# agents row is ALWAYS dropped first so session/beads keep their physical
+# rows — render-all forces @cc-row-agents empty in that case regardless of
+# content, never grows `status` past 5. The `status 3` line above is
+# unaffected by any of this: it is only the static landscape-with-no-agents-
+# content fallback (and the pre-render-job default for a stale client);
+# render-all owns the live count on every tick via direct `set-option -g
+# status` writes (see cli.py's _publish_multirow_status / cmd_render_all).
+
 # Theme: {{ .theme }}
 # To add themes: create ~/.config/tmux/<theme>-theme.conf and update .chezmoi.toml.tmpl
 source-file ~/.config/tmux/{{ .theme }}-theme.conf
