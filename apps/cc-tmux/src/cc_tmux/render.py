@@ -1272,12 +1272,29 @@ def render_beads_bar(
     triple of counts is not ALL present (``None`` from an absent/malformed
     cache line — see :func:`cc_tmux.cli._parse_roadmap_pulse_counts`) is
     omitted entirely rather than rendered with a placeholder, so a broken
-    ``bd:`` line never blanks a valid ``op:`` half and vice versa. The
-    account segment is likewise independent: when BOTH ``op:``/``bd:``
-    triples are absent (no cache) but ``account_label`` is non-empty, the row
-    renders ONLY the (right-aligned) account segment, not ``""``. All three
-    omitted (no cache and no account label) -> ``""``, matching the row's
-    original "no cache -> empty" contract.
+    ``bd:`` line never blanks a valid ``op:`` half and vice versa — unless
+    BOTH halves land in the identical state (both fully present-and-zero, or
+    both fully absent), in which case the two collapsed-state paragraphs
+    below take over instead. The account segment is likewise independent:
+    when BOTH ``op:``/``bd:`` triples are absent (no cache) but
+    ``account_label`` is non-empty, the row renders the (right-aligned)
+    account segment alongside the collapsed ``Not available`` left side, not
+    a blank left side. All three omitted (no cache and no account label) ->
+    ``Not available`` (DIM) alone — the row's prior "no cache -> empty"
+    contract (bare ``""``) was replaced by cc-tmux-row3-empty-states.
+
+    Two collapsed left-side states (cc-tmux-row3-empty-states) replace the
+    two-segment composition above when BOTH halves land in the same state.
+    When all six count arguments are non-``None`` and all equal ``0``, the
+    left side collapses to the single DIM literal ``All caught up`` instead
+    of the noisy ``op: 0o 0ip 0ua | bd: 0o 0r 0b``. When all six count
+    arguments are ``None`` (both halves fully absent), the left side
+    collapses to the DIM literal ``Not available`` instead of an empty
+    string. Neither collapse fires when only one half is all-zero/all-absent
+    and the other half carries real per-count data: that half's existing
+    single-segment rendering (via :func:`_pulse_segment`) is unaffected, and
+    the two segments still render side-by-side ``_BEADS_SEP``-joined as
+    before.
 
     Every count in both segments is colored independently via
     :func:`_tiered_color` against its label's own threshold triple
@@ -1307,26 +1324,39 @@ def render_beads_bar(
 
     Pure function of its inputs (no tmux/subprocess).
     """
-    left_segments: List[str] = []
-    if (
-        openspec_open is not None
-        and openspec_in_progress is not None
-        and openspec_ua is not None
-    ):
-        left_segments.append(
-            _pulse_segment(
-                "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
-                openspec_age_sec, OP_YELLOW_MIN, OP_PULSE_MIN, OP_RED_MIN, now,
+    all_counts = (
+        openspec_open,
+        openspec_in_progress,
+        openspec_ua,
+        beads_open,
+        beads_ready,
+        beads_blocked,
+    )
+    if all(c is not None for c in all_counts) and all(c == 0 for c in all_counts):
+        left = f"#[fg={DIM}]All caught up"
+    elif all(c is None for c in all_counts):
+        left = f"#[fg={DIM}]Not available"
+    else:
+        left_segments: List[str] = []
+        if (
+            openspec_open is not None
+            and openspec_in_progress is not None
+            and openspec_ua is not None
+        ):
+            left_segments.append(
+                _pulse_segment(
+                    "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
+                    openspec_age_sec, OP_YELLOW_MIN, OP_PULSE_MIN, OP_RED_MIN, now,
+                )
             )
-        )
-    if beads_open is not None and beads_ready is not None and beads_blocked is not None:
-        left_segments.append(
-            _pulse_segment(
-                "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
-                beads_age_sec, BD_YELLOW_MIN, BD_PULSE_MIN, BD_RED_MIN, now,
+        if beads_open is not None and beads_ready is not None and beads_blocked is not None:
+            left_segments.append(
+                _pulse_segment(
+                    "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
+                    beads_age_sec, BD_YELLOW_MIN, BD_PULSE_MIN, BD_RED_MIN, now,
+                )
             )
-        )
-    left = _BEADS_SEP.join(left_segments)
+        left = _BEADS_SEP.join(left_segments)
 
     # Account-identity segment: the active account's identity, wrapped in the
     # #[range=user|accounts] click marker relocated from row 2
