@@ -17,7 +17,7 @@ stack: cc-meta
 
 ## DB Batch
 
-- [ ] [1.1] `apps/cc-tmux/src/cc_tmux/nx_agent.py`: add `roadmap_pulse(code, ttl=CACHE_TTL_SECS, [beads:if-ap2j]
+- [x] [1.1] `apps/cc-tmux/src/cc_tmux/nx_agent.py`: add `roadmap_pulse(code, ttl=CACHE_TTL_SECS, [beads:if-ap2j]
   cache_path=None, now=None)` following the exact `project_git_status`/`session_context` pattern
   — `GET {_BASE_URL}/projects/{code}/pulse`, cached via `_fetch_cached`, fail-open `None` on any
   failure (unreachable host, non-2xx, malformed body). Docstring notes this is the client half of

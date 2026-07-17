@@ -232,3 +232,37 @@ def project_git_status(
         return None
     git = payload.get("git")
     return git if isinstance(git, dict) else None
+
+
+def roadmap_pulse(
+    code: str,
+    ttl: float = CACHE_TTL_SECS,
+    cache_path: Optional[str] = None,
+    now: Optional[float] = None,
+) -> Optional[dict]:
+    """Cached ``GET /projects/{code}/pulse``, returning the parsed JSON dict as-is.
+
+    Returns the full response dict on success — unlike :func:`project_git_status`,
+    this does not extract a sub-object, since the caller (``cli.py``'s
+    ``_read_roadmap_pulse``, task 2.1) needs the whole payload to build its own
+    ``(content, age_sec)`` return tuple. Returns ``None`` — and negatively caches it
+    for ``ttl`` — when: ``code`` is empty, nx-agent is unreachable, the response is
+    non-2xx (including a 404 when nx has not implemented this endpoint yet), or the
+    body is malformed. Backed by a short-TTL on-disk cache so a render-tick caller
+    probes the network at most once per ``ttl``. ``cache_path`` / ``now`` are
+    injectable for self-test.
+
+    This is the client half of a companion nx-side ``GET /projects/:code/pulse``
+    endpoint that is a SEPARATE, not-yet-landed spec in a separate repo
+    (``~/dev/personal/nexus``) — see ``openspec/changes/cc-tmux-nx-agent-roadmap-
+    pulse/proposal.md`` § Context. Until that endpoint lands, every real call here
+    fails open to ``None`` via the fail-open ``_fetch_cached`` contract (a 404 or
+    unreachable host is expected, not an error). The exact JSON shape this function
+    expects back is not yet finalized upstream — it is deliberately NOT interpreted
+    here; the shape is provisional, and task 2.1's caller is the place that reads
+    specific fields out of the returned dict.
+    """
+    if not code:
+        return None
+    url = f"{_BASE_URL}/projects/{code}/pulse"
+    return _fetch_cached("pulse", code, url, ttl, cache_path, now)
