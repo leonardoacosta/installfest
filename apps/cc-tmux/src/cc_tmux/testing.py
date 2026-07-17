@@ -1965,14 +1965,77 @@ def _test_render_session_bar() -> None:
     _check(out_default == out_zero, "no-kwargs call must match explicit git_status=GitStatusCounts()")
 
 
+def _test_tiered_color() -> None:
+    """cc-tmux-row3-tiered-colors: :func:`render._tiered_color` boundaries for
+    both labels' threshold triples, the pulse-tier wall-clock animation, and
+    that thresholds are genuinely independent per label (same raw number,
+    different label -> different tier).
+    """
+    D = render.DIM
+    Y = render.YELLOW
+    R = render.RED
+    op = (render.OP_YELLOW_MIN, render.OP_PULSE_MIN, render.OP_RED_MIN)
+    bd = (render.BD_YELLOW_MIN, render.BD_PULSE_MIN, render.BD_RED_MIN)
+
+    # op boundaries: 5/6/10/11/20/21 (now=None -> pulse tier renders steady
+    # YELLOW, so 11-20 reads the same as the 6-10 YELLOW band here).
+    _check(render._tiered_color(5, *op, None) == D, "op n=5 -> DIM (below OP_YELLOW_MIN=6)")
+    _check(render._tiered_color(6, *op, None) == Y, "op n=6 -> YELLOW (at OP_YELLOW_MIN)")
+    _check(render._tiered_color(10, *op, None) == Y, "op n=10 -> YELLOW (below OP_PULSE_MIN=11)")
+    _check(render._tiered_color(11, *op, None) == Y, "op n=11 -> YELLOW (pulse tier, now=None -> steady)")
+    _check(render._tiered_color(20, *op, None) == Y, "op n=20 -> YELLOW (below OP_RED_MIN=21)")
+    _check(render._tiered_color(21, *op, None) == R, "op n=21 -> RED (at OP_RED_MIN)")
+
+    # bd boundaries: 10/11/20/21/40/41.
+    _check(render._tiered_color(10, *bd, None) == D, "bd n=10 -> DIM (below BD_YELLOW_MIN=11)")
+    _check(render._tiered_color(11, *bd, None) == Y, "bd n=11 -> YELLOW (at BD_YELLOW_MIN)")
+    _check(render._tiered_color(20, *bd, None) == Y, "bd n=20 -> YELLOW (below BD_PULSE_MIN=21)")
+    _check(render._tiered_color(21, *bd, None) == Y, "bd n=21 -> YELLOW (pulse tier, now=None -> steady)")
+    _check(render._tiered_color(40, *bd, None) == Y, "bd n=40 -> YELLOW (below BD_RED_MIN=41)")
+    _check(render._tiered_color(41, *bd, None) == R, "bd n=41 -> RED (at BD_RED_MIN)")
+
+    # Pulse-tier animation: same n (in the pulse range) at two `now` values
+    # one FRAME_PERIOD_SEC apart alternates YELLOW/DIM; now=None at a
+    # pulse-range n resolves to steady YELLOW (never animates without a
+    # real now).
+    period = render.FRAME_PERIOD_SEC
+    n_pulse_op = render.OP_PULSE_MIN  # 11, squarely in op's pulse band
+    c_t0 = render._tiered_color(n_pulse_op, *op, 0.0)
+    c_t1 = render._tiered_color(n_pulse_op, *op, period)
+    _check(c_t0 == Y, "pulse tier at now=0.0 (tick parity even) -> YELLOW")
+    _check(c_t1 == D, "pulse tier at now=FRAME_PERIOD_SEC (tick parity odd) -> DIM")
+    _check(c_t0 != c_t1, "pulse tier alternates across one FRAME_PERIOD_SEC tick")
+    _check(
+        render._tiered_color(n_pulse_op, *op, None) == Y,
+        "pulse tier with now=None -> steady YELLOW, never animates",
+    )
+
+    # Same raw number, different label -> genuinely independent thresholds,
+    # not shared: n=8 is >= OP_YELLOW_MIN (6) so it's YELLOW under op's
+    # scale, but < BD_YELLOW_MIN (11) so it's still DIM under bd's scale.
+    _check(render._tiered_color(8, *op, None) == Y, "n=8 under op thresholds -> YELLOW")
+    _check(render._tiered_color(8, *bd, None) == D, "same n=8 under bd thresholds -> DIM (independent scales)")
+
+
 def _test_render_beads_bar() -> None:
     # if-bqw.1 (cc commit b6b9a234 / cc-w83ov.4): render_beads_bar now takes
     # structured (openspec_open, openspec_in_progress, openspec_ua,
     # beads_open, beads_ready, beads_blocked) counts + independent per-half
-    # ages, rendering the abbreviated `op:`/`bd:` format.
+    # ages, rendering the abbreviated `op:`/`bd:` format. cc-tmux-row3-tiered-
+    # colors: every count now carries its own #[fg=...] wrap (colored
+    # independently via _tiered_color against its label's own threshold
+    # triple), including DIM-tier counts that previously rendered bare.
     D = render.DIM
     Y = render.YELLOW
     R = render.RED
+
+    def seg(label, n1, s1, n2, s2, n3, s3, c1=D, c2=D, c3=D, age=""):
+        return (
+            f"#[fg={D}]{label}: "
+            f"#[fg={c1}]{n1}#[fg={D}]{s1} "
+            f"#[fg={c2}]{n2}#[fg={D}]{s2} "
+            f"#[fg={c3}]{n3}#[fg={D}]{s3}{age}"
+        )
 
     # No counts at all (no cache, or nothing parsed from either line) -> ''.
     _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all None -> ''")
@@ -1980,108 +2043,117 @@ def _test_render_beads_bar() -> None:
     # A half is "present" only when ALL THREE of its counts are non-None — a
     # partially-present half (one count set, the others None, e.g. from a
     # malformed line) renders as fully absent, same as fully-None (fail-open
-    # contract: a broken half never leaks a placeholder value).
+    # contract: a broken half never leaks a placeholder value). bd counts
+    # (1, 5, 2) are all below BD_YELLOW_MIN (11) -> DIM throughout.
     out_partial = render.render_beads_bar(12, 1, None, 1, 5, 2)
     _check("op:" not in out_partial, "partial openspec half (ua=None) omitted entirely")
     _check(
-        out_partial == f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]",
+        out_partial == f"{seg('bd', 1, 'o', 5, 'r', 2, 'b')}#[default]",
         "partial openspec half omitted -> only the valid bd half renders",
     )
 
     # Openspec-only (beads half fully absent) -> single segment, no
-    # separator, no bd text anywhere.
-    out_openspec_only = render.render_beads_bar(12, 1, 0, None, None, None)
+    # separator, no bd text anywhere. (3, 1, 0) mirrors proposal.md's cited
+    # live "if" project data -- all below OP_YELLOW_MIN (6) -> DIM.
+    out_openspec_only = render.render_beads_bar(3, 1, 0, None, None, None)
     _check(
-        out_openspec_only == f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua#[default]",
-        "openspec-only: single segment, zero ua -> DIM",
+        out_openspec_only == f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}#[default]",
+        "openspec-only: single segment, all counts below yellow threshold -> DIM",
     )
     _check(
         "bd:" not in out_openspec_only and "|" not in out_openspec_only,
         "openspec-only: no bd segment, no separator",
     )
 
-    # Beads-only (openspec half fully absent) -> single segment.
+    # Beads-only (openspec half fully absent) -> single segment. (1, 5, 0)
+    # all below BD_YELLOW_MIN (11) -> DIM.
     out_beads_only = render.render_beads_bar(None, None, None, 1, 5, 0)
     _check(
-        out_beads_only == f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]",
-        "beads-only: single segment, zero blocked -> DIM",
+        out_beads_only == f"{seg('bd', 1, 'o', 5, 'r', 0, 'b')}#[default]",
+        "beads-only: single segment, all counts below yellow threshold -> DIM",
     )
     _check("op:" not in out_beads_only, "beads-only: no openspec segment")
 
-    # Both halves present, zero ua/blocked -> DIM throughout, joined by the
-    # DIM ' | ' separator, single trailing reset (mirrors the old
-    # multi-line-join shape, now built from two structured segments).
-    out_both_zero = render.render_beads_bar(12, 1, 0, 1, 5, 0)
+    # Both halves present, all counts below their label's yellow threshold ->
+    # DIM throughout, joined by the DIM ' | ' separator, single trailing
+    # reset. op=(3,1,0) bd=(2,1,1) mirrors proposal.md's cited live "if"
+    # project data (op: 3o 1ip 0ua / bd: 2o 1r 1b, "all default").
+    out_both_zero = render.render_beads_bar(3, 1, 0, 2, 1, 1)
     _check(
         out_both_zero == (
-            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
+            f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
+            f"{seg('bd', 2, 'o', 1, 'r', 1, 'b')}#[default]"
         ),
-        "both halves, zero ua/blocked -> DIM, joined by separator",
+        "both halves, all counts below yellow threshold -> DIM, joined by separator",
     )
     _check(out_both_zero.count("#[default]") == 1, "single trailing reset, not per-segment")
 
-    # Nonzero-but-below-threshold ua/blocked -> YELLOW; open/in_progress/ready
-    # counts always stay DIM regardless of their own value (informational,
-    # not a health signal).
-    out_yellow = render.render_beads_bar(12, 1, 3, 1, 5, 2)
+    # Every number in the yellow band (independently, per label) -> YELLOW.
+    # op=(8,7,6) all in [OP_YELLOW_MIN=6, OP_RED_MIN=21); bd=(15,13,12) all
+    # in [BD_YELLOW_MIN=11, BD_RED_MIN=41).
+    out_yellow = render.render_beads_bar(8, 7, 6, 15, 13, 12)
     _check(
         out_yellow == (
-            f"#[fg={D}]op: 12o 1ip #[fg={Y}]3#[fg={D}]ua"
+            f"{seg('op', 8, 'o', 7, 'ip', 6, 'ua', Y, Y, Y)}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={Y}]2#[fg={D}]b#[default]"
+            f"{seg('bd', 15, 'o', 13, 'r', 12, 'b', Y, Y, Y)}#[default]"
         ),
-        "ua/blocked > 0 and < high threshold -> YELLOW",
+        "every count in the yellow band -> YELLOW, independently per number",
     )
 
-    # At/above the documented high-count threshold -> RED.
-    hi_u, hi_b = render.BEADS_UNARCHIVED_HIGH, render.BEADS_BLOCKED_HIGH
-    out_red = render.render_beads_bar(12, 1, hi_u, 1, 5, hi_b)
+    # At/above each label's documented red threshold -> RED, for all three
+    # numbers independently.
+    op_red, bd_red = render.OP_RED_MIN, render.BD_RED_MIN
+    out_red = render.render_beads_bar(op_red, op_red, op_red, bd_red, bd_red, bd_red)
     _check(
         out_red == (
-            f"#[fg={D}]op: 12o 1ip #[fg={R}]{hi_u}#[fg={D}]ua"
+            f"{seg('op', op_red, 'o', op_red, 'ip', op_red, 'ua', R, R, R)}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={R}]{hi_b}#[fg={D}]b#[default]"
+            f"{seg('bd', bd_red, 'o', bd_red, 'r', bd_red, 'b', R, R, R)}#[default]"
         ),
-        "ua/blocked >= documented high threshold -> RED",
+        "every count >= its label's red threshold -> RED, independently per number",
     )
-    _check(render._threshold_color(hi_u - 1, hi_u) == Y, "one below threshold -> still YELLOW, not RED")
+    _check(
+        render._tiered_color(op_red - 1, render.OP_YELLOW_MIN, render.OP_PULSE_MIN, op_red, None) == Y,
+        "one below red threshold, now=None -> still YELLOW (steady pulse tier), not RED",
+    )
 
     # Staleness markers (plan 006 / BEADS-01, extended to independent
     # per-segment ages): fresh/unknown age -> unchanged; age beyond
     # BEADS_STALE_AFTER_SEC on ONE half -> DIM trailing "(<duration>)" marker
-    # on that segment only, the other segment unaffected.
+    # on that segment only, the other segment unaffected. Reuses the
+    # all-DIM op=(3,1,0) bd=(2,1,1) baseline from above.
     base = (
-        f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
+        f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}"
         f"{render._BEADS_SEP}"
-        f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
+        f"{seg('bd', 2, 'o', 1, 'r', 1, 'b')}#[default]"
     )
-    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, None, None) == base, "both ages None -> no markers")
-    _check(render.render_beads_bar(12, 1, 0, 1, 5, 0, 60.0, 60.0) == base, "both fresh -> no markers")
+    _check(render.render_beads_bar(3, 1, 0, 2, 1, 1, None, None) == base, "both ages None -> no markers")
+    _check(render.render_beads_bar(3, 1, 0, 2, 1, 1, 60.0, 60.0) == base, "both fresh -> no markers")
     _check(
         render.render_beads_bar(
-            12, 1, 0, 1, 5, 0, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC
+            3, 1, 0, 2, 1, 1, render.BEADS_STALE_AFTER_SEC, render.BEADS_STALE_AFTER_SEC
         ) == base,
         "age exactly at threshold -> not yet stale (strict >)",
     )
 
-    out_stale_openspec = render.render_beads_bar(12, 1, 0, 1, 5, 0, 901.0, None)
+    out_stale_openspec = render.render_beads_bar(3, 1, 0, 2, 1, 1, 901.0, None)
     _check(
         out_stale_openspec == (
-            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua (15m)"
+            f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua', age=' (15m)')}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
+            f"{seg('bd', 2, 'o', 1, 'r', 1, 'b')}#[default]"
         ),
         "stale openspec age only -> (15m) marker on the op segment, bd segment unaffected",
     )
 
-    out_stale_beads = render.render_beads_bar(12, 1, 0, 1, 5, 0, None, 7500.0)
+    out_stale_beads = render.render_beads_bar(3, 1, 0, 2, 1, 1, None, 7500.0)
     _check(
         out_stale_beads == (
-            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
+            f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b (2h)#[default]"
+            f"{seg('bd', 2, 'o', 1, 'r', 1, 'b', age=' (2h)')}#[default]"
         ),
         "stale beads age only -> (2h) marker on the bd segment, op segment unaffected",
     )
@@ -2099,18 +2171,27 @@ def _test_render_beads_bar_account_segment() -> None:
     D = render.DIM
     label = "leo@x.dev·bc7da511"
 
+    def seg(lbl, n1, s1, n2, s2, n3, s3):
+        return (
+            f"#[fg={D}]{lbl}: "
+            f"#[fg={D}]{n1}#[fg={D}]{s1} "
+            f"#[fg={D}]{n2}#[fg={D}]{s2} "
+            f"#[fg={D}]{n3}#[fg={D}]{s3}"
+        )
+
     # (a) openspec + beads + account_label all present -> op:/bd: stay
     # _BEADS_SEP-joined on the left; account segment is pushed right via
     # #[align=right], wrapped in the range marker relocated from row 2.
     # Openspec/beads values mirror _test_render_beads_bar's "both halves,
-    # zero ua/blocked" case (12, 1, 0, 1, 5, 0) — the new in_progress/open
-    # slots are just non-None placeholders here, not what this test is about.
-    out_all = render.render_beads_bar(12, 1, 0, 1, 5, 0, account_label=label)
+    # all counts below yellow threshold" case (3, 1, 0, 2, 1, 1) — the new
+    # in_progress/open slots are just non-None placeholders here, not what
+    # this test is about.
+    out_all = render.render_beads_bar(3, 1, 0, 2, 1, 1, account_label=label)
     _check(
         out_all == (
-            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
+            f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b"
+            f"{seg('bd', 2, 'o', 1, 'r', 1, 'b')}"
             f"#[default]#[align=right]"
             f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
         ),
@@ -2135,12 +2216,12 @@ def _test_render_beads_bar_account_segment() -> None:
 
     # (c) account_label absent, openspec/beads present -> unchanged
     # two-segment behavior (regression guard for today's existing contract).
-    out_two_segment = render.render_beads_bar(12, 1, 0, 1, 5, 0)
+    out_two_segment = render.render_beads_bar(3, 1, 0, 2, 1, 1)
     _check(
         out_two_segment == (
-            f"#[fg={D}]op: 12o 1ip #[fg={D}]0#[fg={D}]ua"
+            f"{seg('op', 3, 'o', 1, 'ip', 0, 'ua')}"
             f"{render._BEADS_SEP}"
-            f"#[fg={D}]bd: 1o 5r #[fg={D}]0#[fg={D}]b#[default]"
+            f"{seg('bd', 2, 'o', 1, 'r', 1, 'b')}#[default]"
         ),
         f"account_label omitted -> unchanged two-segment behavior: {out_two_segment!r}",
     )
@@ -2152,178 +2233,6 @@ def _test_render_beads_bar_account_segment() -> None:
         render.render_beads_bar(None, None, None, None, None, None, account_label="") == "",
         "explicit empty account_label -> ''",
     )
-
-
-def _test_render_beads_bar_phase_and_countdown_glyph() -> None:
-    """cc-tmux-row3-next-cycle (design.md § Phase selection / Countdown glyph,
-    task 4.1): :func:`render.beads_bar_phase` flips exactly at
-    :data:`render.SWAP_PERIOD_SEC` boundaries, and
-    :func:`render.beads_bar_countdown_glyph` sweeps all 8
-    :data:`render._COUNTDOWN_RAMP` frames across one full ``SWAP_PERIOD_SEC``
-    window, resetting to frame 0 at the START of every phase (keyed on
-    ``now % SWAP_PERIOD_SEC``, not on an unbounded ``now``).
-    """
-    period = render.SWAP_PERIOD_SEC
-
-    # Phase flips exactly at SWAP_PERIOD_SEC boundaries (8.0): 7.9 -> 0,
-    # 8.0 -> 1, 15.9 -> 1, 16.0 -> 0.
-    _check(render.beads_bar_phase(7.9) == 0, "now=7.9 -> phase 0")
-    _check(render.beads_bar_phase(8.0) == 1, "now=8.0 -> phase 1")
-    _check(render.beads_bar_phase(15.9) == 1, "now=15.9 -> phase 1")
-    _check(render.beads_bar_phase(16.0) == 0, "now=16.0 -> phase 0 (flips back)")
-
-    # Countdown glyph sweeps all 8 ramp frames, in order, across one phase
-    # window, and the SAME 8 sub-intervals repeat identically in the next
-    # phase -- confirming the index is keyed on now % SWAP_PERIOD_SEC, not on
-    # a running/unbounded now.
-    ramp = render._COUNTDOWN_RAMP
-    _check(len(ramp) == 8, f"sanity: _COUNTDOWN_RAMP has 8 frames, got {len(ramp)}")
-    for i in range(8):
-        expected = ramp[i]
-        now_phase0 = period * (i / 8)
-        glyph_phase0 = render.beads_bar_countdown_glyph(now_phase0)
-        _check(
-            glyph_phase0 == expected,
-            f"phase-0 now={now_phase0} -> frame {i} {expected!r}, got {glyph_phase0!r}",
-        )
-        now_phase1 = period + period * (i / 8)
-        glyph_phase1 = render.beads_bar_countdown_glyph(now_phase1)
-        _check(
-            glyph_phase1 == expected,
-            f"phase-1 now={now_phase1} -> resets to frame {i} {expected!r} same as phase 0, got {glyph_phase1!r}",
-        )
-
-
-def _test_cli_parse_roadmap_pulse_next() -> None:
-    """cc-tmux-row3-next-cycle (task 4.2): :func:`cli._parse_roadmap_pulse_next`
-    extracts a ``next:`` line verbatim regardless of its position in the
-    (already ``radar:``-stripped) roadmap-pulse content string, returns
-    ``None`` when absent, and never mistakes a ``bd:``/``op:``/``radar:``
-    line for a ``next:`` line.
-    """
-    next_line = "next: [WORKSPACE-CMDCENTER] Ship the thing"
-
-    first_position = f"{next_line}\nbd: 0o 0r 0b"
-    _check(
-        cli._parse_roadmap_pulse_next(first_position) == next_line,
-        "next: as the first line -> extracted verbatim",
-    )
-
-    last_position = f"op: 1o 0ip 0ua\nbd: 1o 1r 0b\n{next_line}"
-    _check(
-        cli._parse_roadmap_pulse_next(last_position) == next_line,
-        "next: as the last line -> extracted verbatim",
-    )
-
-    middle_position = f"op: 1o 0ip 0ua\n{next_line}\nbd: 1o 1r 0b"
-    _check(
-        cli._parse_roadmap_pulse_next(middle_position) == next_line,
-        "next: in the middle -> extracted verbatim",
-    )
-
-    _check(
-        cli._parse_roadmap_pulse_next("op: 1o 0ip 0ua\nbd: 1o 1r 0b") is None,
-        "no next: line present -> None",
-    )
-    _check(cli._parse_roadmap_pulse_next("") is None, "empty content -> None")
-
-    # bd:/op:/radar: lines are never mistaken for a next: line (radar: is
-    # already stripped upstream by _read_roadmap_pulse before content reaches
-    # this parser -- confirmed harmless here regardless).
-    no_next_among_others = "op: 1o 0ip 0ua\nbd: 1o 1r 0b\nradar:stale"
-    _check(
-        cli._parse_roadmap_pulse_next(no_next_among_others) is None,
-        "op:/bd:/radar: lines never mistaken for next: -> None",
-    )
-
-
-def _test_render_beads_bar_next_cycle() -> None:
-    """cc-tmux-row3-next-cycle (design.md § render_beads_bar, task 4.3):
-    ``now=None`` (the default) renders BYTE-IDENTICAL to the pre-feature
-    reference shape; when ``now`` is provided, phase 0 renders the op:/bd:
-    counts with a countdown-glyph prefix, phase 1 renders ``next_text`` ALONE
-    (glyph-prefixed, no op:/bd: anywhere) when present, falls back to the
-    counts (still glyph-prefixed) when ``next_text`` is ``None``, and the
-    right-aligned account segment renders identically across every
-    phase/``now``/``None`` combination. "Nothing available" still renders
-    ``""`` in every combination.
-    """
-    D = render.DIM
-    period = render.SWAP_PERIOD_SEC
-    counts_args = (12, 1, 0, 1, 5, 0)  # op: 12o 1ip 0ua | bd: 1o 5r 0b
-    next_text = "next: [WORKSPACE-CMDCENTER] Ship the thing"
-    label = "leo@x.dev·bc7da511"
-
-    # (a) now=None (the default) is byte-identical to the pre-row3-next-cycle
-    # reference call (same counts, no next_text/now at all) -- and stays
-    # byte-identical even when next_text IS supplied, since now=None ignores
-    # it entirely.
-    reference = render.render_beads_bar(*counts_args)
-    _check("next:" not in reference, "sanity: reference call carries no next: text")
-    _check(
-        render.render_beads_bar(*counts_args, now=None) == reference,
-        "now=None (explicit) -> byte-identical to the pre-feature reference call",
-    )
-    _check(
-        render.render_beads_bar(*counts_args, next_text=next_text, now=None) == reference,
-        "now=None with next_text supplied -> still byte-identical (next_text ignored)",
-    )
-
-    # (b) now at phase 0 -> op:/bd: counts, glyph-prefixed.
-    now_phase0 = 0.0
-    _check(render.beads_bar_phase(now_phase0) == 0, "sanity: now_phase0 lands in phase 0")
-    glyph0 = render.beads_bar_countdown_glyph(now_phase0)
-    out_phase0 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase0)
-    _check(
-        out_phase0 == f"#[fg={D}]{glyph0}#[default] {reference}",
-        f"phase 0 -> glyph-prefixed op:/bd: counts: {out_phase0!r}",
-    )
-
-    # (c) now at phase 1 with next_text present -> ONLY next_text, no op:/bd:
-    # segments anywhere, glyph-prefixed.
-    now_phase1 = period + 1.0
-    _check(render.beads_bar_phase(now_phase1) == 1, "sanity: now_phase1 lands in phase 1")
-    glyph1 = render.beads_bar_countdown_glyph(now_phase1)
-    out_phase1 = render.render_beads_bar(*counts_args, next_text=next_text, now=now_phase1)
-    _check(
-        out_phase1 == f"#[fg={D}]{glyph1}#[default] {next_text}#[default]",
-        f"phase 1 with next_text -> next_text alone, glyph-prefixed: {out_phase1!r}",
-    )
-    _check(
-        "op:" not in out_phase1 and "bd:" not in out_phase1,
-        "phase 1 with next_text present never shows op:/bd: segments",
-    )
-
-    # (d) now at phase 1 with next_text=None -> falls back to phase-0 content
-    # (still glyph-prefixed with the phase-1 glyph).
-    out_phase1_no_next = render.render_beads_bar(*counts_args, next_text=None, now=now_phase1)
-    _check(
-        out_phase1_no_next == f"#[fg={D}]{glyph1}#[default] {reference}",
-        f"phase 1, next_text=None -> falls back to op:/bd: counts, still glyph-prefixed: {out_phase1_no_next!r}",
-    )
-
-    # (e) Account segment renders identically across every phase/now/None
-    # combination -- only the left side cycles.
-    right_suffix = (
-        f"#[align=right]#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
-    )
-    for now_value in (None, now_phase0, now_phase1):
-        out = render.render_beads_bar(
-            *counts_args, account_label=label, next_text=next_text, now=now_value
-        )
-        _check(
-            out.endswith(right_suffix),
-            f"account segment identical regardless of phase/now (now={now_value}): {out!r}",
-        )
-
-    # (f) "Nothing available" (no counts, next_text=None, account_label="")
-    # still returns "" in every phase/now combination.
-    for now_value in (None, now_phase0, now_phase1):
-        out_empty = render.render_beads_bar(
-            None, None, None, None, None, None,
-            next_text=None, now=now_value, account_label="",
-        )
-        _check(out_empty == "", f"nothing available -> '' at now={now_value}")
 
 
 def _test_render_tabs_row() -> None:
@@ -3938,15 +3847,13 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
     ("render.session_bar", _test_render_session_bar),
+    ("render.tiered_color", _test_tiered_color),
     ("render.beads_bar", _test_render_beads_bar),
     ("render.beads_bar_account_segment", _test_render_beads_bar_account_segment),
-    ("render.beads_bar_phase_and_countdown_glyph", _test_render_beads_bar_phase_and_countdown_glyph),
-    ("render.beads_bar_next_cycle", _test_render_beads_bar_next_cycle),
     ("render.tabs_row", _test_render_tabs_row),
     ("cli.read_roadmap_pulse_fail_open", _test_cli_read_roadmap_pulse_fail_open),
     ("cli.read_roadmap_pulse_radar_strip", _test_cli_read_roadmap_pulse_radar_strip),
     ("cli.parse_roadmap_pulse_counts", _test_cli_parse_roadmap_pulse_counts),
-    ("cli.parse_roadmap_pulse_next", _test_cli_parse_roadmap_pulse_next),
     ("cli.beads_pane_fallback", _test_cli_beads_pane_fallback),
     ("cli.beads_pane_active_tracked_preferred", _test_cli_beads_pane_active_tracked_preferred),
     ("cli.resolve_session_pane_active_tracked", _test_cli_resolve_session_pane_active_tracked),

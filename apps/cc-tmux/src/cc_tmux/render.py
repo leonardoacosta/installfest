@@ -80,13 +80,6 @@ PERMISSION_PULSE_FRAMES: Tuple[str, str] = ("◉", "◎")
 # mean some frames are silently skipped, which is harmless.
 FRAME_PERIOD_SEC = 1.0
 
-# Row-3 next-cycle (cc-tmux-row3-next-cycle) — see
-# openspec/changes/cc-tmux-row3-next-cycle/design.md for the full rationale
-# (swap cadence choice). Not re-derived here. (The companion _COUNTDOWN_RAMP
-# constant lives below, after IDLE_METER_RAMP, since it slices that tuple.)
-SWAP_PERIOD_SEC = 8.0
-
-
 # ---------------------------------------------------------------------------
 # Idle-tab usage meter (cc-tmux-idle-tab-usage-meter)
 #
@@ -121,33 +114,6 @@ IDLE_METER_RAMP: Tuple[str, ...] = (
     "⠈",  # 15  — 93.75%
     "▓",  # 16  — 100%
 )
-
-
-# Row-3 next-cycle (cc-tmux-row3-next-cycle) — countdown-to-swap glyph ramp,
-# reusing IDLE_METER_RAMP's drain half rather than a new glyph table. See
-# openspec/changes/cc-tmux-row3-next-cycle/design.md § "Countdown glyph" for
-# the rationale. Not re-derived here.
-_COUNTDOWN_RAMP: Tuple[str, ...] = IDLE_METER_RAMP[8:16]
-
-
-def beads_bar_phase(now: float) -> int:
-    """Row-3 next-cycle phase at wall-clock ``now``: ``0`` = ``op:``/``bd:``
-    counts, ``1`` = the ``next:`` action line. Pure function of ``now`` — same
-    ``int(now / period) % ...`` wall-clock-framing idiom :func:`animated_icon`
-    already establishes, applied to :data:`SWAP_PERIOD_SEC` instead of
-    :data:`FRAME_PERIOD_SEC` (design.md § "Phase selection").
-    """
-    return int(now / SWAP_PERIOD_SEC) % 2
-
-
-def beads_bar_countdown_glyph(now: float) -> str:
-    """8-frame drain glyph for how far ``now`` has progressed through the
-    current :data:`SWAP_PERIOD_SEC` phase (full at the phase's start, empty at
-    its end). Pure function of ``now``, indexing :data:`_COUNTDOWN_RAMP`
-    (design.md § "Countdown glyph").
-    """
-    idx = min(7, int((now % SWAP_PERIOD_SEC) / SWAP_PERIOD_SEC * 8))
-    return _COUNTDOWN_RAMP[idx]
 
 
 def _idle_meter_index(ratio: float) -> int:
@@ -1119,26 +1085,47 @@ def render_tabs_row(
 # data never masquerades as current (plan 006 / BEADS-01).
 BEADS_STALE_AFTER_SEC = 900.0
 
-# Row 3 "high count" thresholds for the unarchived-proposal / blocked-bead
-# halves (cc-tmux-row3-openspec-beads-format task 2.3): 5 is roughly a day's
-# worth of shipped-but-unarchived specs, or blocked beads piling up, before
-# it stops being "a couple things to clean up next session" and becomes a
-# RED alarm. Any count > 0 is already YELLOW; these constants only gate the
-# YELLOW -> RED escalation, mirroring BEADS_STALE_AFTER_SEC's
-# documented-constant convention above.
-BEADS_UNARCHIVED_HIGH = 5
-BEADS_BLOCKED_HIGH = 5
+# Row-3 per-number tiered coloring (cc-tmux-row3-tiered-colors). Independent
+# per-label thresholds -- bd naturally runs ~2x op's volume at every tier
+# (confirmed against live roadmap-pulse cache data across several projects).
+# Boundary resolution (proposal.md § Why): the ask's stated ranges ("11-20
+# pulsating", "20+ red") overlap at the edge as literally written; "+" is
+# read as strictly-above-the-previous-tier, so *_RED_MIN is one past the
+# previous tier's stated upper bound, not equal to it.
+OP_YELLOW_MIN = 6    # n <= 5 -> default (DIM); 6 <= n <= 10 -> YELLOW
+OP_PULSE_MIN = 11    # 11 <= n <= 20 -> pulsing YELLOW <-> DIM
+OP_RED_MIN = 21       # n >= 21 -> RED
+
+BD_YELLOW_MIN = 11   # n <= 10 -> default (DIM); 11 <= n <= 20 -> YELLOW
+BD_PULSE_MIN = 21    # 21 <= n <= 40 -> pulsing YELLOW <-> DIM
+BD_RED_MIN = 41      # n >= 41 -> RED
 
 _BEADS_SEP = f"#[fg={DIM}] | "
 
 
-def _threshold_color(n: int, high: int) -> str:
-    """DIM at ``0`` (healthy), YELLOW above ``0``, RED at/above ``high``."""
-    if n <= 0:
+def _tiered_color(
+    n: int,
+    yellow_min: int,
+    pulse_min: int,
+    red_min: int,
+    now: Optional[float],
+) -> str:
+    """4-tier color for count `n`: DIM (< yellow_min), YELLOW (< pulse_min),
+    pulsing YELLOW<->DIM on FRAME_PERIOD_SEC tick parity (< red_min), RED
+    (>= red_min). `now is None` (no wall-clock available) renders the pulse
+    tier as steady YELLOW -- fail-open, matching this file's existing
+    None-handling convention (e.g. idle_usage_meter's `raw_tokens is None`
+    case) -- never animates without a real `now`.
+    """
+    if n < yellow_min:
         return DIM
-    if n >= high:
-        return RED
-    return YELLOW
+    if n < pulse_min:
+        return YELLOW
+    if n < red_min:
+        if now is None:
+            return YELLOW
+        return YELLOW if int(now / FRAME_PERIOD_SEC) % 2 == 0 else DIM
+    return RED
 
 
 def _pulse_segment(
@@ -1150,26 +1137,34 @@ def _pulse_segment(
     n3: int,
     suffix3: str,
     age_sec: Optional[float],
-    high: int,
+    yellow_min: int,
+    pulse_min: int,
+    red_min: int,
+    now: Optional[float],
 ) -> str:
     """Colored ``"label: N1suffix1 N2suffix2 N3suffix3 (age)"`` segment.
 
     Renders cc's abbreviated roadmap-pulse shape (if-bqw.1) — e.g.
     ``"op: 1o 0ip 0ua"`` or ``"bd: 1o 1r 0b"`` — where each count's suffix is
     glued directly onto the number (no space) and only groups are
-    space-separated. ``n1``/``n2`` are purely informational and stay DIM.
-    ``n3`` (closure-debt ``ua`` / ``blocked``) is the health signal, colored
-    via :func:`_threshold_color`; its suffix reverts to DIM immediately
-    after. ``age_sec`` beyond ``BEADS_STALE_AFTER_SEC`` appends a DIM
-    trailing ``" (<duration>)"`` marker, independent per segment.
+    space-separated. Each of the three numbers is colored INDEPENDENTLY via
+    :func:`_tiered_color` against the label's own ``yellow_min``/
+    ``pulse_min``/``red_min`` triple (cc-tmux-row3-tiered-colors) — every
+    count is a health signal now, not just the third. ``age_sec`` beyond
+    ``BEADS_STALE_AFTER_SEC`` appends a DIM trailing ``" (<duration>)"``
+    marker, independent per segment.
     """
-    n3_color = _threshold_color(n3, high)
+    c1 = _tiered_color(n1, yellow_min, pulse_min, red_min, now)
+    c2 = _tiered_color(n2, yellow_min, pulse_min, red_min, now)
+    c3 = _tiered_color(n3, yellow_min, pulse_min, red_min, now)
     age_suffix = ""
     if age_sec is not None and age_sec > BEADS_STALE_AFTER_SEC:
         age_suffix = f" ({format_duration(age_sec)})"
     return (
-        f"#[fg={DIM}]{label}: {n1}{suffix1} {n2}{suffix2} "
-        f"#[fg={n3_color}]{n3}#[fg={DIM}]{suffix3}{age_suffix}"
+        f"#[fg={DIM}]{label}: "
+        f"#[fg={c1}]{n1}#[fg={DIM}]{suffix1} "
+        f"#[fg={c2}]{n2}#[fg={DIM}]{suffix2} "
+        f"#[fg={c3}]{n3}#[fg={DIM}]{suffix3}{age_suffix}"
     )
 
 
@@ -1183,7 +1178,6 @@ def render_beads_bar(
     openspec_age_sec: Optional[float] = None,
     beads_age_sec: Optional[float] = None,
     account_label: str = "",
-    next_text: Optional[str] = None,
     now: Optional[float] = None,
 ) -> str:
     """Row-3 status-format string from parsed roadmap-pulse counts, or ``''``.
@@ -1226,10 +1220,14 @@ def render_beads_bar(
     omitted (no cache and no account label) -> ``""``, matching the row's
     original "no cache -> empty" contract.
 
-    ``ua``/``blocked`` are colored by semantic threshold
-    (:func:`_threshold_color`; DIM healthy, YELLOW above 0, RED at/above
-    :data:`BEADS_UNARCHIVED_HIGH`/:data:`BEADS_BLOCKED_HIGH`); ``open``/
-    ``in_progress``/``ready`` stay DIM (informational, not a health signal).
+    Every count in both segments is colored independently via
+    :func:`_tiered_color` against its label's own threshold triple
+    (cc-tmux-row3-tiered-colors) — DIM/YELLOW/pulsing-YELLOW/RED as the
+    number crosses :data:`OP_YELLOW_MIN`/:data:`OP_PULSE_MIN`/
+    :data:`OP_RED_MIN` (``op:``) or :data:`BD_YELLOW_MIN`/
+    :data:`BD_PULSE_MIN`/:data:`BD_RED_MIN` (``bd:``) — replacing the prior
+    scheme where only the third number (``ua``/``blocked``) carried a health
+    color and ``open``/``in_progress``/``ready`` stayed permanently DIM.
     ``openspec_age_sec``/``beads_age_sec`` are each independent cache-file
     ages in seconds — both halves read the SAME cache file's single mtime
     today (so callers typically pass the same value for both), but the
@@ -1237,37 +1235,16 @@ def render_beads_bar(
     split (plan 006 / BEADS-01) with no further render.py change needed.
     Ages beyond ``BEADS_STALE_AFTER_SEC`` append a DIM trailing
     ``" (<duration>)"`` marker via :func:`format_duration`, independently per
-    segment.
-
-    **Row3-next-cycle** (``next_text``/``now``, cc-tmux-row3-next-cycle):
-    ``now is None`` (the default) renders this row BYTE-IDENTICAL to the
-    behavior documented above — no phase logic engages, no countdown glyph
-    ever appears, and ``next_text`` is ignored entirely. This protects every
-    existing caller/test that predates this feature and does not pass the two
-    new params.
-
-    When ``now`` IS provided, the left-flowing ``op:``/``bd:`` content above
-    alternates on a wall-clock timer with ``next_text`` (the project's
-    "what to do next" recommendation — see
-    :func:`cc_tmux.cli._parse_roadmap_pulse_next`), gated by
-    :func:`beads_bar_phase`:
-
-    * Phase 0 (or ``next_text is None``, i.e. no next-line available this
-      tick): the left side renders the ``op:``/``bd:`` segments exactly as
-      documented above, prefixed with :func:`beads_bar_countdown_glyph`
-      (DIM, showing time remaining in the current phase).
-    * Phase 1 AND ``next_text`` is present: the left side renders
-      ``next_text`` ALONE — no ``op:``/``bd:`` segments at all — also
-      prefixed with the countdown glyph. The two are mutually exclusive;
-      this row never shows both at once.
-    * The countdown glyph is added ONLY when there is left-side content to
-      prefix — a tick with no counts and no ``next_text`` renders no glyph
-      either, preserving the "nothing available -> no left side" contract
-      below.
+    segment. ``now`` (``Optional[float]``, default ``None``) feeds the
+    pulse-tier animation in :func:`_tiered_color` for both segments' numbers
+    — ``now is None`` renders any number in the pulse tier as steady YELLOW
+    rather than animating (fail-open); it no longer selects WHAT content
+    renders (that swap-cycle behavior was reversed by this proposal — see
+    proposal.md § Why), only how a pulse-tier number is colored at a given
+    tick.
 
     The right-aligned account-identity segment is completely independent of
-    this cycle — it renders in every phase, with or without ``now``, exactly
-    as documented above; the cycle only ever touches the left side.
+    the left side's coloring — it renders identically regardless of ``now``.
 
     Pure function of its inputs (no tmux/subprocess).
     """
@@ -1280,33 +1257,17 @@ def render_beads_bar(
         left_segments.append(
             _pulse_segment(
                 "op", openspec_open, "o", openspec_in_progress, "ip", openspec_ua, "ua",
-                openspec_age_sec, BEADS_UNARCHIVED_HIGH,
+                openspec_age_sec, OP_YELLOW_MIN, OP_PULSE_MIN, OP_RED_MIN, now,
             )
         )
     if beads_open is not None and beads_ready is not None and beads_blocked is not None:
         left_segments.append(
             _pulse_segment(
                 "bd", beads_open, "o", beads_ready, "r", beads_blocked, "b",
-                beads_age_sec, BEADS_BLOCKED_HIGH,
+                beads_age_sec, BD_YELLOW_MIN, BD_PULSE_MIN, BD_RED_MIN, now,
             )
         )
-    counts_left = _BEADS_SEP.join(left_segments)
-
-    if now is None:
-        # Byte-identical to pre-row3-next-cycle behavior — no phase logic,
-        # no countdown glyph, next_text ignored.
-        left = counts_left
-    else:
-        phase = beads_bar_phase(now)
-        if phase == 1 and next_text is not None:
-            phase_content = next_text
-        else:
-            phase_content = counts_left
-        if phase_content:
-            glyph = beads_bar_countdown_glyph(now)
-            left = f"#[fg={DIM}]{glyph}#[default] {phase_content}"
-        else:
-            left = ""
+    left = _BEADS_SEP.join(left_segments)
 
     # Account-identity segment: the active account's identity, wrapped in the
     # #[range=user|accounts] click marker relocated from row 2

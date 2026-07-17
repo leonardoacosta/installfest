@@ -1606,27 +1606,6 @@ def _parse_roadmap_pulse_counts(
     )
 
 
-def _parse_roadmap_pulse_next(content: str) -> Optional[str]:
-    """The first ``next:``-prefixed line from roadmap-pulse ``content``, or ``None``.
-
-    ``content`` is the SAME (already ``radar:``-stripped, per
-    :func:`_read_roadmap_pulse`) cache text :func:`_parse_roadmap_pulse_counts`
-    already receives — no new fetch, no new cache file
-    (cc-tmux-row3-next-cycle design.md § "next: extraction"). Returns the
-    matching line verbatim (including its ``next:`` prefix), or ``None`` when
-    no line in ``content`` starts with ``next:`` — the common case, since most
-    sessions never write a next-action line at all. ``radar:`` lines are
-    already stripped upstream by :func:`_read_roadmap_pulse` before ``content``
-    reaches this function, so no line here is ever mistaken for a ``next:``
-    line by virtue of prefix alone; a ``bd:``/``op:`` line likewise never
-    matches since neither starts with ``next:``.
-    """
-    for line in content.splitlines():
-        if line.startswith("next:"):
-            return line
-    return None
-
-
 def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     """Build the row-3 beads/roadmap status-format string for a window (Req rows 3).
 
@@ -1645,14 +1624,12 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
     :func:`_build_session_bar` already makes (45s TTL, shared on-disk cache
     file — calling it again in the same render tick is a cache hit, not a new
     fetch) and passes it through as ``account_label``, the third independent
-    segment :func:`render.render_beads_bar` now renders (task 2.3) — the 5H/7D
-    values from that call are unused here, row 3 needs only the label.
-    ``next_text`` — the ``next:``-prefixed line parsed out of the SAME
-    already-fetched ``content`` via :func:`_parse_roadmap_pulse_next` (no new
-    fetch), passed through with the real wall-clock ``now`` so
-    :func:`render.render_beads_bar` can cycle row 3 between the ``op:``/``bd:``
-    counts and this next-action line on the ``SWAP_PERIOD_SEC`` cadence
-    (cc-tmux-row3-next-cycle, task 3.1).
+    segment :func:`render.render_beads_bar` renders. ``now=time.time()`` is
+    passed through purely to drive :func:`render.render_beads_bar`'s
+    per-number pulse-tier animation (cc-tmux-row3-tiered-colors) — it no
+    longer selects between two alternate content phases (that swap-cycle
+    behavior was reversed by cc-tmux-row3-tiered-colors; ``op:``/``bd:``
+    counts render every tick, unconditionally).
     Fail-open: nothing pending -> ``""``.
     """
     if pane is None:
@@ -1664,14 +1641,13 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,
     ) = _parse_roadmap_pulse_counts(content)
-    next_text = _parse_roadmap_pulse_next(content)
     account_label, _five_h_pct, _seven_d_pct = _active_usage()
     return render.render_beads_bar(
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,
         openspec_age_sec=age_sec, beads_age_sec=age_sec,
         account_label=account_label,
-        next_text=next_text, now=time.time(),
+        now=time.time(),
     )
 
 
