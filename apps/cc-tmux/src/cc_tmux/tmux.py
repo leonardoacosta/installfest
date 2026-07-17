@@ -107,6 +107,20 @@ OPT_LAST_RECONCILE = "@cc-last-reconcile"
 OPT_RECONCILE_INTERVAL = "@cc-reconcile-interval"
 _DEFAULT_RECONCILE_INTERVAL = 10.0
 
+# Global (server) options for the row-4 agents/title status row
+# (cc-tmux-row4-session-title). @cc-row-agents is the render TRANSPORT option
+# cli.cmd_render_all publishes every render-all tick (same "overwritten every
+# tick, never read back by Python, only tmux's drawing pass consumes it"
+# convention as cli.py's own _ROW_SESSION_OPT/_ROW_BEADS_OPT — those two
+# currently live in cli.py rather than here, a pre-existing inconsistency in
+# where global-option constants are declared; not resolved by this change).
+# @cc-subagent-bg-busy-window is a tunable override for the busy-vs-settled
+# threshold render.render_agents_row uses to flip a background dispatch's
+# glyph from the flashing "◌"/"○" pair to the static "●" — see
+# cli._subagent_bg_busy_window for the default value and its rationale.
+OPT_ROW_AGENTS = "@cc-row-agents"
+OPT_SUBAGENT_BG_BUSY_WINDOW = "@cc-subagent-bg-busy-window"
+
 
 @dataclass
 class PaneInfo:

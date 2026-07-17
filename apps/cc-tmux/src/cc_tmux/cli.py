@@ -713,6 +713,32 @@ def _subagent_bg_timeout() -> float:
     return val if val > 0 else _DEFAULT_SUBAGENT_BG_TIMEOUT
 
 
+# Row-4 agents/title status row (cc-tmux-row4-session-title): how long a
+# background dispatch counts as "busy" (flashing "◌"/"○") before
+# render.render_agents_row settles it to the static "●". Default is 60s --
+# 1/5 of _DEFAULT_SUBAGENT_BG_TIMEOUT (300s), the existing age-out timeout
+# this must stay well under (proposal.md's content contract). A background
+# Task dispatch's real work is usually front-loaded, so weighting the window
+# toward "settled" (the common steady-state glyph) rather than "busy" reads
+# truer than an even split; 60s is comfortably inside the first fifth of the
+# 5-minute age-out window without being so short it flickers to settled
+# before a dispatch has had a fair chance to still be genuinely working.
+_SUBAGENT_BG_BUSY_WINDOW_DEFAULT = 60.0
+
+
+def _subagent_bg_busy_window() -> float:
+    """``@cc-subagent-bg-busy-window`` override, or the default (see
+    ``_SUBAGENT_BG_BUSY_WINDOW_DEFAULT`` above / ``tmux.OPT_SUBAGENT_BG_BUSY_WINDOW``'s
+    docstring). Mirrors :func:`_subagent_bg_timeout`'s exact
+    float-parse-with-fallback shape."""
+    raw = tmux.get_global_option(tmux.OPT_SUBAGENT_BG_BUSY_WINDOW)
+    try:
+        val = float(raw) if raw else _SUBAGENT_BG_BUSY_WINDOW_DEFAULT
+    except ValueError:
+        val = _SUBAGENT_BG_BUSY_WINDOW_DEFAULT
+    return val if val > 0 else _SUBAGENT_BG_BUSY_WINDOW_DEFAULT
+
+
 def _maybe_rename_window(pane_id: str) -> bool:
     """Rename a pane's window when ``@cc-window-rename`` is on (default off, Req-7).
 
@@ -1718,7 +1744,7 @@ def _build_tabs_row(
     active_window_id: str,
     client_width: Optional[int] = None,
     client_height: Optional[int] = None,
-) -> str:
+) -> Tuple[str, List[float], int]:
     """Build the whole animated window-tabs row (cc-tmux-tabs-and-rename-fix).
 
     Body of the former ``cmd_tabs_row`` handler, extracted (plan 005) so
@@ -1754,13 +1780,26 @@ def _build_tabs_row(
     the ``@cc-tab-rows`` global option BEFORE the tab-row content is composed,
     so the UI batch's theme-file row lookups see the correct value on the same
     render tick.
+
+    Returns ``(row0, focused_bg, tab_rows)`` (cc-tmux-row4-session-title task
+    2.2): ``row0`` is status-format[0]'s content, unchanged from before this
+    task. ``focused_bg`` is ``active_window_id``'s window-level background-
+    dispatch list, ALREADY PRUNED by this function's own per-window loop
+    below -- the exact same data :func:`render.render_tabs_row` used for the
+    tab overlay's ``bg_count`` -- reused here rather than a second
+    :func:`tmux.get_window_tabs` round trip, since :func:`cmd_render_all`
+    needs the identical pruned data for row 4. ``tab_rows`` is the CLAMPED
+    row count already published to ``@cc-tab-rows``, reused by
+    :func:`cmd_render_all` to enforce the "agents row drops first at the
+    portrait 3-row cap" rule (see :data:`_MAX_TAB_ROWS`) without reading the
+    option back from tmux.
     """
     tmux.reconcile(_pane_ids_running_claude)  # rate-limited self-heal, <=1 scan/10s
     windows = tmux.get_window_tabs()
     if not windows:
         tmux.set_global_option(_TAB_ROWS_OPT, "1")
         _publish_multirow_status([""], 1)  # reset to landscape (status 3, no extra rows)
-        return ""
+        return "", [], 1
     # Sub-agent overlay (cc-tmux-subagent-tab-icon): prune each window's raw
     # (unpruned) @cc-subagent-bg union in place before handing windows to
     # render_tabs_row — aging policy (the timeout value) is a cli.py concern,
@@ -1798,6 +1837,12 @@ def _build_tabs_row(
             except Exception:
                 w.model_letter = ""
 
+    # Row 4 (cc-tmux-row4-session-title task 2.2): the focused window's
+    # already-pruned bg list, captured now (before the mobile-only name
+    # widening below, which never touches w.bg) so cmd_render_all doesn't
+    # need a second tmux.get_window_tabs() round trip for the identical data.
+    focused_bg = next((w.bg for w in windows if w.id == active_window_id), [])
+
     mobile = (
         client_width is not None
         and client_height is not None
@@ -1829,7 +1874,7 @@ def _build_tabs_row(
     # byte-identical landscape state (status 3, empty continuation options).
     rows = tabs.split("\n")
     _publish_multirow_status(rows, tab_rows)
-    return rows[0]
+    return rows[0], focused_bg, tab_rows
 
 
 # Global user options carrying the pre-rendered rows 2/3 for status-format[1]/[2]
@@ -1842,7 +1887,8 @@ _ROW_BEADS_OPT = "@cc-row-beads"
 
 
 def cmd_render_all(args) -> int:
-    """All three status rows from one interpreter spawn (plan 005).
+    """All four status rows from one interpreter spawn (plan 005;
+    cc-tmux-row4-session-title task 2.2 adds row 4).
 
     Replaces the 3-spawns-per-tick wiring (tabs-row + session-bar + beads-bar
     as separate #() jobs). The window's representative pane is resolved ONCE
@@ -1855,6 +1901,27 @@ def cmd_render_all(args) -> int:
     when the invoking tmux.conf.tmpl job predates this change or a manual
     invocation omits them (:func:`_build_tabs_row` treats that as "assume
     landscape").
+
+    Row 4 (``@cc-row-agents``, ``tmux.OPT_ROW_AGENTS``): built from the
+    representative pane's ``@cc-title`` plus the focused window's
+    already-pruned background-dispatch list that :func:`_build_tabs_row` now
+    returns alongside its usual ``row0`` string (see that function's
+    docstring) — no separate tmux read needed for either input. Status-count
+    arithmetic (``tab_rows + 2 + (1 if row-4 content else 0)``, capped at
+    tmux's 5-line ceiling, proposal.md § "Line-count arithmetic") is done
+    HERE, in a second pass AFTER :func:`_build_tabs_row`'s own
+    :func:`_publish_multirow_status` call has already set ``status`` to
+    ``tab_rows + 2`` — deliberately not threaded through
+    :func:`_publish_multirow_status`'s signature, since the agents-row
+    content depends on data (title, focused bg) that function has no reason
+    to know about; keeping the override here, as a single conditional
+    ``set_global_option`` call, keeps that function's existing single concern
+    (portrait tab rows + baseline status) untouched. The portrait-cap
+    invariant — "3-row tab wrap always keeps session/beads, drops the agents
+    row first" — reduces to exactly ``tab_rows >= _MAX_TAB_ROWS`` -> force the
+    row empty: at that clamp, ``tab_rows + 2`` already equals the 5-line
+    ceiling, so there is never physical room for a 4th row regardless of
+    whether :func:`render.render_agents_row` would have produced content.
     """
     window = args.window
     client_width = getattr(args, "client_width", None)
@@ -1864,7 +1931,20 @@ def cmd_render_all(args) -> int:
     beads_row = _build_beads_bar(window, pane=(pane or tmux.get_window_active_pane(window)))
     tmux.set_global_option(_ROW_SESSION_OPT, session_row)
     tmux.set_global_option(_ROW_BEADS_OPT, beads_row)
-    tabs = _build_tabs_row(window, client_width, client_height)
+    tabs, focused_bg, tab_rows = _build_tabs_row(window, client_width, client_height)
+
+    title = tmux.get_pane_option(pane, tmux.OPT_TITLE) if pane else ""
+    agents_row = (
+        ""
+        if tab_rows >= _MAX_TAB_ROWS
+        else render.render_agents_row(
+            title, focused_bg, time.time(), _subagent_bg_busy_window(), client_width
+        )
+    )
+    tmux.set_global_option(tmux.OPT_ROW_AGENTS, agents_row)
+    if agents_row:
+        tmux.set_global_option("status", str(min(tab_rows + 3, 5)))
+
     if tabs:
         sys.stdout.write(tabs)
     return 0
