@@ -2097,8 +2097,63 @@ def _test_render_beads_bar() -> None:
             f"#[fg={c3}]{n3}#[fg={D}]{s3}{age}"
         )
 
-    # No counts at all (no cache, or nothing parsed from either line) -> ''.
-    _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all None -> ''")
+    # No counts at all (no cache, or nothing parsed from either line) ->
+    # collapsed "Not available" (DIM), replacing the prior bare '' contract
+    # (cc-tmux-row3-empty-states).
+    _check(
+        render.render_beads_bar(None, None, None, None, None, None)
+        == f"#[fg={D}]Not available#[default]",
+        "all None -> collapsed 'Not available' (DIM)",
+    )
+
+    # Collapsed states (cc-tmux-row3-empty-states): the two new early-branch
+    # substitutions in render_beads_bar, plus regression guards proving
+    # neither collapse fires unless BOTH halves land in the identical state.
+
+    # All six counts 0 -> "All caught up" (DIM), no per-count numbers, no
+    # separator — replaces the noisy `op: 0o 0ip 0ua | bd: 0o 0r 0b`.
+    out_all_caught_up = render.render_beads_bar(0, 0, 0, 0, 0, 0)
+    _check(
+        out_all_caught_up == f"#[fg={D}]All caught up#[default]",
+        "all six counts 0 -> collapsed 'All caught up' (DIM), no numbers, no separator",
+    )
+    _check(
+        "op:" not in out_all_caught_up
+        and "bd:" not in out_all_caught_up
+        and render._BEADS_SEP not in out_all_caught_up,
+        "all-zero collapse: no per-count numbers, no separator leak through",
+    )
+
+    # One half all-zero (0,0,0), the other half real non-zero -> unchanged
+    # two-segment rendering, no collapse (the all-zero collapse requires
+    # BOTH halves to match).
+    out_half_zero_half_real = render.render_beads_bar(0, 0, 0, 3, 2, 1)
+    _check(
+        out_half_zero_half_real == (
+            f"{seg('op', 0, 'o', 0, 'ip', 0, 'ua')}"
+            f"{render._BEADS_SEP}"
+            f"{seg('bd', 3, 'o', 2, 'r', 1, 'b')}#[default]"
+        ),
+        "one half all-zero, other half real non-zero -> unchanged two-segment rendering, no collapse",
+    )
+    _check(
+        "All caught up" not in out_half_zero_half_real,
+        "all-zero half alone does not trigger the all-caught-up collapse",
+    )
+
+    # One half fully None, the other half real non-zero -> unchanged
+    # single-segment rendering, no collapse (regression check against the
+    # pre-existing "partial half omitted" contract — the all-None collapse
+    # also requires BOTH halves to be None).
+    out_half_none_half_real = render.render_beads_bar(None, None, None, 3, 2, 1)
+    _check(
+        out_half_none_half_real == f"{seg('bd', 3, 'o', 2, 'r', 1, 'b')}#[default]",
+        "one half None, other half real non-zero -> unchanged single-segment rendering, no collapse",
+    )
+    _check(
+        "op:" not in out_half_none_half_real and "Not available" not in out_half_none_half_real,
+        "half-None + half-real: no collapse, no opposite-half leak",
+    )
 
     # A half is "present" only when ALL THREE of its counts are non-None — a
     # partially-present half (one count set, the others None, e.g. from a
@@ -2260,17 +2315,20 @@ def _test_render_beads_bar_account_segment() -> None:
     _check(out_all.count(render._BEADS_SEP) == 1, "one separator joins the two left segments")
 
     # (b) openspec/beads BOTH absent (today's "no cache" case), account_label
-    # present -> row shows ONLY the (right-aligned) account segment, not "".
-    # All 6 count positionals stay None here — the "absent" case doesn't need
-    # placeholders.
+    # present -> the collapsed "Not available" (DIM) left side renders
+    # alongside the (right-aligned) account segment (cc-tmux-row3-empty-states:
+    # the all-None collapse fires independently of account_label — see
+    # render_beads_bar's docstring). All 6 count positionals stay None here —
+    # the "absent" case doesn't need placeholders.
     out_account_only = render.render_beads_bar(
         None, None, None, None, None, None, account_label=label
     )
     _check(
         out_account_only == (
-            f"#[default]#[align=right]#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
+            f"#[fg={D}]Not available#[default]#[align=right]"
+            f"#[range=user|accounts]#[fg={D}]{label}#[norange]#[default]"
         ),
-        f"no cache, account present -> right-aligned account-only row, not empty: {out_account_only!r}",
+        f"no cache, account present -> 'Not available' left + right-aligned account segment: {out_account_only!r}",
     )
     _check("op:" not in out_account_only and "bd:" not in out_account_only, "no count segments leak in")
 
@@ -2287,11 +2345,17 @@ def _test_render_beads_bar_account_segment() -> None:
     )
     _check("range=user|accounts" not in out_two_segment, "no account segment when account_label is empty")
 
-    # (d) all three absent -> "" (unchanged empty-row contract).
-    _check(render.render_beads_bar(None, None, None, None, None, None) == "", "all three absent -> ''")
+    # (d) all three absent -> collapsed "Not available" (DIM), replacing the
+    # prior bare '' contract (cc-tmux-row3-empty-states).
     _check(
-        render.render_beads_bar(None, None, None, None, None, None, account_label="") == "",
-        "explicit empty account_label -> ''",
+        render.render_beads_bar(None, None, None, None, None, None)
+        == f"#[fg={D}]Not available#[default]",
+        "all three absent -> collapsed 'Not available' (DIM)",
+    )
+    _check(
+        render.render_beads_bar(None, None, None, None, None, None, account_label="")
+        == f"#[fg={D}]Not available#[default]",
+        "explicit empty account_label -> collapsed 'Not available' (DIM)",
     )
 
 

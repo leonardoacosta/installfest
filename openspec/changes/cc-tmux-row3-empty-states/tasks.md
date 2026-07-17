@@ -45,14 +45,14 @@ styling decision is needed)
 
 ## E2E Batch
 
-- [ ] [4.1] Live acceptance (paste captures): craft a temporary roadmap-pulse `.line` file with [beads:if-k7oo]
+- [x] [4.1] Live acceptance (paste captures): craft a temporary roadmap-pulse `.line` file with [beads:if-k7oo]
   `op: 0o 0ip 0ua` / `bd: 0o 0r 0b`, run `cc-tmux render-all <window_id> <w> <h>` against a pane
   resolving to that project, and paste the rendered row-3 output showing `All caught up`. Repeat
   with an empty/missing `.line` file (or one with no matching `op:`/`bd:` lines at all) and paste
   the output showing `Not available`. Repeat once more with an active nexus-agent credential
   present alongside the missing-cache case, confirming both `Not available` (left) and the
   account identity segment (right) render together.
-- [ ] [4.2] Update `apps/cc-tmux/src/cc_tmux/testing.py`: change the existing assertion at (or [beads:if-f6ez]
+- [x] [4.2] Update `apps/cc-tmux/src/cc_tmux/testing.py`: change the existing assertion at (or [beads:if-f6ez]
   near) line 2101 from `render.render_beads_bar(None, None, None, None, None, None) == ""` to
   assert `== "Not available"` styling, and add the three new cases from task 1.2 as `_check`
   assertions in the same section. Paste the full `testing.py` run's pass/fail summary output.
