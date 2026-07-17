@@ -24,6 +24,14 @@ cloudpc_dev = "C:/Users/LeonardoAcosta/source/repos"
 # =============================================================================
 
 [[projects]]
+code = "brown"
+name = "Brown & Brown"
+category = "b-and-b"
+icon = "🐻"
+path = "dev/brown"
+tiers = ["remote", "local", "cloudpc"]
+
+[[projects]]
 code = "fb"
 name = "Fireball"
 category = "b-and-b"
