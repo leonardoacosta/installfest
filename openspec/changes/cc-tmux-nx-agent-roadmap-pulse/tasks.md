@@ -26,7 +26,7 @@ stack: cc-meta
 
 ## API Batch
 
-- [ ] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: `_read_roadmap_pulse` tries [beads:if-1r2b]
+- [x] [2.1] `apps/cc-tmux/src/cc_tmux/cli.py`: `_read_roadmap_pulse` tries [beads:if-1r2b]
   `nx_agent.roadmap_pulse(code)` first. On a non-`None` dict result, build the `(content,
   age_sec)` return tuple from it (age derived from the response's own freshness signal, not file
   mtime). On `None`, fall back to the existing `.line` file read verbatim — today's code path,

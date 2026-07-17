@@ -19,6 +19,7 @@ import shlex
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -860,11 +861,90 @@ def _cc_state_dir() -> Path:
     return Path(base) / "scripts" / "state"
 
 
-def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
-    """``(content, age_sec)`` of ``roadmap-pulse.<code>.line`` for ``pane_id``'s project.
+def _build_roadmap_pulse_content(pulse: dict) -> Tuple[str, Optional[float]]:
+    """Build ``(content, age_sec)`` from a nx-agent ``GET /projects/{code}/pulse`` dict.
 
-    Resolves the pane's cwd (``#{pane_current_path}``) to a registry short code
-    (longest-prefix match, NOT the ``@cc-project`` display name) and reads the
+    PROVISIONAL contract (cc-tmux-nx-agent-roadmap-pulse task 2.1) — the
+    nx-side endpoint's real response shape is a SEPARATE, not-yet-authored
+    spec in ``~/dev/personal/nexus`` (see this change's proposal.md § Context
+    / Risks), so this shape may need a follow-up adjustment once that spec
+    locks the actual response. Until then, this function expects::
+
+        {
+          "openspec": {"open": int, "in_progress": int, "ua": int},
+          "beads": {"open": int, "ready": int, "blocked": int},
+          "next": "optional truncated next-action text" | None,
+          "updatedAt": "2026-07-17T18:00:00Z"  # ISO8601, Z or +00:00 offset
+        }
+
+    ``content`` is built as the literal ``op: {open}o {in_progress}ip {ua}ua``
+    and ``bd: {open}o {ready}r {blocked}b`` lines — exactly matching
+    :data:`_OPENSPEC_LINE_RE` / :data:`_BEADS_LINE_RE` below (no extra
+    whitespace) — plus a trailing ``next: {next}`` line when ``next`` is a
+    non-empty string. A missing or malformed ``openspec``/``beads`` sub-dict
+    (or a field within one) just omits that line, matching
+    :func:`_parse_roadmap_pulse_counts`'s existing per-half fail-open
+    tolerance for a missing ``op:``/``bd:`` line.
+
+    ``age_sec`` is derived from ``updatedAt`` (parsed as ISO8601, tolerating a
+    trailing ``Z`` since ``datetime.fromisoformat`` only accepts ``Z`` natively
+    on Python 3.11+ and this package targets 3.10+ per ``pyproject.toml``) as
+    ``max(0.0, time.time() - parsed_epoch)``. Any parse failure or missing
+    ``updatedAt`` yields ``age_sec = None`` rather than raising.
+    """
+    lines: List[str] = []
+
+    openspec = pulse.get("openspec")
+    if isinstance(openspec, dict):
+        try:
+            lines.append(
+                f"op: {int(openspec['open'])}o {int(openspec['in_progress'])}ip "
+                f"{int(openspec['ua'])}ua"
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+
+    beads = pulse.get("beads")
+    if isinstance(beads, dict):
+        try:
+            lines.append(
+                f"bd: {int(beads['open'])}o {int(beads['ready'])}r {int(beads['blocked'])}b"
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+
+    next_action = pulse.get("next")
+    if isinstance(next_action, str) and next_action:
+        lines.append(f"next: {next_action}")
+
+    age: Optional[float] = None
+    updated_at = pulse.get("updatedAt")
+    if isinstance(updated_at, str) and updated_at:
+        try:
+            parsed = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+            age = max(0.0, time.time() - parsed.timestamp())
+        except (ValueError, TypeError):
+            age = None
+
+    return "\n".join(lines), age
+
+
+def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
+    """``(content, age_sec)`` of roadmap-pulse data for ``pane_id``'s project.
+
+    Tries the nx-agent HTTP pulse endpoint first (:func:`nx_agent.roadmap_pulse`,
+    cc-tmux-nx-agent-roadmap-pulse task 1.1) and, on a non-``None`` dict
+    result, builds the return tuple from it via
+    :func:`_build_roadmap_pulse_content` (see that function's docstring for
+    the full PROVISIONAL response-shape contract — the nx-side endpoint is a
+    separate, not-yet-authored spec, so the shape may still change).
+
+    Falls back to the on-disk ``roadmap-pulse.<code>.line`` cache file —
+    byte-for-byte unchanged from this function's pre-task-2.1 behavior —
+    whenever nx-agent returns ``None`` (unreachable host, negative-cached, 404
+    because the companion endpoint hasn't shipped yet, or a malformed body;
+    this is the expected, designed state on this machine today, since the
+    nx-side endpoint does not exist yet). The file-fallback path reads the
     matching roadmap-pulse cache line plus its mtime age (``time.time() -
     st_mtime``, floored at 0), so the caller can flag stale counts (plan 006 /
     BEADS-01). Any line starting with ``radar:`` is dropped here, defensively —
@@ -872,9 +952,13 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
     ``--line`` mode as of commit ``88d0558e``, but a stale/rolled-back cache
     file on disk could still carry one; stripping it at the read layer means
     every caller sees clean content regardless of producer version or cache
-    age (cc-tmux-row3-openspec-beads-format task 2.1). Fail-open: no pane, no
-    cwd, no code, missing/unreadable/empty file -> ``("", None)``; content
-    readable but stat fails -> ``(content, None)``.
+    age (cc-tmux-row3-openspec-beads-format task 2.1).
+
+    Resolving the pane's cwd (``#{pane_current_path}``) to a registry short
+    code (longest-prefix match, NOT the ``@cc-project`` display name) is
+    UNCHANGED from before task 2.1, including all its guards. Fail-open
+    throughout: no pane, no cwd, no code, missing/unreadable/empty file ->
+    ``("", None)``; content readable but stat fails -> ``(content, None)``.
     """
     if not pane_id:
         return "", None
@@ -885,6 +969,14 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
         code = registry.resolve_project_code(cwd)
         if not code:
             return "", None
+    except Exception:
+        return "", None
+
+    pulse = nx_agent.roadmap_pulse(code)
+    if isinstance(pulse, dict):
+        return _build_roadmap_pulse_content(pulse)
+
+    try:
         path = _cc_state_dir() / f"roadmap-pulse.{code}.line"
         raw = path.read_text(encoding="utf-8").strip()
         content = "\n".join(
