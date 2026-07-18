@@ -35,7 +35,7 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Wire the `ctx-scan scan [--root <path>] [--json <path>]` commander.js command: [beads:if-oain]
+- [x] [3.1] Wire the `ctx-scan scan [--root <path>] [--json <path>]` commander.js command: [beads:if-oain]
   invoke discovery + settings resolution, assemble the `Fleet` document (still empty per-Node
   `effective_chars`/`truncations`/`bands` at this stage — that logic lands in
   `ctx-scan-assembly`), and write JSON to `--json` or stdout.
