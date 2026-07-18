@@ -23,10 +23,10 @@ stack: t3
 
 ## UI Batch
 
-- [ ] 3.1 Implement ink section components (`src/ui/App.tsx`, `src/ui/sections.tsx`) for MEETINGS / RADAR / OPEN ITEMS / DOCS as pure functions of snapshot slices, with staleness banners (never-synced calendar, stale docs state) and per-repo open-item count line, plus `src/plainRender.ts` reusing the section formatters for `view --plain` static ANSI output [beads:if-rs8c]
-- [ ] 3.2 Implement the interactive ink app: `useInput` j/k selection on the radar list, Enter opens item url via the platform opener, s=snooze prompt, t=triage-status prompt, q quit, resize-safe, all action results rendered inline [beads:if-jyqb]
-- [ ] 3.3 Implement `src/widgetOpen.ts`: pick the newest-activity Zellij session from `zellij list-sessions` and spawn `zellij --session <name> run --floating --pinned true -- daily-brief view`; when no Zellij session exists fall back to tmux first-tab (`tmux new-window -b -t "<sess>:^" -n brief`, most-recently-active attached session); neither mux running → skip; always exit 0 [beads:if-bfes]
-- [ ] 3.4 Wire `collect --open-widget` end-to-end and capture runtime evidence: real 6am-equivalent run producing a snapshot, ink app rendered against it in a pty with all four sections present [beads:if-sebb]
+- [x] 3.1 Implement ink section components (`src/ui/App.tsx`, `src/ui/sections.tsx`) for MEETINGS / RADAR / OPEN ITEMS / DOCS as pure functions of snapshot slices, with staleness banners (never-synced calendar, stale docs state) and per-repo open-item count line, plus `src/plainRender.ts` reusing the section formatters for `view --plain` static ANSI output [beads:if-rs8c]
+- [x] 3.2 Implement the interactive ink app: `useInput` j/k selection on the radar list, Enter opens item url via the platform opener, s=snooze prompt, t=triage-status prompt, q quit, resize-safe, all action results rendered inline [beads:if-jyqb]
+- [x] 3.3 Implement `src/widgetOpen.ts`: pick the newest-activity Zellij session from `zellij list-sessions` and spawn `zellij --session <name> run --floating --pinned true -- daily-brief view`; when no Zellij session exists fall back to tmux first-tab (`tmux new-window -b -t "<sess>:^" -n brief`, most-recently-active attached session); neither mux running → skip; always exit 0 [beads:if-bfes]
+- [x] 3.4 Wire `collect --open-widget` end-to-end and capture runtime evidence: real 6am-equivalent run producing a snapshot, ink app rendered against it in a pty with all four sections present [beads:if-sebb]
 
 ## E2E Batch
 
