@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Claude Usage Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #17181c;
+    --panel: #1f2126;
+    --border: #2b2e35;
+    --text: #e6e8eb;
+    --text-dim: #9aa0a8;
+    --dim: #454D54;
+    --cyan: #5BD1B9;
+    --yellow: #FAC760;
+    --red: #E61F44;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  h1 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 16px;
+    color: var(--text);
+  }
+  #summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .summary-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .summary-chip .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cyan);
+    flex: none;
+  }
+  .summary-chip .label {
+    color: var(--text-dim);
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .summary-chip .pct {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  #accounts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .account-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .account-card .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .account-card .header .name {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .account-card .header .active-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--bg);
+    background: var(--cyan);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-weight: 700;
+  }
+  .meter-row {
+    display: grid;
+    grid-template-columns: 32px 1fr 48px;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .meter-row .meter-tag {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+  .meter-track {
+    position: relative;
+    height: 8px;
+    border-radius: 4px;
+    background: #0e0f12;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.2s ease;
+  }
+  .meter-row .meter-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .meter-sub {
+    grid-column: 2 / 4;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: -2px;
+  }
+  #empty-state, #error-state {
+    display: none;
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 32px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  #loading-state {
+    color: var(--text-dim);
+    padding: 8px 0;
+  }
+</style>
+</head>
+<body>
+  <h1>Claude Usage Dashboard</h1>
+  <div id="loading-state">Loading usage data…</div>
+  <div id="summary-row"></div>
+  <div id="accounts"></div>
+  <div id="empty-state">No accounts found.</div>
+  <div id="error-state">Usage unavailable.</div>
+
+  <script type="module">
+    import {
+      colorFor,
+      pctFor,
+      extractUtil,
+      extractResetAt,
+      accountLabel,
+      dedupeCredentials,
+      formatCountdown,
+      formatRefillTime,
+    } from "./usage-logic.js";
+
+    const CREDENTIALS_URL = "http://localhost:7400/credentials";
+    const FETCH_TIMEOUT_MS = 3000;
+
+    const loadingEl = document.getElementById("loading-state");
+    const summaryEl = document.getElementById("summary-row");
+    const accountsEl = document.getElementById("accounts");
+    const emptyEl = document.getElementById("empty-state");
+    const errorEl = document.getElementById("error-state");
+
+    function showError() {
+      loadingEl.style.display = "none";
+      summaryEl.innerHTML = "";
+      accountsEl.innerHTML = "";
+      emptyEl.style.display = "none";
+      errorEl.style.display = "block";
+    }
+
+    function showEmpty() {
+      loadingEl.style.display = "none";
+      summaryEl.innerHTML = "";
+      accountsEl.innerHTML = "";
+      errorEl.style.display = "none";
+      emptyEl.style.display = "block";
+    }
+
+    function meterRow(tag, util, resetEpoch, subFormatter) {
+      const row = document.createElement("div");
+      row.className = "meter-row";
+
+      const tagEl = document.createElement("div");
+      tagEl.className = "meter-tag";
+      tagEl.textContent = tag;
+      row.appendChild(tagEl);
+
+      const track = document.createElement("div");
+      track.className = "meter-track";
+      const fill = document.createElement("div");
+      fill.className = "meter-fill";
+      const pctValue = util === null || util === undefined ? 0 : Math.max(0, Math.min(1, util));
+      fill.style.width = `${pctValue * 100}%`;
+      fill.style.background = colorFor(util);
+      track.appendChild(fill);
+      row.appendChild(track);
+
+      const pctEl = document.createElement("div");
+      pctEl.className = "meter-pct";
+      pctEl.style.color = colorFor(util);
+      pctEl.textContent = pctFor(util);
+      row.appendChild(pctEl);
+
+      const subText = subFormatter(resetEpoch);
+      if (subText) {
+        const sub = document.createElement("div");
+        sub.className = "meter-sub";
+        sub.textContent = subText;
+        row.appendChild(sub);
+      }
+
+      return row;
+    }
+
+    function renderSummaryChip(credential) {
+      const label = accountLabel(credential) || "(unknown account)";
+      const u5 = extractUtil(credential, "usage5hUsed", "usage5hLimit");
+      const u7 = extractUtil(credential, "usage7dUsed", "usage7dLimit");
+
+      const chip = document.createElement("div");
+      chip.className = "summary-chip";
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = credential.isActive === true ? "var(--cyan)" : "var(--dim)";
+      chip.appendChild(dot);
+
+      const labelEl = document.createElement("span");
+      labelEl.className = "label";
+      labelEl.textContent = label;
+      labelEl.title = label;
+      chip.appendChild(labelEl);
+
+      const fiveH = document.createElement("span");
+      fiveH.className = "pct";
+      fiveH.style.color = colorFor(u5);
+      fiveH.textContent = `5H ${pctFor(u5)}`;
+      chip.appendChild(fiveH);
+
+      const sevenD = document.createElement("span");
+      sevenD.className = "pct";
+      sevenD.style.color = colorFor(u7);
+      sevenD.textContent = `7D ${pctFor(u7)}`;
+      chip.appendChild(sevenD);
+
+      return chip;
+    }
+
+    function renderAccountCard(credential) {
+      const label = accountLabel(credential) || "(unknown account)";
+      const u5 = extractUtil(credential, "usage5hUsed", "usage5hLimit");
+      const u7 = extractUtil(credential, "usage7dUsed", "usage7dLimit");
+      const reset5 = extractResetAt(credential, "usage5hResetAt");
+      const reset7 = extractResetAt(credential, "usage7dResetAt");
+
+      const card = document.createElement("div");
+      card.className = "account-card";
+
+      const header = document.createElement("div");
+      header.className = "header";
+      const nameEl = document.createElement("span");
+      nameEl.className = "name";
+      nameEl.textContent = label;
+      header.appendChild(nameEl);
+
+      if (credential.isActive === true) {
+        const badge = document.createElement("span");
+        badge.className = "active-badge";
+        badge.textContent = "active";
+        header.appendChild(badge);
+      }
+      card.appendChild(header);
+
+      card.appendChild(meterRow("5H", u5, reset5, formatCountdown));
+      card.appendChild(meterRow("7D", u7, reset7, formatRefillTime));
+
+      return card;
+    }
+
+    function render(payload) {
+      const credentials = payload && Array.isArray(payload.credentials) ? payload.credentials : null;
+      if (!credentials) {
+        showEmpty();
+        return;
+      }
+
+      const deduped = dedupeCredentials(credentials);
+      if (deduped.length === 0) {
+        showEmpty();
+        return;
+      }
+
+      loadingEl.style.display = "none";
+      errorEl.style.display = "none";
+      emptyEl.style.display = "none";
+
+      summaryEl.innerHTML = "";
+      accountsEl.innerHTML = "";
+      for (const credential of deduped) {
+        summaryEl.appendChild(renderSummaryChip(credential));
+        accountsEl.appendChild(renderAccountCard(credential));
+      }
+    }
+
+    async function load() {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        let response;
+        try {
+          response = await fetch(CREDENTIALS_URL, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+
+        if (!response.ok) {
+          showError();
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (_parseError) {
+          showError();
+          return;
+        }
+
+        render(payload);
+      } catch (_networkError) {
+        // Fail open: unreachable nexus-agent, CORS block, timeout, etc. --
+        // never surface an uncaught exception to the user (mirrors usage.py's
+        // Invariant 5).
+        showError();
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

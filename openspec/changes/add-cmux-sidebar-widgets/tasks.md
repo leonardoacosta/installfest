@@ -35,7 +35,21 @@ stack: t3
 
 - [ ] [2.1] Extend `apps/cc-tmux/src/cc_tmux/tmux.py`'s hook handlers to dual-write the [1.2] encoding via `cmux workspace-action --description` on every existing state transition, gated on `CMUX_WORKSPACE_ID` being set; fail-open on any cmux-call error, matching the existing hook fail-open invariants [beads:if-3jd4]
   - depends on: 1.2, 1.3
-- [ ] [2.2] Port `apps/cc-tmux/src/cc_tmux/usage.py`'s `color_for`/`pct_for`/`_extract_util` logic to a standalone JS module; build a static HTML page that fetches `http://localhost:7400/credentials` client-side and renders the full multi-account dashboard (per-account progress bars, reset countdowns, summary header) using that ported logic [beads:if-5oeg]
+- [x] [2.2] Port `apps/cc-tmux/src/cc_tmux/usage.py`'s `color_for`/`pct_for`/`_extract_util` logic to a standalone JS module; build a static HTML page that fetches `http://localhost:7400/credentials` client-side and renders the full multi-account dashboard (per-account progress bars, reset countdowns, summary header) using that ported logic [beads:if-5oeg]
+
+  Ported `color_for`/`pct_for`/`_extract_util`/`_extract_reset_at`/`_account_label`/
+  `dedupe_credentials`/`_freshest_active` faithfully to `scripts/cmux-usage-dashboard/
+  usage-logic.js` (ES module), plus new countdown/refill-time formatters
+  (`formatCountdown`/`formatRefillTime`, no Python equivalent existed). Built
+  `scripts/cmux-usage-dashboard/index.html` — fetches the credentials endpoint client-side,
+  dedupes, renders a compact summary chip row + full per-account 5H/7D meter cards, fails
+  open to a clean "Usage unavailable" state on any fetch/parse error. Verified live: served
+  via `python3 -m http.server`, Playwright headless load showed zero console errors; a
+  same-origin fetch to `localhost:7400` (real nexus-agent, reachable on this machine) hit a
+  genuine CORS block and the page correctly failed open (no uncaught exception); routing the
+  real captured `/credentials` payload (125 raw rows, 3 unique post-dedupe identities) through
+  `page.route` confirmed correct rendering — 3 summary chips + 3 account cards with correct
+  colors/percentages/active badges, including a past-due reset correctly showing "Resetting…".
 - [ ] [2.3] Build a git-tree generator script (`git log --graph --all --format=...` parsed into HTML) that runs wherever it's invoked (local or remote SSH host) and is wired via `cmux browser open` from the workspace's own context [beads:if-f51y]
 - [ ] [2.4] Build a small periodic writer that populates the [1.2]-encoded openspec-status, beads-status, and usage 5H/7D fields via `cmux workspace-action`/the `cmux()` action confirmed in [1.3] [beads:if-34sn]
   - depends on: 1.2, 1.3
