@@ -108,7 +108,7 @@ from xml.etree import ElementTree as ET
 
 NS = {"atom": "http://www.w3.org/2005/Atom"}
 TAG_RE = re.compile(r"<[^>]+>")
-# Allowlist: only the main cmux app's bare-semver release tags (v0.64.19).
+# Allowlist: only the main cmux app bare-semver release tags (v0.64.19).
 # Excludes "nightly", "cmux-tui-vX.Y.Z", "mux-sdk-vX.Y.Z", and any other
 # sub-project prefix — see script header for why this is an allowlist.
 MAIN_APP_TAG_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+")
