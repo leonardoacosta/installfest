@@ -1,6 +1,7 @@
 # Plan: Consume homelab `mx-broker` tokens on the Mac (retire the ADO PAT)
 
-**Status:** Ready to implement. Self-contained handoff — no prior session context required.
+**Status:** Implemented. `scripts/git-credential-mxbroker.sh` is written and wired as the
+`credential.https://dev.azure.com.helper` via `home/run_onchange_after_configure-git-azure.sh.tmpl`.
 **Repo:** `~/dev/if` (chezmoi dotfiles; source under `home/`, see `.chezmoiroot`).
 **Author context:** Written 2026-06-14 during a Mac restore. All facts below were verified live against the running homelab broker.
 

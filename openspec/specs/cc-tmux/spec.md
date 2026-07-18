@@ -660,99 +660,97 @@ version. Neither path introduces a new refresh mechanism owned by cc-tmux itself
 nx-agent's responsibility on the primary path, and the fallback path stays whatever staleness the
 file already carries (nothing in cc-tmux triggers a refresh of that file).
 
-**Left-side content cycles between two phases on a wall-clock timer, prefixed by a countdown
-glyph.** Phase is `int(now / 8.0) % 2`, `now` the
-caller-supplied wall-clock time at render (the same daemon-free, `status-interval`-driven cadence
-`animated_icon` already uses for the tabs row — no timer process, no new tmux hook):
+**Left-side content renders unconditionally — there is no wall-clock cycling.** This reverses the
+swap-cycle behavior described by earlier requirement versions (cc-tmux-row3-tiered-colors); the
+`op:`/`bd:` segments now always render side by side whenever their counts are available, and
+`now` (`Optional[float]`) no longer selects WHAT content renders — it only feeds the pulse-tier
+animation (`_tiered_color`) for how a pulse-tier number is colored at a given render tick.
 
-- **Phase 0** (counts): the openspec/beads portion renders in cc's abbreviated form `op:
-  {open}o {in_progress}ip {ua}ua ({age}) | bd: {open}o {ready}r {blocked}b ({age})` (if-bqw.1, cc
-  commit `b6b9a234` / cc-w83ov.4), where `ua` is the closure-debt count — specs that are done but
-  not yet archived — and the `bd:` half counts only "standalone" beads — issues that are NOT a
-  transitive descendant, via a `parent-child` dependency, of any issue whose title starts with
-  `[SPEC]` or `[CAPABILITY]` — so the two halves are additive rather than double-counting
-  OpenSpec-tracked work. The `bd:` half's `open` count is the total standalone beads currently
-  open/in_progress/blocked, alongside the pre-existing `ready`/`blocked` counts. Each half's
-  numeric values SHALL be coloured by semantic threshold (DIM for a healthy zero/low count on
-  `open`/`in_progress`/`ready`, YELLOW when `ua > 0` or `standalone_blocked > 0`, RED above a
-  documented high-count threshold).
-- **Phase 1** (next): the row instead renders the source's `next:` line verbatim (already
-  pre-truncated by the producer, whether nx-agent or the local file's cache) in place of the
-  `op:`/`bd:` segments — the two never render simultaneously.
-- A `radar:` line SHALL NOT be rendered in either phase (unchanged from the prior requirement
-  version — defense against a stale or rolled-back cache carrying that token).
-- When no `next:` line is available, phase 1 falls back to rendering phase 0's content instead
-  (never a blank left side when counts ARE available).
+- The openspec/beads portion renders in cc's abbreviated form `op: {open}o {in_progress}ip
+  {ua}ua ({age}) | bd: {open}o {ready}r {blocked}b ({age})` (if-bqw.1, cc commit `b6b9a234` /
+  cc-w83ov.4), where `ua` is the closure-debt count — specs that are done but not yet archived —
+  and the `bd:` half counts only "standalone" beads — issues that are NOT a transitive
+  descendant, via a `parent-child` dependency, of any issue whose title starts with `[SPEC]` or
+  `[CAPABILITY]` — so the two halves are additive rather than double-counting OpenSpec-tracked
+  work. The `bd:` half's `open` count is the total standalone beads currently
+  open/in_progress/blocked, alongside the pre-existing `ready`/`blocked` counts.
+- Each of the two segments is independent and fail-open: a half whose triple of counts is not ALL
+  present (`None` from an absent/malformed cache line) is omitted entirely rather than rendered
+  with a placeholder, so a broken `bd:` half never blanks a valid `op:` half and vice versa —
+  unless BOTH halves land in the identical state, in which case one of the two collapsed states
+  below takes over instead.
+- **Collapsed left-side states** (cc-tmux-row3-empty-states): when all six count arguments are
+  non-`None` and all equal `0`, the left side collapses to the single DIM literal `All caught up`
+  instead of the noisy `op: 0o 0ip 0ua | bd: 0o 0r 0b`. When all six count arguments are `None`
+  (both halves fully absent), the left side collapses to the DIM literal `Not available` instead
+  of an empty string. Neither collapse fires when only one half is all-zero/all-absent and the
+  other half carries real per-count data — that half's existing single-segment rendering is
+  unaffected, and the two segments still render side-by-side `|`-joined.
+- Every count in both segments SHALL be coloured independently via a tiered threshold scheme
+  (DIM/YELLOW/pulsing-YELLOW/RED as the number crosses each label's own YELLOW/PULSE/RED minimum)
+  — replacing the prior scheme where only the third number (`ua`/`blocked`) carried a health
+  color and `open`/`in_progress`/`ready` stayed permanently DIM.
+- There is no `next:`-line rendering path on this row. A roadmap-pulse source MAY still carry a
+  `next:` line (written by the producer alongside `op:`/`bd:`), but this row's renderer takes no
+  `next` argument and never displays it.
+- A `radar:` line SHALL NOT be rendered (unchanged from the prior requirement version — defense
+  against a stale or rolled-back cache carrying that token).
 
 **Account identity segment**: the plugin SHALL append the active credential's identity as a
-third segment, independent of the openspec/beads/next cycle — present whenever an active
-nexus-agent credential resolves, regardless of cycle phase or whether roadmap-pulse content
-(from either source) exists at all. The segment SHALL be clickable, bound to `cc-tmux
-accounts-popup`, via the same `#[range=user|accounts]` mouse-range marker mechanism, in both
-phases.
+third segment, independent of the openspec/beads counts — present whenever an active
+nexus-agent credential resolves, regardless of whether roadmap-pulse content (from either
+source) exists at all. The segment SHALL be clickable, bound to `cc-tmux accounts-popup`, via
+the same `#[range=user|accounts]` mouse-range marker mechanism, and is pushed to the right edge
+of the row via `#[align=right]` (rather than joined inline with the left side).
 
 #### Scenario: nx-agent resolves fresh counts — primary path
 - Given: `nx_agent.roadmap_pulse(code)` returns a non-`None` JSON dict carrying `op:`/`bd:`
-  counts and, optionally, a `next:` line
+  counts
 - When: the beads-bar row renders
 - Then: row3's content is built entirely from the nx-agent response — the local `.line` file is
   never read for this render
 
 #### Scenario: nx-agent unreachable falls back to the local file, unchanged
 - Given: `nx_agent.roadmap_pulse(code)` returns `None` (timeout, non-2xx, negative-cached, or
-  malformed body), and a cached `roadmap-pulse.<code>.line` file exists with counts and/or a
-  `next:` line
+  malformed body), and a cached `roadmap-pulse.<code>.line` file exists with counts
 - When: the beads-bar row renders
 - Then: row3's content is built from the local file exactly as it was before this requirement
-  version — same parsing, same age display, same fallback-to-phase-0 behavior when no `next:`
-  line is present
+  version — same parsing, same age display
 
-#### Scenario: phase 0 renders counts with the countdown glyph, plus the account identity
+#### Scenario: both segments render side by side, plus the account identity
 - Given: a roadmap-pulse source (nx-agent or local file) whose counts are `1o 0ip 0ua` (openspec)
-  and `1o 1r 0b` (standalone beads), an active nexus-agent credential `leo@priceless.dev` / org
-  `bc7da511-...`, and a render `now` several ticks past the most recent phase-0 swap boundary
-  (transition already settled)
+  and `1o 1r 0b` (standalone beads), and an active nexus-agent credential `leo@priceless.dev` /
+  org `bc7da511-...`
 - When: the beads-bar row renders
-- Then: it shows `[countdown-glyph] op: 1o 0ip 0ua (<age>) | bd: 1o 1r 0b (<age>) |
-  leo@priceless.dev·bc7da511` with all counts coloured DIM, and the account segment clickable via
-  the same mouse-range marker
+- Then: it shows `op: 1o 0ip 0ua (<age>) | bd: 1o 1r 0b (<age>)` on the left, all counts coloured
+  DIM, and `leo@priceless.dev·bc7da511` right-aligned, clickable via the mouse-range marker
 
-#### Scenario: phase 1 renders the next-action line instead of counts
-- Given: the same roadmap-pulse source additionally carries a `next: [WORKSPACE-CMDCENTER]
-  Wor...` line, and a render `now` several ticks past the most recent phase-1 swap boundary
-  (transition already settled)
+#### Scenario: all counts zero collapses to "All caught up"
+- Given: a roadmap-pulse source whose six counts (openspec open/in_progress/ua, beads
+  open/ready/blocked) are all `0`
 - When: the beads-bar row renders
-- Then: the left side shows `[countdown-glyph] next: [WORKSPACE-CMDCENTER] Wor...` — the `op:`/
-  `bd:` segments do NOT appear — and the account segment still renders on the right, unchanged
-
-#### Scenario: no next: line available falls back to phase 0's content in phase 1
-- Given: a roadmap-pulse source with counts but no `next:` line, and a render `now` that resolves
-  to phase 1
-- When: the beads-bar row renders
-- Then: the left side shows the phase-0 `op:`/`bd:` content (with countdown glyph) instead of a
-  blank phase-1 slot — the row never goes empty just because the cycle landed on an unavailable
-  phase
+- Then: the left side shows the single DIM literal `All caught up` instead of
+  `op: 0o 0ip 0ua | bd: 0o 0r 0b`
 
 #### Scenario: no roadmap-pulse data from either source, but an active account resolves
 - Given: `nx_agent.roadmap_pulse(code)` returns `None` AND no local `.line` file exists yet for
   the current project, and an active nexus-agent credential resolves
 - When: the beads-bar row renders
-- Then: the row shows ONLY the account identity segment (`leo@priceless.dev·bc7da511`) — not an
-  empty row, in either phase, since the account segment is independent of both data sources
+- Then: the left side shows the DIM literal `Not available`, and the account identity segment
+  still renders right-aligned — not an empty row
 
 #### Scenario: roadmap-pulse data present, no active account resolves
-- Given: a roadmap-pulse source (nx-agent or local file) with real counts and a `next:` line, and
-  nexus-agent is unreachable for credential resolution (no active credential resolves)
+- Given: a roadmap-pulse source (nx-agent or local file) with real counts, and nexus-agent is
+  unreachable for credential resolution (no active credential resolves)
 - When: the beads-bar row renders
-- Then: the row shows only the cycling left-side content (counts or next, per phase) — no empty
-  account segment, no error
+- Then: the row shows only the left-side count content — no empty account segment, no error
 
-#### Scenario: a stray radar: line never renders, in either phase
-- Given: a roadmap-pulse source containing a `next: …` line, a `radar:stale` line (stale
-  pre-fix content), and a counts line
-- When: the beads-bar row renders, in both phase 0 and phase 1
-- Then: the `radar:` line never appears on the row in either phase — only the phase-appropriate
-  content (counts or next) and, if applicable, the account segment
+#### Scenario: a stray radar: line never renders
+- Given: a roadmap-pulse source containing a `radar:stale` line (stale pre-fix content)
+  alongside a counts line
+- When: the beads-bar row renders
+- Then: the `radar:` line never appears on the row — only `op:`/`bd:` content and, if applicable,
+  the account segment
 
 #### Scenario: standalone beads exclude OpenSpec-tracked work
 - Given: 5 open beads total, 3 of which are tasks under a `[SPEC] some-proposal` feature (itself
@@ -766,9 +764,7 @@ phases.
 - Given: `nx_agent.roadmap_pulse(code)` returns `None`, no local `.line` file exists yet for the
   current project, and no active nexus-agent credential resolves
 - When: the beads-bar row renders
-- Then: the row is empty — no error, no placeholder text, no countdown glyph with nothing to
-  prefix/render (unchanged from the prior requirement version's "no cache yet" contract, now also
-  gated on the account segment's own absence)
+- Then: the row is empty — no error, no placeholder text
 
 ### Requirement: The tmux status bar is three lines
 `home/dot_config/tmux/tmux.conf.tmpl` SHALL set a BASE `status 3` (landscape/desktop default),

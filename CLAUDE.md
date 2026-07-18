@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-Personal dotfiles and development environment configuration for macOS and Arch Linux. Cross-platform shell setup with SSH mesh networking between machines.
+Personal dotfiles and development environment configuration for macOS, Arch Linux, and Windows (cloudpc bastion via `platform/windows/`). Cross-platform shell setup with SSH mesh networking between machines.
+
+Top-level layout: `home/` (chezmoi source, deployed via `.chezmoiroot`), `scripts/` (repo-root tooling), `packages/` (workspace command-center package), `shared/` (cross-platform helpers), `infra/` (Terraform modules), `platform/` (per-OS integrations: `homebrew/`, `raycast-scripts/`, `windows/`), `apps/` (standalone tools, e.g. `ctx-scan`), `ssh-mesh/` (mesh topology + docs), `openspec/` (change proposals + specs), `docs/` (plans, audits, reference).
 
 ## Key Concepts
 
@@ -62,6 +64,12 @@ time zsh -i -c exit       # Measure startup time
 zsh -xv                   # Trace shell initialization
 source ~/.zshrc           # Reload config (or: reload)
 ```
+
+## Front-Door Tools (undocumented previously)
+
+- **`copen`** (`home/dot_local/bin/executable_copen`) — open/focus a registry project in Cursor on whichever machine `copen` was actually run from; SSH-hops or clones over the mesh as needed.
+- **`mac-open`** (`scripts/mac-open.sh`) — single front door for "show this on my Mac" from the headless homelab: routes URLs/files to the Mac's browser or a cmux pane over Tailscale (replaces cc-browser-open/ropen/fview).
+- **`view`** (`scripts/view.sh`) — single front door for "render this file optimally" from a terminal session; picks the right renderer and shows it in a tmux split.
 
 ## Notes for Claude Code
 
