@@ -43,23 +43,23 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Fixture tree under `test/fixtures/` containing vendored marketplace dirs, [beads:if-l383]
+- [x] [4.1] Fixture tree under `test/fixtures/` containing vendored marketplace dirs, [beads:if-l383]
   `.worktrees/`, and an `archive/` subdir; assert `ctx-scan scan --json` over the fixture root
   reports zero phantom projects from any of them.
   - depends on: 2.1
-- [ ] [4.2] Fixture reproducing the `~/.claude` → `~/dev/cc` symlink shape (or an equivalent [beads:if-kzlk]
+- [x] [4.2] Fixture reproducing the `~/.claude` → `~/dev/cc` symlink shape (or an equivalent [beads:if-kzlk]
   temp-dir symlink); assert the global layer appears exactly once and never as a project entry.
   - depends on: 2.3
-- [ ] [4.3] Layered fixture settings files (managed / CLI-simulated / local / project / user); [beads:if-7gyx]
+- [x] [4.3] Layered fixture settings files (managed / CLI-simulated / local / project / user); [beads:if-7gyx]
   assert the resolver reports the correct winning layer per key for at least one key overridden
   at every layer.
   - depends on: 2.2
-- [ ] [4.4] Snapshot fixture test locking the `Fleet`/`Project`/`Surface`/`Node` JSON shape and [beads:if-linf]
+- [x] [4.4] Snapshot fixture test locking the `Fleet`/`Project`/`Surface`/`Node` JSON shape and [beads:if-linf]
   `schemaVersion`; a shape change without a version bump fails the test.
   - depends on: 1.2
-- [ ] [4.5] Timed run of `ctx-scan scan --json` against a realistic multi-project fixture tree; [beads:if-z61j]
+- [x] [4.5] Timed run of `ctx-scan scan --json` against a realistic multi-project fixture tree; [beads:if-z61j]
   assert warm runtime stays within a documented budget (informs `ctx-scan-assembly`'s < 5s
   fleet-wide acceptance bar).
   - depends on: 3.1
-- [ ] [4.6] `tsc --noEmit` and `bun test` both green — wired as this proposal's build/test gate. [beads:if-8lgo]
+- [x] [4.6] `tsc --noEmit` and `bun test` both green — wired as this proposal's build/test gate. [beads:if-8lgo]
   - depends on: 3.1

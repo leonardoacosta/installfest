@@ -65,4 +65,9 @@ program
   .option("--json <path>", "write JSON to this file (default: stdout)")
   .action((opts: ScanOptions) => runScan(opts));
 
-program.parse();
+// Only parse argv when this file is run directly (`bun run src/cli.ts ...` /
+// the `ctx-scan` bin entry) — not when `buildFleet` is imported for tests,
+// which would otherwise hand commander the test runner's own argv.
+if (import.meta.main) {
+  program.parse();
+}
