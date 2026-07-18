@@ -1,0 +1,20 @@
+{
+  "name": "@if/ctx-scan",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "ctx-scan": "./src/cli.ts"
+  },
+  "scripts": {
+    "scan": "bun run src/cli.ts scan",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "commander": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^7.0.2"
+  }
+}

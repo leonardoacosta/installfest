@@ -8,10 +8,10 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Scaffold `apps/ctx-scan/` (`package.json` name `@if/ctx-scan`, `tsconfig.json`, [beads:if-tf2b]
+- [x] [1.1] Scaffold `apps/ctx-scan/` (`package.json` name `@if/ctx-scan`, `tsconfig.json`, [beads:if-tf2b]
   `bin` entry) using `apps/daily-brief` as the sibling-app template (bun runtime, TypeScript,
   `bun test`), plus `commander` as a dependency for CLI parsing.
-- [ ] [1.2] Define the schema-versioned data model in `src/model.ts`: `Fleet`, `Project`, [beads:if-b7te]
+- [x] [1.2] Define the schema-versioned data model in `src/model.ts`: `Fleet`, `Project`, [beads:if-b7te]
   `Surface`, and `Node` types per the proposal's data-model requirement, including the 13-class
   `cls` union and a top-level `schemaVersion` constant.
 
