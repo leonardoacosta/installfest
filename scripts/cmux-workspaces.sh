@@ -121,9 +121,10 @@ get_color() {
 }
 
 # Layout:
-#   ┌──────────────┬──────────────┐
-#   │  Claude Code │   nvim .      │
-#   └──────────────┴──────────────┘
+#   ┌───────────────────────────────┐
+#   │           Claude Code          │
+#   └───────────────────────────────┘
+# (single pane — cmux's own sidebar file explorer covers editor/browse needs)
 
 wait_for_cmux() {
   local retries=10
@@ -135,10 +136,6 @@ wait_for_cmux() {
     fi
     sleep 0.5
   done
-}
-
-parse_surface() {
-  echo "$1" | awk '{for(i=1;i<=NF;i++) if($i ~ /^surface:/) {print $i; exit}}'
 }
 
 send_to() {
@@ -164,8 +161,8 @@ find_workspace_uuid() {
 # Local mode: cd directly, then run (Ghostty auto-sets CMUX_* env vars).
 pane_exec() {
   local ws="$1" surface="$2" full_path="$3" cmd="$4" code="${5:-}"
-  # Workspace activation: source the org profile (env + wrappers PATH) so every
-  # pane (nvim/claude) inherits the correct identity. wsenv resolves the
+  # Workspace activation: source the org profile (env + wrappers PATH) so the
+  # claude pane inherits the correct identity. wsenv resolves the
   # org from $code via projects.toml; harmless no-op if the profile is absent.
   local ws_activate=""
   if [[ -n "$code" ]]; then
@@ -333,7 +330,7 @@ populate_workspace() {
     sleep 0.2
   fi
 
-  # Left pane: Claude Code. SSH mode launches natively (no zellij wrapper) — cmux's
+  # Single pane: Claude Code. SSH mode launches natively (no zellij wrapper) — cmux's
   # own detachable SSH PTY daemon + persistent-server process now provides the
   # disconnect-survival guarantee ws-claude used to hand-roll, confirmed via a live
   # kill/reconnect test (if-vit.4 baseline, 2026-07-18). COLORTERM=truecolor is
@@ -342,23 +339,13 @@ populate_workspace() {
   # monochrome); wsenv --flags supplies the org-specific launch flags ws-claude used
   # to inject via its generated layout. Local mode keeps ws-claude/zellij unchanged —
   # this was only tested against the SSH-disconnect case, not local persistence.
-  # nvim stays a plain cmux pane (only the long-running claude session persists).
+  # No editor split — cmux's own sidebar file explorer covers browse/edit needs.
   if [[ "$MODE" == "ssh" ]]; then
     pane_exec "$ws_uuid" "$claude_surface" "$full_path" \
       "export COLORTERM=truecolor && claude \$(wsenv --flags $code 2>/dev/null)" "$code"
   else
     pane_exec "$ws_uuid" "$claude_surface" "$full_path" "ws-claude $code" "$code"
   fi
-  sleep 0.3
-
-  # Split right: nvim (editor / terminal pane)
-  local split_out
-  split_out=$($CMUX new-split right --workspace "$ws_uuid" --surface "$claude_surface" 2>&1)
-  local editor_surface
-  editor_surface=$(parse_surface "$split_out")
-  sleep 0.3
-
-  pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ." "$code"
 
   echo "  ✓ $code ready"
 }
@@ -421,9 +408,9 @@ Examples:
   mux b oo           # B&B group + oo
 
 Layout per workspace:
-  ┌──────────────┬──────────────┐
-  │  claude      │  nvim .       │
-  └──────────────┴──────────────┘
+  ┌───────────────────────────────┐
+  │            claude              │
+  └───────────────────────────────┘
 HELP
       exit 0
       ;;
