@@ -4,7 +4,7 @@
 // to match ~/.config/tmux/tmux.conf. Cmd/Super layer intentionally deferred (kitty proto
 // stays enabled so it's a one-block add later — Test A proved it carries over `cmux ssh`).
 
-default_mode "locked"                  // passive until you prefix (Ctrl+g unlock / Ctrl+b tmux) — safe for nvim + claude panes
+default_mode "normal"                  // Ctrl+b (tmux) works immediately, no Ctrl+g unlock step — matches real tmux prefix muscle memory
 scroll_buffer_size 50000               // == tmux history-limit 50000
 
 // Both themes below mirror Ghostty/tmux/starship — selected via {{ .theme }} like those tools,
