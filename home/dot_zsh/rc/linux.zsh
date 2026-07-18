@@ -96,3 +96,17 @@ flink() {
   [[ -r "$token_file" ]] && url="${url}?t=$(<"$token_file")"
   printf '\e]8;;%s\e\\%s\e]8;;\e\\\n' "$url" "$label"
 }
+
+# cmux workspace-cwd auto-activation — every new pane/split/tab cmux spawns in
+# an SSH-mode workspace starts fresh at the SSH login home dir (no cwd memory
+# of sibling panes). scripts/cmux-workspaces.sh's pane_exec writes a mapping
+# file (~/.cmux/workspace-cwd/<workspace-uuid> -> project dir) for the pane(s)
+# it creates directly; this picks it up for any OTHER tab added by hand.
+# $CMUX_WORKSPACE_ID is auto-set by cmux in every pane it spawns (confirmed
+# live, always the UUID form, never the short workspace:N ref). Fires once at
+# shell startup only — not on every cd, so navigating away isn't fought.
+if [[ -n "${CMUX_WORKSPACE_ID:-}" ]]; then
+  _cmux_ws_cwd_file="$HOME/.cmux/workspace-cwd/$CMUX_WORKSPACE_ID"
+  [[ -f "$_cmux_ws_cwd_file" ]] && cd "$(<"$_cmux_ws_cwd_file")" 2>/dev/null
+  unset _cmux_ws_cwd_file
+fi

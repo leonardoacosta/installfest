@@ -268,8 +268,18 @@ create_workspace() {
   if [[ "$MODE" == "ssh" ]]; then
     # Native SSH-backed workspace: cmux uploads cmuxd-remote and binds ALL panes to
     # $SSH_HOST. Output: `OK workspace=workspace:N target=<host> state=connecting`.
-    ws_uuid=$($CMUX ssh "$SSH_HOST" --name "$code" --no-focus 2>&1 \
+    local ws_ref
+    ws_ref=$($CMUX ssh "$SSH_HOST" --name "$code" --no-focus 2>&1 \
       | grep -oE 'workspace=[^ ]+' | head -1 | cut -d'=' -f2)
+    # Resolve the short ref to the real UUID. pane_exec's workspace-cwd mapping
+    # file (auto-cd for future tabs) is keyed by $CMUX_WORKSPACE_ID, which cmux
+    # always populates with the UUID inside a pane's env — never the short ref
+    # (confirmed live: `workspace:2` at creation time vs. `A63B7C54-...` read
+    # back from inside the pane). Every other $CMUX --workspace call in this
+    # script accepts either form, so overwriting ws_uuid here is a safe swap.
+    ws_uuid=$($CMUX list-workspaces --id-format both 2>&1 | awk -v ref="$ws_ref" \
+      '{ for (i=1;i<=NF;i++) if ($i==ref) { print $(i+1); exit } }')
+    [[ -n "$ws_uuid" ]] || ws_uuid="$ws_ref"  # fallback: ref still works as a target
   else
     ws_uuid=$($CMUX new-workspace 2>&1 | awk '{print $2}')
   fi
