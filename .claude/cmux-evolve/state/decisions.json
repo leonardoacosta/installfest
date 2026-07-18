@@ -1,0 +1,183 @@
+{
+  "decisions": {
+    "v0.62.1": {
+      "first_seen": "2026-03-13",
+      "surface": "http-relay",
+      "last_verdict": "defer",
+      "last_rationale": "Enable cmux CLI commands from within SSH remote sessions (#374) -- plausible native replacement path for the Rust relay's whole reason for existing.",
+      "decided": "2026-07-18"
+    },
+    "v0.62.2": {
+      "first_seen": "2026-03-14",
+      "surface": "http-relay",
+      "last_verdict": "defer",
+      "last_rationale": "Fix stale Claude sidebar status: missing hooks, OSC suppression, PID sweep (#1306) -- native hooks-to-status wiring, confirmed local-session-only.",
+      "decided": "2026-07-18"
+    },
+    "v0.63.0": {
+      "first_seen": "2026-03-28",
+      "surface": "http-relay",
+      "last_verdict": "defer",
+      "last_rationale": "Native SSH remote workspaces + auto port forwarding (#1296), SSH remote CLI/proxy follow-ups (#1596), notify surface targeting fix (#1799).",
+      "decided": "2026-07-18"
+    },
+    "v0.63.1": {
+      "first_seen": "2026-03-28",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Pure crash-fix patch release for 0.63.0 layout/geometry crashes. No new features.",
+      "decided": "2026-07-18"
+    },
+    "v0.63.2": {
+      "first_seen": "2026-04-06",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Terminal/sidebar UI bugfixes, IME fixes, small settings additions. No overlap.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.0": {
+      "first_seen": "2026-05-05",
+      "surface": "persistent-session",
+      "last_verdict": "defer",
+      "last_rationale": "Native 'Restore previous sessions and resume agents' (#2978), session snapshot on close (#3419), Codex persistence across relaunch (#3487). Unclear if it covers SSH-disconnect vs. app-relaunch only.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.1": {
+      "first_seen": "2026-05-05",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Trivial two-line release: sidebar hover-state fix only.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.2": {
+      "first_seen": "2026-05-05",
+      "surface": "persistent-session",
+      "last_verdict": "defer",
+      "last_rationale": "Keep SSH sessions alive when closing a pane (#3566) -- narrow, scoped to pane-close not full disconnect.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.3": {
+      "first_seen": "2026-05-06",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "CI gating, config-doctor CLI, file-preview/settings bugfixes. No overlap.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.4": {
+      "first_seen": "2026-05-11",
+      "surface": "persistent-session",
+      "last_verdict": "defer",
+      "last_rationale": "Restore SSH workspace descriptors on relaunch (#3576) + toggle agent session auto-resume on reopen (#3616).",
+      "decided": "2026-07-18"
+    },
+    "v0.64.5": {
+      "first_seen": "2026-05-13",
+      "surface": "http-relay",
+      "last_verdict": "defer",
+      "last_rationale": "Add notification policy hooks (#4054) + document notification hooks default off (#4091) -- native hooks/notification-policy surface.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.6": {
+      "first_seen": "2026-05-14",
+      "surface": "workspace-launcher",
+      "last_verdict": "defer",
+      "last_rationale": "Inherit stdin in backgrounded ssh inside startup wrapper (#4135) + regression test (#4154) -- hardens the same SSH startup problem space cmux-workspaces.sh polls around.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.7": {
+      "first_seen": "2026-05-19",
+      "surface": "bridge-client",
+      "last_verdict": "defer",
+      "last_rationale": "Expose set-status priority (#4064) -- direct protocol-surface change to the same set_status socket call cmux-bridge.py drives. Also continues agent/session-resume hardening (persistent-session secondary).",
+      "decided": "2026-07-18"
+    },
+    "v0.64.8": {
+      "first_seen": "2026-05-22",
+      "surface": "remote-trigger",
+      "last_verdict": "skip",
+      "last_rationale": "Add CLI window targeting (#4211) -- plausible but too thin alone to shrink the mux-remote.sh AppleScript picker.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.9": {
+      "first_seen": "2026-05-22",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Reverted Codex prototype, keyboard-shortcuts doc, reverted browser WebView fix, git-search-root-traversal fix. No overlap.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.10": {
+      "first_seen": "2026-05-23",
+      "surface": "workspace-launcher",
+      "last_verdict": "defer",
+      "last_rationale": "cmux reorder-workspaces gains batch + dry-run + events (#4507) -- possible native readiness signal for wait_for_cmux/wait_for_surface.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.11": {
+      "first_seen": "2026-06-01",
+      "surface": "persistent-session",
+      "last_verdict": "implement",
+      "last_rationale": "Native Detachable SSH PTY daemon (#4807, keeps remote sessions alive across reconnects) + Agent Hibernation (#4165) + startup-command session restore (#4777/#4859). Strongest hit -- directly targets ws-claude/zellij's job.",
+      "decided": "2026-07-18",
+      "ref": "bd:if-vit.4"
+    },
+    "v0.64.12": {
+      "first_seen": "2026-06-02",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Isolated 'Fix Claude fork/resume failing when session changed directories' bugfix -- too weak/isolated alone.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.13": {
+      "first_seen": "2026-06-04",
+      "surface": "persistent-session",
+      "last_verdict": "defer",
+      "last_rationale": "Native agent session resume/restore cluster: cwd-drift fix, DRY resume engine, Pi session preservation across workspace restore, restored cwd bindings after reboot.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.14": {
+      "first_seen": "2026-06-06",
+      "surface": "persistent-session",
+      "last_verdict": "implement",
+      "last_rationale": "Fix Claude hibernation for node-backed sessions (#5433) + hibernation idle window default (#5449) + re-apply hook --settings on native resume (#5430). Native Claude Code session hibernate/resume.",
+      "decided": "2026-07-18",
+      "ref": "bd:if-vit.4"
+    },
+    "v0.64.15": {
+      "first_seen": "2026-06-12",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "iOS pairing/sidebar/control-socket heavy release. No overlap.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.16": {
+      "first_seen": "2026-06-15",
+      "surface": "workspace-launcher",
+      "last_verdict": "defer",
+      "last_rationale": "Device presence service: Cloudflare Durable Objects realtime layer over device registry + local-first sync protocol -- right shape for a readiness signal, built for iOS/multi-Mac pairing, no confirmed CLI-consumable API yet.",
+      "decided": "2026-07-18",
+      "ref": "bd:if-vit.6"
+    },
+    "v0.64.17": {
+      "first_seen": "2026-06-23",
+      "surface": "persistent-session",
+      "last_verdict": "defer",
+      "last_rationale": "Native 'Remote tmux (-CC over SSH) mirroring (beta)' plus ~8 stabilization fixes. Closest yet to obsoleting ws-claude, but still beta.",
+      "decided": "2026-07-18"
+    },
+    "v0.64.18": {
+      "first_seen": "2026-07-14",
+      "surface": "http-relay",
+      "last_verdict": "defer",
+      "last_rationale": "PushNotification bridge (#7385) confirmed LOCAL-ONLY via actual PR diff read -- does not reach cmux-ssh remote sessions. But cmuxd-remote's existing notify/rpc CLI over the current SSH tunnel is a live, untested spike candidate (see if-vit.5).",
+      "decided": "2026-07-18",
+      "ref": "bd:if-vit.5"
+    },
+    "v0.64.19": {
+      "first_seen": "2026-07-14",
+      "surface": "none",
+      "last_verdict": "skip",
+      "last_rationale": "Only persists --permission-mode flag across cmux's own in-app session restore; verified via actual PR #8070 diff. No process-level persistence, no overlap.",
+      "decided": "2026-07-18"
+    }
+  }
+}
