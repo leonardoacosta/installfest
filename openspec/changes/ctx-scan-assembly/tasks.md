@@ -8,7 +8,7 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Extend `src/model.ts`: add the truncation-detail shape (`raw`, `effective`, applied [beads:if-malb]
+- [x] [1.1] Extend `src/model.ts`: add the truncation-detail shape (`raw`, `effective`, applied [beads:if-malb]
   cap name) reused across every truncated `Node`, and the `order: "unknown" | number` field for
   listing-drop prediction.
 

@@ -34,11 +34,19 @@ export type NodeClass =
 export type NodeOrigin = "global" | "project";
 
 /**
- * A truncation record. Placeholder: the real shape (offset / limit / reason)
- * is populated by `ctx-scan-assembly`. Kept opaque so the schema is stable
- * without over-designing a field no proposal fills yet.
+ * A single applied truncation — one per cap a document's size was clipped
+ * against (e.g. the 1,536-char listing-entry cap, the 200-line/25KB MEMORY.md
+ * cap, the 2KB MCP-description cap). `raw`/`effective` are chars for that one
+ * cap's before/after; `cap` names which cap applied (e.g. `"listing-entry"`,
+ * `"memory-md"`, `"mcp-description"`) so multiple truncations on one Node
+ * (rare, but possible for a listing entry that is also part of a larger doc)
+ * stay distinguishable.
  */
-export type Truncation = unknown;
+export interface Truncation {
+  raw: number;
+  effective: number;
+  cap: string;
+}
 
 /**
  * A rubric-band record. Placeholder: the real shape (band id / ceiling /
@@ -66,6 +74,14 @@ export interface Node {
   truncations: Truncation[];
   /** Rubric-band records — populated by `ctx-scan-budgets`. */
   bands: Band[];
+  /**
+   * Listing-drop prediction rank for `skills-listing`/`commands-listing`
+   * class Nodes only (least-invoked-first, when invocation-frequency
+   * telemetry is reachable). `"unknown"` when no invocation data is
+   * available — never a guessed number. `undefined` for non-listing
+   * classes, where drop-prediction does not apply.
+   */
+  order?: "unknown" | number;
 }
 
 /** A group of Nodes sharing one class within a Project or the global layer. */
