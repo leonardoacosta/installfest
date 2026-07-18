@@ -20,6 +20,9 @@ logs/
 __pycache__/
 *.pyc
 
+# Bun/Node dependencies (apps/daily-brief and any future bun-managed package)
+node_modules/
+
 # OS files
 .DS_Store
 Thumbs.db
