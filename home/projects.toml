@@ -310,3 +310,203 @@ category = "personal"
 icon = "📡"
 path = "dev/archive/xx"
 tiers = ["remote", "local"]
+
+[[projects]]
+code = "nova"
+name = "nova"
+category = "personal"
+icon = "📦"
+path = "dev/personal/nova"
+tiers = ["local"]
+
+[[projects]]
+code = "harness"
+name = "harness"
+category = "personal"
+icon = "📦"
+path = "dev/personal/harness"
+tiers = ["local"]
+
+[[projects]]
+code = "leonardoacosta"
+name = "leonardoacosta"
+category = "personal"
+icon = "📦"
+path = "dev/personal/leonardoacosta"
+tiers = ["local"]
+
+[[projects]]
+code = "prettier-config"
+name = "prettier-config"
+category = "priceless"
+icon = "📦"
+path = "dev/prettier-config"
+tiers = ["local"]
+
+[[projects]]
+code = "brownandbrown.its.emailsched"
+name = "brownandbrown.its.emailsched"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brownandbrown.its.emailsched"
+tiers = ["local"]
+
+[[projects]]
+code = "Priceless-Dashboard"
+name = "Priceless-Dashboard"
+category = "priceless"
+icon = "📦"
+path = "dev/Priceless-Dashboard"
+tiers = ["local"]
+
+[[projects]]
+code = "lookups"
+name = "lookups"
+category = "b-and-b"
+icon = "📦"
+path = "dev/lookups"
+tiers = ["local"]
+
+[[projects]]
+code = "da"
+name = "da"
+category = "b-and-b"
+icon = "📦"
+path = "dev/da"
+tiers = ["local"]
+
+[[projects]]
+code = "bsi.Aggregates"
+name = "bsi.Aggregates"
+category = "b-and-b"
+icon = "📦"
+path = "dev/bsi.Aggregates"
+tiers = ["local"]
+
+[[projects]]
+code = "tb"
+name = "tb"
+category = "b-and-b"
+icon = "📦"
+path = "dev/tb"
+tiers = ["local"]
+
+[[projects]]
+code = "TRECommercial"
+name = "TRECommercial"
+category = "priceless"
+icon = "📦"
+path = "dev/TRECommercial"
+tiers = ["local"]
+
+[[projects]]
+code = "bsg-email-scheduler"
+name = "bsg-email-scheduler"
+category = "b-and-b"
+icon = "📦"
+path = "dev/bsg-email-scheduler"
+tiers = ["local"]
+
+[[projects]]
+code = "amplify"
+name = "amplify"
+category = "priceless"
+icon = "📦"
+path = "dev/amplify"
+tiers = ["local"]
+
+[[projects]]
+code = "priceless-internal"
+name = "priceless-internal"
+category = "priceless"
+icon = "📦"
+path = "dev/priceless-internal"
+tiers = ["local"]
+
+[[projects]]
+code = "club-kaiju"
+name = "club-kaiju"
+category = "priceless"
+icon = "📦"
+path = "dev/club-kaiju"
+tiers = ["local"]
+
+[[projects]]
+code = "eslint-config"
+name = "eslint-config"
+category = "priceless"
+icon = "📦"
+path = "dev/eslint-config"
+tiers = ["local"]
+
+[[projects]]
+code = "brownandbrown.its.bridgedirect"
+name = "brownandbrown.its.bridgedirect"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brownandbrown.its.bridgedirect"
+tiers = ["local"]
+
+[[projects]]
+code = "PIPS"
+name = "PIPS"
+category = "b-and-b"
+icon = "📦"
+path = "dev/PIPS"
+tiers = ["local"]
+
+[[projects]]
+code = "truly-atelier"
+name = "truly-atelier"
+category = "priceless"
+icon = "📦"
+path = "dev/truly-atelier"
+tiers = ["local"]
+
+[[projects]]
+code = "mx"
+name = "mx"
+category = "personal"
+icon = "📦"
+path = "dev/mx"
+tiers = ["local"]
+
+[[projects]]
+code = "glyph"
+name = "glyph"
+category = "priceless"
+icon = "📦"
+path = "dev/glyph"
+tiers = ["local"]
+
+[[projects]]
+code = "terraform-modules"
+name = "terraform-modules"
+category = "priceless"
+icon = "📦"
+path = "dev/terraform-modules"
+tiers = ["local"]
+
+[[projects]]
+code = "TrioTexasLandingPage"
+name = "TrioTexasLandingPage"
+category = "priceless"
+icon = "📦"
+path = "dev/TrioTexasLandingPage"
+tiers = ["local"]
+
+[[projects]]
+code = "hyperpos"
+name = "hyperpos"
+category = "priceless"
+icon = "📦"
+path = "dev/hyperpos"
+tiers = ["local"]
+
+[[projects]]
+code = "bridging-biosciences"
+name = "bridging-biosciences"
+category = "priceless"
+icon = "📦"
+path = "dev/priceless/bridging-biosciences"
+tiers = ["local"]

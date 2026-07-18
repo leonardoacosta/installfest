@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# ws-scan — filesystem detection scan for ~/dev git repos, keeping
+# home/projects.toml honest. Dispatched as `mux scan`.
+#
+# Walks ~/dev (skipping any literal archive/, .git/, node_modules/, and
+# cc-audit path), finds every git repo root — nested repos included, e.g.
+# ~/dev/brown/ws is itself a separate repo living inside ~/dev/brown, another
+# repo — derives each one's org via org-detect.sh, and:
+#   - auto-appends a new [[projects]] entry for a genuinely new repo (dedup
+#     by origin URL, not path/code) when its derived org isn't "unknown"
+#   - reports (stdout only, NEVER auto-modifies home/projects.toml) any
+#     already-registered project whose derived org disagrees with its
+#     stored category, any registered path missing on disk, and any set of
+#     2+ discovered repos sharing the same origin URL as duplicate clones
+#   - surfaces the known ~/dev/priceless collision by name — an existing,
+#     unrelated priceless dashboard repo occupies the org-container path;
+#     resolving it is a human call (rename/relocate), never automatic
+#   - excludes cc-audit entirely from derivation (out of scope)
+#
+# Usage:
+#   ws-scan             # scan + report + auto-register (default)
+#   ws-scan --dry-run   # scan + report only, no projects.toml writes
+#   ws-scan --json      # machine-readable report
+#
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+case "${1:-}" in
+  -h|--help)
+    awk '/^# ws-scan/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+esac
+
+DRY_RUN=0
+MODE="text"
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --json) MODE="json" ;;
+  esac
+done
+
+# shellcheck source=../../../scripts/lib/registry.sh
+source "${DOTFILES:-$HOME/dev/personal/installfest}/scripts/lib/registry.sh"
+ORG_DETECT="$SCRIPT_DIR/../lib/org-detect.sh"
+
+TOML_FILE="$(registry_path)" || exit 1
+PY="$(registry_python)" || exit 1
+
+DRY_RUN="$DRY_RUN" MODE="$MODE" TOML_FILE="$TOML_FILE" DEV_ROOT="$HOME/dev" ORG_DETECT="$ORG_DETECT" "$PY" - <<'PYEOF'
+import tomllib, os, subprocess, sys, json
+
+dev_root = os.environ["DEV_ROOT"]
+toml_file = os.environ["TOML_FILE"]
+dry_run = os.environ["DRY_RUN"] == "1"
+mode = os.environ["MODE"]
+org_detect = os.environ["ORG_DETECT"]
+home = os.path.expanduser("~")
+
+with open(toml_file, "rb") as f:
+    data = tomllib.load(f)
+projects = data.get("projects", [])
+
+EXCLUDE_DIRS = {".git", "node_modules", "archive"}
+EXCLUDE_NAMES = {"cc-audit"}
+
+
+def remote_of(path):
+    rc = subprocess.run(["git", "-C", path, "remote", "get-url", "origin"],
+                         capture_output=True, text=True)
+    return rc.stdout.strip() if rc.returncode == 0 else ""
+
+
+def org_for(path, code):
+    rc = subprocess.run(
+        ["bash", "-c", 'source "$1" && org_detect_for_repo "$2" "$3"',
+         "_", org_detect, path, code or ""],
+        capture_output=True, text=True,
+    )
+    return rc.stdout.strip() or "unknown"
+
+
+registered_by_path = {}
+registered_codes = set()
+registered_remotes = {}  # remote -> code
+codes_with_missing_path = set()
+for p in projects:
+    code, path = p.get("code"), p.get("path")
+    if not code or not path:
+        continue
+    registered_codes.add(code)
+    registered_by_path[os.path.realpath(os.path.join(home, path))] = p
+
+for abspath, p in registered_by_path.items():
+    if os.path.isdir(abspath):
+        r = remote_of(abspath)
+        if r:
+            registered_remotes[r] = p.get("code")
+    else:
+        codes_with_missing_path.add(p.get("code"))
+
+report = {
+    "new_registered": [], "category_mismatches": [], "missing_paths": [],
+    "duplicate_clones": [], "relocated": [], "priceless_collision": None,
+    "dry_run": dry_run,
+}
+
+# Walk ~/dev, finding every git repo root (nested repos included).
+found_repos = []
+for root, dirs, files in os.walk(dev_root):
+    base = os.path.basename(root)
+    if base in EXCLUDE_DIRS or base in EXCLUDE_NAMES:
+        dirs[:] = []
+        continue
+    if ".git" in dirs or os.path.isfile(os.path.join(root, ".git")):
+        found_repos.append(root)
+    dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS and d not in EXCLUDE_NAMES]
+
+# Group by remote for duplicate-clone detection.
+remote_to_paths = {}
+for path in found_repos:
+    r = remote_of(path)
+    if r:
+        remote_to_paths.setdefault(r, []).append(path)
+
+used_codes = set(registered_codes)
+new_entries = []
+
+for remote, paths in remote_to_paths.items():
+    if remote in registered_remotes:
+        if len(paths) > 1:
+            report["duplicate_clones"].append({
+                "remote": remote, "code": registered_remotes[remote],
+                "paths": sorted(os.path.relpath(p, home) for p in paths),
+            })
+        continue
+    if len(paths) > 1:
+        report["duplicate_clones"].append({
+            "remote": remote, "code": None,
+            "paths": sorted(os.path.relpath(p, home) for p in paths),
+        })
+    # Prefer a path whose basename matches a code-with-missing-path (so the
+    # relocated check below can catch it), rather than an arbitrary/sorted
+    # pick that might land on a full-name duplicate clone of the same repo.
+    code_matched = [p for p in paths if os.path.basename(p) in codes_with_missing_path]
+    path = sorted(code_matched)[0] if code_matched else sorted(paths)[0]
+    basename = os.path.basename(path)
+    if basename in EXCLUDE_NAMES:
+        continue
+    # A found repo whose directory name exactly matches an already-registered
+    # code THAT currently has an invalid (missing-on-disk) path is treated as
+    # that code's real location, not a new project — this is the common case
+    # on this Mac, where the registry's aspirational nested `path` (e.g.
+    # `dev/brown/fireball` for `fb`) doesn't match reality (flat `dev/fb`),
+    # but the live directory is still named exactly after its code. Without
+    # this check, every one of those already-registered-but-mislocated repos
+    # would silently double-register under a numeric-suffixed code (fb2, sc2,
+    # ...) the first time this ran — confirmed live during authoring: dry-run
+    # produced 10 such false "new" entries before this check was added.
+    # Known limitation: a repo whose registered path is missing AND whose
+    # live directory name no longer matches its code (e.g. renamed on disk)
+    # is NOT caught by this heuristic and would still register as new — the
+    # registry has no independent remote-URL field to fall back on. Reported
+    # here as `relocated`, never auto-written.
+    if basename in codes_with_missing_path:
+        report["relocated"].append({
+            "code": basename, "found_path": os.path.relpath(path, home),
+        })
+        continue
+    org = org_for(path, None)
+    if org == "unknown":
+        continue
+    code = basename
+    n = 2
+    while code in used_codes:
+        code = f"{basename}{n}"
+        n += 1
+    used_codes.add(code)
+    rel_path = os.path.relpath(path, home)
+    entry = {"code": code, "path": rel_path, "category": org, "name": basename,
+              "icon": "\U0001F4E6", "tiers": ["local"]}
+    new_entries.append(entry)
+    report["new_registered"].append({"code": code, "path": rel_path,
+                                      "category": org, "remote": remote})
+
+for p in projects:
+    code, path = p.get("code"), p.get("path")
+    if not code or not path or code in EXCLUDE_NAMES:
+        continue
+    abspath = os.path.realpath(os.path.join(home, path))
+    if not os.path.isdir(abspath):
+        report["missing_paths"].append({"code": code, "path": path})
+        continue
+    derived = org_for(abspath, code)
+    stored = p.get("category")
+    if derived != "unknown" and derived != stored:
+        report["category_mismatches"].append({"code": code, "stored": stored, "derived": derived})
+
+priceless_dir = os.path.join(home, "dev", "priceless")
+if os.path.isdir(os.path.join(priceless_dir, ".git")):
+    r = remote_of(priceless_dir)
+    if r and "Priceless-Development/priceless" in r and "priceless-app" not in r:
+        report["priceless_collision"] = {
+            "path": "dev/priceless", "remote": r,
+            "note": ("existing Priceless-Development/priceless checkout occupies the org "
+                     "container path — see design.md for the confirmed homelab remediation "
+                     "(move top-level tracked content into dev/priceless/priceless-app/, "
+                     "preserve already-nested card-scope/tribal-cities/bridging-biosciences)"),
+        }
+
+if new_entries and not dry_run:
+    lines = []
+    for e in new_entries:
+        lines.append("\n[[projects]]\n")
+        lines.append(f'code = "{e["code"]}"\n')
+        lines.append(f'name = "{e["name"]}"\n')
+        lines.append(f'category = "{e["category"]}"\n')
+        lines.append(f'icon = "{e["icon"]}"\n')
+        lines.append(f'path = "{e["path"]}"\n')
+        lines.append('tiers = ["local"]\n')
+    with open(toml_file, "a") as f:
+        f.writelines(lines)
+
+if mode == "json":
+    print(json.dumps(report, indent=2))
+else:
+    print(f"ws-scan: {len(found_repos)} git repos found under {dev_root}")
+    if report["new_registered"]:
+        label = "would register" if dry_run else "registered"
+        print(f"\n{label} {len(report['new_registered'])} new project(s):")
+        for e in report["new_registered"]:
+            print(f"  + {e['code']:<24} {e['category']:<10} {e['path']}")
+    if report["category_mismatches"]:
+        print(f"\nWARN: {len(report['category_mismatches'])} category mismatch(es) (not auto-fixed):")
+        for m in report["category_mismatches"]:
+            print(f"  ! {m['code']}: stored={m['stored']} derived={m['derived']}")
+    if report["relocated"]:
+        print(f"\nWARN: {len(report['relocated'])} registered code(s) whose live repo was found at a different path than registered (not auto-fixed):")
+        for m in report["relocated"]:
+            print(f"  ! {m['code']}: found at {m['found_path']}")
+    if report["missing_paths"]:
+        print(f"\nWARN: {len(report['missing_paths'])} registered path(s) missing on disk:")
+        for m in report["missing_paths"]:
+            print(f"  ! {m['code']}: {m['path']}")
+    if report["duplicate_clones"]:
+        print(f"\nWARN: {len(report['duplicate_clones'])} duplicate-origin clone group(s):")
+        for d in report["duplicate_clones"]:
+            print(f"  ! {d['remote']} -> {', '.join(d['paths'])}")
+    if report["priceless_collision"]:
+        c = report["priceless_collision"]
+        print(f"\n[user] ACTION NEEDED: {c['path']} — {c['note']}")
+    if not any([report["new_registered"], report["category_mismatches"],
+                report["missing_paths"], report["duplicate_clones"],
+                report["relocated"], report["priceless_collision"]]):
+        print("\nNo drift found.")
+PYEOF
