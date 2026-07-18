@@ -39,6 +39,13 @@ via :func:`set_pane_state`'s resolver seam.
 **Invariant 5 (fail open):** with no ``$TMUX`` or no ``tmux`` binary, every
 function no-ops (returns ``None`` / ``False`` / ``[]``) rather than raising, so a
 hook can never block Claude.
+
+**cmux dual-write (add-cmux-sidebar-widgets task 2.1):** :func:`set_pane_state`
+also mirrors every REAL transition's ``state``/``wait_reason``/``epoch`` into
+the cmux workspace's ``description`` field (:func:`_cmux_dual_write`), gated on
+``$CMUX_WORKSPACE_ID`` and fail-open like everything else here — see
+``docs/cmux-sidebar-encoding.md`` for the wire format and field-ownership split
+with the periodic writer (task 2.4).
 """
 
 from __future__ import annotations
@@ -47,6 +54,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, NamedTuple, Optional
@@ -543,6 +551,121 @@ def is_real_transition(old_state: str, new_state: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# cmux workspace-description dual-write (add-cmux-sidebar-widgets task 2.1)
+# ---------------------------------------------------------------------------
+#
+# Every real @cc-state transition is mirrored into the workspace's cmux
+# `description` field so the SwiftUI sidebar (tasks 3.x) can render it without
+# any tmux access of its own. This writer owns ONLY the `state` / `wait_reason`
+# / `epoch` segments of the CC1 encoding (docs/cmux-sidebar-encoding.md § Field
+# ownership) -- the periodic writer (task 2.4, scripts/cmux-status-writer.py)
+# owns `openspec` / `beads` / `usage_5h` / `usage_7d` on the same shared
+# string, so every write here is read-modify-write, never a blind overwrite.
+# Entirely gated on `$CMUX_WORKSPACE_ID` (unset -> no-op, e.g. every non-cmux
+# tmux session on this machine) and fully fail-open (invariant 5): a missing
+# `cmux` binary, unreachable workspace, malformed JSON, or a failed CLI call
+# is swallowed silently and never surfaces to (or blocks) the caller.
+
+def _import_status_encoding():
+    """Import ``scripts/lib/cmux_status_encoding.py``, or ``None`` on any failure.
+
+    cc-tmux (this package) may be deployed standalone as a copied/symlinked
+    Claude Code plugin, disconnected from the parent dotfiles checkout's
+    ``scripts/lib`` tree -- so this resolves the shared module the same
+    ``$DOTFILES``-relative way :mod:`cc_tmux.registry` resolves
+    ``home/projects.toml`` (``_DEFAULT_DOTFILES`` fallback), not a hardcoded
+    path. Reuses the module task 2.4 already built rather than reimplementing
+    encode/decode here (see that module's own docstring).
+    """
+    try:
+        dotfiles = os.environ.get("DOTFILES") or os.path.expanduser(
+            "~/dev/personal/installfest"
+        )
+        lib_dir = os.path.join(dotfiles, "scripts", "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        import cmux_status_encoding  # type: ignore
+    except Exception:
+        return None
+    return cmux_status_encoding
+
+
+def _cmux_dual_write(pane_id: str, state: str, wait_reason: str, epoch: float) -> None:
+    """Best-effort mirror of a real pane-state transition into cmux's workspace description.
+
+    No-ops immediately when ``$CMUX_WORKSPACE_ID`` is unset. Otherwise: reads
+    the current workspace's ``description`` via ``cmux workspace list --json``
+    (filtering on the ``ref`` matching ``$CMUX_WORKSPACE_ID`` -- the same
+    lookup ``scripts/cmux-status-writer.py``'s ``update_workspace`` uses),
+    decodes it, overwrites only ``state``/``wait_reason``/``epoch``, and writes
+    the merged string back via
+    ``cmux workspace-action --action set-description`` (confirmed CLI shape,
+    docs/cmux-workspace-action-api.md). Every failure mode (no ``cmux`` binary,
+    workspace not found, bad JSON, non-zero exit) is swallowed -- this must
+    never raise into :func:`set_pane_state`.
+    """
+    workspace_ref = os.environ.get("CMUX_WORKSPACE_ID")
+    if not workspace_ref:
+        return
+    try:
+        encoding = _import_status_encoding()
+        if encoding is None:
+            return
+        cmux = shutil.which("cmux")
+        if not cmux:
+            return
+        listed = subprocess.run(
+            [cmux, "workspace", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if listed.returncode != 0:
+            return
+        data = json.loads(listed.stdout)
+        workspaces = data.get("workspaces") if isinstance(data, dict) else None
+        if not isinstance(workspaces, list):
+            return
+        current_ws = next(
+            (
+                w
+                for w in workspaces
+                if isinstance(w, dict) and w.get("ref") == workspace_ref
+            ),
+            None,
+        )
+        if current_ws is None:
+            return
+
+        fields = encoding.decode(current_ws.get("description") or "")
+        fields["state"] = state
+        fields["wait_reason"] = wait_reason if state == "waiting" else ""
+        fields["epoch"] = str(int(epoch))
+        new_description = encoding.encode(fields)
+
+        if new_description == (current_ws.get("description") or ""):
+            return  # already up to date, nothing to write
+
+        subprocess.run(
+            [
+                cmux,
+                "workspace-action",
+                "--workspace",
+                workspace_ref,
+                "--action",
+                "set-description",
+                "--description",
+                new_description,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Writes
 # ---------------------------------------------------------------------------
 
@@ -592,7 +715,16 @@ def set_pane_state(
     # transition time, so a re-asserted state must not restamp. An explicit
     # ``timestamp`` kwarg is a deliberate caller override and always writes.
     if changed or timestamp is not None:
-        _set_opt(pane_id, OPT_TIMESTAMP, str(timestamp if timestamp is not None else time.time()))
+        stamp = timestamp if timestamp is not None else time.time()
+        _set_opt(pane_id, OPT_TIMESTAMP, str(stamp))
+        # cmux dual-write (add-cmux-sidebar-widgets task 2.1): only on a REAL
+        # transition, matching invariant 3 and this same function's other
+        # transition-gated side effects (notify.react's caller uses `changed`
+        # identically) -- a re-asserted state does not restamp @cc-timestamp
+        # either, so there is nothing new to mirror. No-ops instantly when
+        # $CMUX_WORKSPACE_ID is unset (every non-cmux tmux session here).
+        if changed:
+            _cmux_dual_write(pane_id, state, wait_reason or "", stamp)
 
     if task is not None:
         _set_opt(pane_id, OPT_TASK, task)
