@@ -403,30 +403,35 @@ ui {
     }
 }
 
-// zjstatus-hints (github.com/b0o/zjstatus-hints) — feeds live, per-mode
-// keybinding text into the zjstatus bar (layouts/default.kdl.tmpl) via a named
-// pipe. Replaces zj-which-key (popup-based approach, dropped — this renders
-// the hints directly IN the status bar instead of a floating overlay).
-// Binary downloaded by run_onchange_after_install-zjstatus.sh.tmpl (prebuilt
-// release .wasm). Background-loaded (no pane of its own), so like zj-which-key
-// before it, it can't show zellij's interactive approval prompt
-// (zellij-org/zellij#4982) — that same install script pre-grants its 2
-// permissions into zellij's permissions.kdl cache. zjstatus itself (the bar
-// plugin, referenced directly in the layout file) DOES have a real pane, so
-// its own permission prompt is approved normally on first launch (press `y`).
-plugins {
-    zjstatus-hints location="file:{{ .chezmoi.homeDir }}/.local/share/zellij/plugins/zjstatus-hints.wasm" {
-        max_length 0            // 0 == unlimited
-        overflow_str "..."
-        pipe_name "zjstatus_hints"
-        hide_in_base_mode false // still show hints in Normal mode, not just after a mode switch
-    }
-}
+// zj-which-key (github.com/johnae/zj-which-key) — mode-aware keybinding popup
+// + fuzzy all-modes browser, the zellij counterpart to tmux-which-key. Binary
+// downloaded by run_onchange_after_install-zj-which-key.sh.tmpl (prebuilt
+// release .wasm, no Rust toolchain needed) to the path below. Its 3 permissions
+// are pre-granted by that same script into zellij's permissions.kdl cache —
+// zellij can't show its own approval prompt for a popup/background plugin
+// (zellij-org/zellij#4982), so this can't be approved interactively.
 load_plugins {
-    zjstatus-hints
+    "file:{{ .chezmoi.homeDir }}/.local/share/zellij/plugins/zj_which_key.wasm" {
+        auto_show "true"        // pop up the current mode's keys after a short pause
+        delay_secs "0.4"
+        position "bottom-right"
+        max_height_pct "40"
+    }
 }
 
 keybinds {
+    // Ctrl+y opens the searchable browser — fuzzy-find any binding across every
+    // mode (analogous to tmux-which-key's popup menu). Esc closes it; it's
+    // read-only lookup, not an action launcher.
+    shared_except "locked" {
+        bind "Ctrl y" {
+            LaunchOrFocusPlugin "file:{{ .chezmoi.homeDir }}/.local/share/zellij/plugins/zj_which_key.wasm" {
+                floating true
+                role "browser"
+            }
+        }
+    }
+
     // Patch the built-in `Ctrl+p` Pane mode's split keys to match YOUR tmux.conf's `|`/`-`
     // (additive — default "r"/"d" split keys still work, h/j/k/l MoveFocus already matches
     // tmux's `bind h/j/k/l select-pane` out of the box, no patch needed there).
