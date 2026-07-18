@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.leonardoacosta.cmux-status-writer</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/leonardoacosta/dev/personal/installfest/scripts/cmux-status-writer.py</string>
+        <string>--all</string>
+    </array>
+
+    <!--
+      Every 2 minutes: openspec/beads/usage are cheap, --no-enrich-scoped
+      reads (docs/cmux-sidebar-encoding.md defers the cadence choice to task
+      2.4) — frequent enough that the sidebar doesn't look stale, not so
+      frequent it hammers bd/dolt across every open workspace's project.
+      RunAtLoad=true so a login/relaunch doesn't wait a full interval before
+      the sidebar shows real data.
+    -->
+    <key>StartInterval</key>
+    <integer>120</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/leonardoacosta/.local/bin:/Users/leonardoacosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
+        <key>HOME</key>
+        <string>/Users/leonardoacosta</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/leonardoacosta/.local/state/cmux-status-writer.launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/leonardoacosta/.local/state/cmux-status-writer.launchd.log</string>
+</dict>
+</plist>

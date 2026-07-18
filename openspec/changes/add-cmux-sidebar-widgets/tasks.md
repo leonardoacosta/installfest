@@ -51,8 +51,38 @@ stack: t3
   `page.route` confirmed correct rendering — 3 summary chips + 3 account cards with correct
   colors/percentages/active badges, including a past-due reset correctly showing "Resetting…".
 - [ ] [2.3] Build a git-tree generator script (`git log --graph --all --format=...` parsed into HTML) that runs wherever it's invoked (local or remote SSH host) and is wired via `cmux browser open` from the workspace's own context [beads:if-f51y]
-- [ ] [2.4] Build a small periodic writer that populates the [1.2]-encoded openspec-status, beads-status, and usage 5H/7D fields via `cmux workspace-action`/the `cmux()` action confirmed in [1.3] [beads:if-34sn]
+- [x] [2.4] Build a small periodic writer that populates the [1.2]-encoded openspec-status, beads-status, and usage 5H/7D fields via `cmux workspace-action`/the `cmux()` action confirmed in [1.3] [beads:if-34sn]
   - depends on: 1.2, 1.3
+
+  Reviewed and confirmed correct the partial files left by a crashed prior attempt:
+  `scripts/cmux-status-writer.py`, `scripts/lib/cmux_status_encoding.py` (shared encode/decode,
+  reused per the [1.2] doc's "implement once" instruction), and
+  `home/Library/LaunchAgents/com.leonardoacosta.cmux-status-writer.plist` (`StartInterval=120`,
+  `RunAtLoad=true`, matches the existing `StartInterval`-based launchd convention already used by
+  `validate-proxy.plist`/`mic-priority.plist` — no residual wiring gap). Confirmed the writer
+  correctly reuses `scripts/bin/openspec-status --json --no-enrich` and
+  `bd ready --json -n 0` / `bd list --status blocked --json -n 0` (the `-n 0` unlimited-results
+  form, avoiding the known `bd ready` default-limit-10 undercounting footgun) rather than
+  reinventing either. Usage carrier selection reuses `cc_tmux.usage.active_usage()` directly (no
+  reimplementation) and correctly converts its 0..1 float to the encoding's integer-percent string.
+
+  Live-verified on the real Mac (`ssh mac`, cmux 0.64.19) against the disposable test workspace
+  `cmux-evolve-test-if-34sn` (workspace:13) left over from the crashed prior attempt: confirmed
+  real field names (`current_directory`, `ref`, `remote.enabled/connected/destination`,
+  `selected`, `description`) match the writer's assumptions exactly via a live
+  `cmux workspace list --json` dump. Simulated a pre-existing state-only description
+  (`CC1|waiting|permission|1737158765||||`, standing in for [2.1]'s not-yet-shipped hook
+  dual-write), ran the writer targeting only that workspace twice, and confirmed both times the
+  `state`/`wait_reason`/`epoch` segments survived byte-for-byte while `openspec`
+  (`1 in-progress`) and `beads` (`46 ready, 0 blocked`) populated with real live data — idempotent,
+  no corruption. Separately ran the writer against the real selected/carrier workspace
+  (`workspace:11`, safe/reversible — my own live session) to confirm carrier-only usage writing
+  and correct fail-open empty usage fields when nexus-agent's `/credentials` endpoint was
+  unreachable from the Mac. Cleanup verified per the session's safety protocol: closed ONLY
+  `workspace:13` via `cmux close-workspace --workspace workspace:13` (never `close-others`),
+  confirmed via `cmux workspace list --json` before/after that `workspace:11`
+  (main), `workspace:14` (a concurrent agent's own `cmux-evolve-test-git-tree-remote`),
+  `workspace:9` (brown), and `workspace:10` (tc) were all unaffected.
 
 ## UI Batch
 
