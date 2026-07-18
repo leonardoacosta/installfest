@@ -162,13 +162,13 @@ section_raycast() {
 # --- Section 4: workspace (profiles + deployed symlinks + consumer parity) ---
 section_workspace() {
     local bad=0 org delta
-    for org in b-and-b priceless personal; do
+    for org in b-and-b priceless personal cc; do
         [ -f "packages/workspace/profiles/$org/profile.toml" ] \
             || { error "  missing profile: packages/workspace/profiles/$org/profile.toml"; bad=1; }
     done
     # Deployed org symlinks — skip whole check if the parent isn't chezmoi-applied.
     if [ -d "$HOME/.config/workspace" ]; then
-        for org in b-and-b priceless personal; do
+        for org in b-and-b priceless personal cc; do
             if [ ! -e "$HOME/.config/workspace/$org" ] \
                || ! readlink -e "$HOME/.config/workspace/$org" >/dev/null 2>&1; then
                 error "  broken workspace symlink: ~/.config/workspace/$org"; bad=1

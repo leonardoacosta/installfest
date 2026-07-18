@@ -1,0 +1,8 @@
+# cc workspace profile
+#
+# Consumed by packages/workspace/bin/wk-ready (and future wk-* commands).
+# Sibling files in this dir (env.sh, claude/, wrappers/) are unrelated to
+# this config — those are sourced by wsenv at activation time.
+
+# Task tracker: cc-category projects use beads (.beads/ dir per project).
+tracker = "beads"
