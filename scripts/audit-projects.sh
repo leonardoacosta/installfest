@@ -54,7 +54,7 @@ with open(sys.argv[1], "rb") as f:
     data = tomllib.load(f)
 ok = True
 seen = set()
-CATS = {"b-and-b", "priceless", "personal"}
+CATS = {"b-and-b", "priceless", "personal", "cc"}
 TIERS = {"remote", "local", "cloudpc"}
 for p in data["projects"]:
     missing = [k for k in ("code", "name", "category", "path", "tiers") if k not in p]

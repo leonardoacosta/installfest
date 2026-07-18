@@ -105,12 +105,19 @@ full_names_entries = []
 for p in projects:
     code = p["code"]
     path = p["path"]
-    # PROJECTS maps code -> path fragment (last component, or dotfile path)
+    # PROJECTS maps code -> path fragment resolve_path appends after
+    # $REMOTE_DEV/$LOCAL_DEV (dotfile path, or the full dev/-relative
+    # subpath). Previously truncated to just the basename (path.split("/")
+    # [-1]), which silently discarded nested org structure — "dev/priceless/
+    # otaku-odyssey" resolved to ~/dev/otaku-odyssey (wrong; doesn't exist
+    # anywhere) instead of ~/dev/priceless/otaku-odyssey (correct — already
+    # the live layout on the homelab, mux's default SSH target).
     if path.startswith("."):
         projects_entries.append(f'[{code}]="{path}"')
+    elif path.startswith("dev/"):
+        projects_entries.append(f'[{code}]="{path[len("dev/"):]}"')
     else:
-        # path is like "dev/oo" — extract just the dir name
-        projects_entries.append(f'[{code}]="{path.split("/")[-1]}"')
+        projects_entries.append(f'[{code}]="{path}"')
     categories_entries.append(f'[{code}]="{cat_labels.get(p["category"], "Personal")}"')
     full_names_entries.append(f'[{code}]="{p["name"]}"')
 
@@ -198,7 +205,15 @@ pane_exec() {
     # session (confirmed live: sidebar-state cwd never left /home/nyaptor).
     # Emit it explicitly right after the cd, before handing off to $cmd.
     local osc7_report='printf "\033]7;file://%s%s\007" "$(hostname)" "$PWD"'
-    send_to "$ws" "$surface" "$env_exports && cd $full_path && $osc7_report && ${ws_activate}$cmd"
+    # Record this workspace's directory so ANY future pane/split/tab in it —
+    # not just the ones this script creates — can auto-cd. A fresh SSH channel
+    # always lands at the login home dir with no cwd memory of sibling panes
+    # (confirmed live: a manually-added split in an already-open workspace
+    # landed at /home/nyaptor, not the project dir). CMUX_WORKSPACE_ID is
+    # auto-set by cmux in every pane it spawns (confirmed live too), so the
+    # remote shell startup hook (home/dot_zsh/rc/linux.zsh) can look this up.
+    local record_cwd="mkdir -p ~/.cmux/workspace-cwd && printf '%s' \"$full_path\" > ~/.cmux/workspace-cwd/$ws"
+    send_to "$ws" "$surface" "$env_exports && cd $full_path && $record_cwd && $osc7_report && ${ws_activate}$cmd"
   else
     send_to "$ws" "$surface" "cd $full_path && ${ws_activate}$cmd"
   fi
