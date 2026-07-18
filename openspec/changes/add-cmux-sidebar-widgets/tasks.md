@@ -33,8 +33,51 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Extend `apps/cc-tmux/src/cc_tmux/tmux.py`'s hook handlers to dual-write the [1.2] encoding via `cmux workspace-action --description` on every existing state transition, gated on `CMUX_WORKSPACE_ID` being set; fail-open on any cmux-call error, matching the existing hook fail-open invariants [beads:if-3jd4]
+- [x] [2.1] Extend `apps/cc-tmux/src/cc_tmux/tmux.py`'s hook handlers to dual-write the [1.2] encoding via `cmux workspace-action --description` on every existing state transition, gated on `CMUX_WORKSPACE_ID` being set; fail-open on any cmux-call error, matching the existing hook fail-open invariants [beads:if-3jd4]
   - depends on: 1.2, 1.3
+
+  **Implementation**: every state-writing hook funnels through the single choke point
+  `tmux.set_pane_state` (via `cli.cmd_register`, confirmed against `hooks.json` —
+  SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/Notification/Stop all call
+  `cc-tmux register --state ...`), so the dual-write lives there rather than being
+  duplicated per hook. Added `tmux._cmux_dual_write()` + `tmux._import_status_encoding()`
+  (imports `scripts/lib/cmux_status_encoding.py` DOTFILES-relative, same resolution
+  pattern as `registry.py`, reusing the shared module rather than reimplementing
+  encode/decode). Fires only on a REAL transition (`changed`, mirroring invariant 3 /
+  `notify.react`'s existing gate — a re-assert doesn't restamp `@cc-timestamp` either, so
+  there's nothing new to mirror) and only when `$CMUX_WORKSPACE_ID` is set; wrapped in a
+  single `try/except Exception: pass` matching invariant 5. Read-modify-write: reads the
+  workspace's current `description` via `cmux workspace list --json` (filtered on `ref`),
+  decodes, overwrites only `state`/`wait_reason`/`epoch`, re-encodes, writes back via
+  `cmux workspace-action --action set-description` — leaves `openspec`/`beads`/`usage_5h`/
+  `usage_7d` (task 2.4's fields) untouched.
+
+  **Verification**: `cc-tmux self-test` — 116/116 passed (no regression). Live smoke test
+  on the Mac (2026-07-18), per the incident safety rule: listed existing workspaces first
+  (`workspace:9/10/11/14/15`, all off-limits), created exactly one disposable workspace
+  `cmux-evolve-test-if-3jd4-v2` -> `workspace:16`, seeded it with
+  `CC1||||3 open, 1 approved|12 ready, 2 blocked|68|47` (simulating task 2.4's fields
+  already present). Copied the modified `tmux.py` + `cmux_status_encoding.py` into an
+  isolated `/tmp` scratch dir on the Mac (not the deployed plugin — no tmux server was
+  running there to drive a real hook fire) and called `tmux._cmux_dual_write` directly
+  against the live cmux daemon with `CMUX_WORKSPACE_ID=workspace:16`:
+  - `_cmux_dual_write("%99", "waiting", "permission", <epoch>)` ->
+    `cmux workspace list --json` showed
+    `CC1|waiting|permission|<epoch>|3 open, 1 approved|12 ready, 2 blocked|68|47` —
+    state/wait_reason/epoch written, openspec/beads/usage fields preserved byte-for-byte.
+  - `_cmux_dual_write("%99", "idle", "", <epoch>)` (simulating Stop) ->
+    `CC1|idle||<epoch>|3 open, 1 approved|12 ready, 2 blocked|68|47` —
+    wait_reason correctly cleared, epoch updated, other 4 fields still preserved.
+  - Unset `$CMUX_WORKSPACE_ID` -> confirmed no-op, no exception.
+  Cleaned up: `cmux close-workspace --workspace workspace:16`, removed the `/tmp` scratch
+  dir. Re-verified via `cmux workspace list --json`: `workspace:16` gone, and every
+  remaining pre-existing workspace's `description` byte-identical to the pre-test
+  snapshot. Note: `workspace:15` (`cmux-evolve-test-gittree-native`, presumably task 2.3's
+  own test workspace) also disappeared between the before/after snapshots — this was NOT
+  caused by any command in this task (no command here ever targeted `workspace:15`;
+  every `_cmux_dual_write`/`workspace-action`/`close-workspace` call was scoped to
+  `workspace:16` only) — attributable to concurrent session activity closing its own
+  workspace independently.
 - [x] [2.2] Port `apps/cc-tmux/src/cc_tmux/usage.py`'s `color_for`/`pct_for`/`_extract_util` logic to a standalone JS module; build a static HTML page that fetches `http://localhost:7400/credentials` client-side and renders the full multi-account dashboard (per-account progress bars, reset countdowns, summary header) using that ported logic [beads:if-5oeg]
 
   Ported `color_for`/`pct_for`/`_extract_util`/`_extract_reset_at`/`_account_label`/
@@ -50,7 +93,35 @@ stack: t3
   real captured `/credentials` payload (125 raw rows, 3 unique post-dedupe identities) through
   `page.route` confirmed correct rendering — 3 summary chips + 3 account cards with correct
   colors/percentages/active badges, including a past-due reset correctly showing "Resetting…".
-- [ ] [2.3] Build a git-tree generator script (`git log --graph --all --format=...` parsed into HTML) that runs wherever it's invoked (local or remote SSH host) and is wired via `cmux browser open` from the workspace's own context [beads:if-f51y]
+- [x] [2.3] Build a git-tree generator script (`git log --graph --all --format=...` parsed into HTML) that runs wherever it's invoked (local or remote SSH host) and is wired via `cmux browser open` from the workspace's own context [beads:if-f51y]
+
+  **Finding (cmux 0.64.19, live-verified 2026-07-18)**: found and fixed a real dispatch bug in the
+  prior (crashed) dispatch's implementation. `find_opener()` picked the native
+  `cmux browser open file://...` path whenever a `cmux` binary was merely on PATH — but cmux's
+  own SSH-backed remote-workspace mechanism installs a relay-forwarding `cmux` shim
+  (`~/.cmux/bin/cmux`) on remote hosts too (confirmed live on homelab: `cmux --json capabilities`
+  reports `"socket_path":"/Users/leonardoacosta/.local/state/cmux/cmux.sock"` — the Mac's own
+  socket, reached over a relay). Calling the native path from homelab created a real
+  `"type":"browser"` split (verified via `cmux list-panels`), but `cmux browser snapshot` on that
+  surface showed the Mac's own "Can't open this page" error page, not the generated commit
+  graph — the WebView renders on the Mac, where the homelab-local file path doesn't exist.
+  Fixed by gating path 1 on `platform.system() == "Darwin"` (only true when actually running on
+  the Mac), not `shutil.which("cmux")` alone. Re-verified after the fix: on homelab, dispatch
+  correctly fell through to `mac-open --cmux`, served the file over Tailscale HTTP
+  (`http://100.73.182.4:8790/...`), and `curl`ing that URL returned real HTML with real commit
+  subjects from installfest's actual `git log` (`feat(cmux): port usage.py logic...`, etc.).
+  On the real Mac (`ssh mac`, `uname -s` = Darwin, native `cmux` genuinely local), created a
+  disposable local test workspace (`cmux-evolve-test-gittree-native`, workspace:15, verified
+  `remote.enabled: false` — a real local, not SSH-backed, workspace), ran the script against the
+  Mac's own local installfest checkout, and confirmed via `cmux browser snapshot --json` that the
+  real rendered page (7356 bytes of HTML, `commit-hash` rows, real commit subjects matching the
+  Mac checkout's own `git log`, zero "Can't open this page" text) loaded in cmux's embedded
+  browser panel. Cleaned up per the safety rule: closed only `workspace:15` via
+  `cmux close-workspace --workspace workspace:15`; a subsequent `list-workspaces` confirmed every
+  pre-existing workspace (9, 10, 11, 14) untouched — a concurrent session's own test-workspace
+  churn (workspace:13 -> workspace:16, unrelated task if-3jd4) was observed but not caused by this
+  verification. Non-git-directory case (`--repo /tmp/...`) confirmed to render the "No git
+  repository here" placeholder with exit 0, not an exception.
 - [x] [2.4] Build a small periodic writer that populates the [1.2]-encoded openspec-status, beads-status, and usage 5H/7D fields via `cmux workspace-action`/the `cmux()` action confirmed in [1.3] [beads:if-34sn]
   - depends on: 1.2, 1.3
 
