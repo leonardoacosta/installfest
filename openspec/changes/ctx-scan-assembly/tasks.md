@@ -50,10 +50,10 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Wire `ctx-scan calibrate [--from-telemetry] [--json]` output: endpoint provenance, [beads:if-6ajw]
+- [x] [3.1] Wire `ctx-scan calibrate [--from-telemetry] [--json]` output: endpoint provenance, [beads:if-6ajw]
   verified schema summary, fitted ratio, or the static-only degraded-mode reason.
   - depends on: 2.7
-- [ ] [3.2] Wire the `scan` command to run the full assembly pipeline (imports, nesting, [beads:if-kygo]
+- [x] [3.2] Wire the `scan` command to run the full assembly pipeline (imports, nesting, [beads:if-kygo]
   truncation, plugin ingestion, hook sizing) instead of `ctx-scan-core`'s bare discovery pass,
   populating real `effective_chars`/`est_tokens` on every `Node`.
   - depends on: 2.1, 2.2, 2.3, 2.4, 2.6
