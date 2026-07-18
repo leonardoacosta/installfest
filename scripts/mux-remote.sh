@@ -5,11 +5,16 @@
 # Project data: ~/dev/personal/installfest/home/projects.toml
 #
 # Usage:
-#   ~/dev/personal/installfest/scripts/mux-remote.sh         # Interactive picker
-#   ~/dev/personal/installfest/scripts/mux-remote.sh b       # Launch B&B
-#   ~/dev/personal/installfest/scripts/mux-remote.sh c       # Launch Clients
-#   ~/dev/personal/installfest/scripts/mux-remote.sh p       # Launch Personal
-#   ~/dev/personal/installfest/scripts/mux-remote.sh b c p   # Launch everything
+#   ~/dev/personal/installfest/scripts/mux-remote.sh              # Interactive picker
+#   ~/dev/personal/installfest/scripts/mux-remote.sh brown         # Launch the b-and-b org root
+#   ~/dev/personal/installfest/scripts/mux-remote.sh priceless     # Launch the priceless org root
+#   ~/dev/personal/installfest/scripts/mux-remote.sh cc            # Launch the cc org root
+#   ~/dev/personal/installfest/scripts/mux-remote.sh personal      # Launch the personal org root
+#   ~/dev/personal/installfest/scripts/mux-remote.sh brown priceless   # Launch two org roots
+#
+# mux never bulk-launches — every code opens exactly one workspace. There is
+# no "launch everything" equivalent; pick specific codes or use the
+# "Pick Projects..." picker for individual project codes.
 
 set -euo pipefail
 
@@ -38,11 +43,12 @@ with open(toml_file, "rb") as f:
 projects = data["projects"]
 
 cat_meta = {
-    "b-and-b":  {"emoji": "\U0001f7e1", "label": "B&B"},
-    "client":   {"emoji": "\U0001f7e2", "label": "Clients"},
-    "personal": {"emoji": "\U0001f535", "label": "Personal"},
+    "b-and-b":   {"emoji": "\U0001f7e1", "label": "B&B"},
+    "priceless": {"emoji": "\U0001f7e2", "label": "Priceless"},
+    "cc":        {"emoji": "\U0001f527", "label": "CC"},
+    "personal":  {"emoji": "\U0001f535", "label": "Personal"},
 }
-cat_order = ["b-and-b", "client", "personal"]
+cat_order = ["b-and-b", "priceless", "cc", "personal"]
 
 # Group projects by category, preserving TOML order
 groups = {c: [] for c in cat_order}
@@ -90,7 +96,7 @@ PYEOF
 # No args → show interactive picker
 if [[ $# -eq 0 ]]; then
   choice=$(osascript <<'EOF'
-    set options to {"🟡 B&B", "🟢 Clients", "🔵 Personal", "⚪ All", "🔧 Pick Projects..."}
+    set options to {"🟡 B&B", "🟢 Priceless", "🔧 CC", "🔵 Personal", "🔧 Pick Projects..."}
     set picked to choose from list options with title "Mux Workspaces" with prompt "What do you want to open?" with multiple selections allowed
     if picked is false then return "cancel"
     set output to ""
@@ -106,10 +112,10 @@ EOF
   args=()
   while IFS= read -r line; do
     case "$line" in
-      *"B&B"*)      args+=(b) ;;
-      *Clients*)    args+=(c) ;;
-      *Personal*)   args+=(p) ;;
-      *All*)        args+=(b c p) ;;
+      *"B&B"*)        args+=(brown) ;;
+      *Priceless*)    args+=(priceless) ;;
+      *CC*)           args+=(cc) ;;
+      *Personal*)     args+=(personal) ;;
       *Pick*)
         picker_script=$(TOML_FILE="$TOML_FILE" generate_picker_applescript)
         projects=$(osascript -e "$picker_script")
