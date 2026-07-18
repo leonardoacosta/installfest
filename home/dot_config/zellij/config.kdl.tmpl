@@ -403,7 +403,43 @@ ui {
     }
 }
 
+// zj-which-key (github.com/johnae/zj-which-key) — mode-aware keybinding popup
+// + fuzzy all-modes browser, the zellij counterpart to tmux-which-key. Binary
+// downloaded by run_onchange_after_install-zj-which-key.sh.tmpl (prebuilt
+// release .wasm, no Rust toolchain needed) to the path below. Its 3 permissions
+// are pre-granted by that same script into zellij's permissions.kdl cache —
+// zellij can't show its own approval prompt for a popup/background plugin
+// (zellij-org/zellij#4982), so this can't be approved interactively.
+load_plugins {
+    "file:{{ .chezmoi.homeDir }}/.local/share/zellij/plugins/zj_which_key.wasm" {
+        auto_show "true"        // pop up the current mode's keys after a short pause
+        delay_secs "0.4"
+        position "bottom-right"
+        max_height_pct "40"
+    }
+}
+
 keybinds {
+    // Ctrl+y opens the searchable browser — fuzzy-find any binding across every
+    // mode (analogous to tmux-which-key's popup menu). Esc closes it; it's
+    // read-only lookup, not an action launcher.
+    shared_except "locked" {
+        bind "Ctrl y" {
+            LaunchOrFocusPlugin "file:{{ .chezmoi.homeDir }}/.local/share/zellij/plugins/zj_which_key.wasm" {
+                floating true
+                role "browser"
+            }
+        }
+    }
+
+    // Patch the built-in `Ctrl+p` Pane mode's split keys to match YOUR tmux.conf's `|`/`-`
+    // (additive — default "r"/"d" split keys still work, h/j/k/l MoveFocus already matches
+    // tmux's `bind h/j/k/l select-pane` out of the box, no patch needed there).
+    pane {
+        bind "-" { NewPane "Down";  SwitchToMode "Normal"; }   // your `bind - split -v`
+        bind "|" { NewPane "Right"; SwitchToMode "Normal"; }   // your `bind | split -h`
+    }
+
     // Patch the built-in `Ctrl+b` tmux mode to match YOUR tmux.conf (additive — keeps "/%/c/n/p/z/x/d/o/hjkl).
     tmux {
         bind "-" { NewPane "Down";  SwitchToMode "Normal"; }   // your `bind - split -v`
