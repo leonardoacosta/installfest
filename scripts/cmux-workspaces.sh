@@ -271,6 +271,48 @@ wait_for_surface() {
   return 1
 }
 
+# SSH-mode readiness gate: poll cmux's own remote-connection state instead of a
+# blind surface-existence loop + a fixed settle sleep before the first send.
+# `cmux workspace list --json` exposes .remote.state ("connecting" -> "connected")
+# per workspace (keyed by .ref); waiting for that exact flip is a real, confirmed
+# signal — proven by killing a live SSH channel mid-job and observing output land
+# in the same poll tick as the state transition (if-vit.6 baseline, 2026-07-18).
+# This subsumes wait_for_surface's blind poll AND the old pre-first-send sleep.
+# Local-mode workspaces have no .remote object, so this is SSH-mode only —
+# local mode still uses wait_for_surface + its settle sleep, unchanged.
+wait_for_remote_ready() {
+  local ws_uuid="$1" retries=30
+  while [[ $retries -gt 0 ]]; do
+    local state
+    state=$($CMUX workspace list --json 2>/dev/null | "$WS_PY" -c '
+import json, sys
+ws_ref = sys.argv[1]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    print("")
+    sys.exit(0)
+for ws in data.get("workspaces", []):
+    if ws.get("ref") == ws_ref:
+        print(ws.get("remote", {}).get("state") or "")
+        sys.exit(0)
+print("")
+' "$ws_uuid" 2>/dev/null)
+    if [[ "$state" == "connected" ]]; then
+      local surface
+      surface=$($CMUX list-pane-surfaces --workspace "$ws_uuid" 2>&1 \
+        | awk '{for(i=1;i<=NF;i++) if($i ~ /^surface:/) {print $i; exit}}')
+      if [[ -n "$surface" ]]; then
+        echo "$surface"
+        return 0
+      fi
+    fi
+    retries=$((retries - 1))
+    sleep 0.2
+  done
+  return 1
+}
+
 # Phase 2: Populate panes (parallel — the slow part)
 populate_workspace() {
   local code="$1"
@@ -280,18 +322,35 @@ populate_workspace() {
   full_path=$(resolve_path "$project")
 
   local claude_surface
-  claude_surface=$(wait_for_surface "$ws_uuid") || {
-    echo "  ✗ $code — no surface found, skipping populate" >&2
-    return 1
-  }
-  sleep 0.2
+  if [[ "$MODE" == "ssh" ]]; then
+    claude_surface=$(wait_for_remote_ready "$ws_uuid") || {
+      echo "  ✗ $code — remote never connected, skipping populate" >&2
+      return 1
+    }
+  else
+    claude_surface=$(wait_for_surface "$ws_uuid") || {
+      echo "  ✗ $code — no surface found, skipping populate" >&2
+      return 1
+    }
+    sleep 0.2
+  fi
 
-  # Left pane: Claude Code — launch via ws-claude, which wraps claude in a PERSISTENT
-  # per-workspace zellij session (ws-<code>) that survives SSH disconnect and reattaches
-  # on reconnect. ws-claude bakes the workspace activation + org launch flags into the
-  # zellij pane, so identity is correct regardless of the zellij server's env.
+  # Left pane: Claude Code. SSH mode launches natively (no zellij wrapper) — cmux's
+  # own detachable SSH PTY daemon + persistent-server process now provides the
+  # disconnect-survival guarantee ws-claude used to hand-roll, confirmed via a live
+  # kill/reconnect test (if-vit.4 baseline, 2026-07-18). COLORTERM=truecolor is
+  # exported because ws-claude's zellij layer used to set it (zellij sets
+  # TERM=xterm-256color but not COLORTERM, so claude would otherwise downgrade to
+  # monochrome); wsenv --flags supplies the org-specific launch flags ws-claude used
+  # to inject via its generated layout. Local mode keeps ws-claude/zellij unchanged —
+  # this was only tested against the SSH-disconnect case, not local persistence.
   # nvim/lazygit stay plain cmux panes (only the long-running claude session persists).
-  pane_exec "$ws_uuid" "$claude_surface" "$full_path" "ws-claude $code" "$code"
+  if [[ "$MODE" == "ssh" ]]; then
+    pane_exec "$ws_uuid" "$claude_surface" "$full_path" \
+      "export COLORTERM=truecolor && claude \$(wsenv --flags $code 2>/dev/null)" "$code"
+  else
+    pane_exec "$ws_uuid" "$claude_surface" "$full_path" "ws-claude $code" "$code"
+  fi
   sleep 0.3
 
   # Split right: nvim (editor / terminal pane)
