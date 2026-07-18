@@ -15,12 +15,21 @@ if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 fi
 #
 # Usage:
-#   mux oo tc           # Launch specific projects
-#   mux b               # Launch all B&B projects
-#   mux c               # Launch all Priceless projects
-#   mux p               # Launch all Personal projects
+#   mux oo tc           # Launch specific projects (one workspace each)
+#   mux brown           # Launch the b-and-b org root (one workspace)
+#   mux priceless       # Launch the priceless org root (one workspace)
+#   mux cc              # Launch the cc org root (one workspace)
+#   mux personal        # Launch the personal org root (one workspace)
+#   mux doctor [code]   # Provenance inspection (exec ws-doctor)
+#   mux ready [org]     # Tracker-ready query (exec ws-ready)
+#   mux scan            # Filesystem detection scan (exec ws-scan)
 #   mux --local oo      # Launch locally instead of SSH
 #   mux --list          # List available projects
+#
+# mux never bulk-launches — every invocation opens at most one workspace per
+# named code. Each of the four org roots (brown/priceless/cc/personal) is an
+# ordinary registered project code pointing at its ~/dev/<org> directory, not
+# a special launch mode — see home/projects.toml.
 
 set -euo pipefail
 
@@ -53,6 +62,7 @@ fi
 # Category colors
 COLOR_BB="#F59E0B"       # amber
 COLOR_PRICELESS="#10B981"   # green
+COLOR_CC="#8B5CF6"       # violet
 COLOR_PERSONAL="#3B82F6" # blue
 
 # shellcheck source=lib/registry.sh
@@ -71,19 +81,22 @@ with open(toml_file, "rb") as f:
 projects = data["projects"]
 
 # Category label mapping
-cat_labels = {"b-and-b": "B&B", "priceless": "Priceless", "personal": "Personal"}
+cat_labels = {"b-and-b": "B&B", "priceless": "Priceless", "cc": "CC", "personal": "Personal"}
+cat_order = ["b-and-b", "priceless", "cc", "personal"]
 
-# Build parallel arrays by category
-groups = {"b-and-b": [], "priceless": [], "personal": []}
+# Every registered code, grouped by category (canonical launch/reorder order)
+# then declaration order within each category. mux never bulk-launches by
+# group anymore — this is display/reorder ordering only, not a selector.
+by_cat = {c: [] for c in cat_order}
 for p in projects:
     cat = p["category"]
-    if cat in groups:
-        groups[cat].append(p["code"])
-
-# Emit group arrays
-print("GROUP_BB=(" + " ".join(groups["b-and-b"]) + ")")
-print("GROUP_PRICELESS=(" + " ".join(groups["priceless"]) + ")")
-print("GROUP_PERSONAL=(" + " ".join(groups["personal"]) + ")")
+    if cat in by_cat:
+        by_cat[cat].append(p["code"])
+all_codes = [code for cat in cat_order for code in by_cat[cat]]
+print("ALL_CODES=(" + " ".join(all_codes) + ")")
+for cat in cat_order:
+    var = "GROUP_" + cat.upper().replace("-", "_")
+    print(f"{var}=(" + " ".join(by_cat[cat]) + ")")
 
 # Emit associative arrays
 projects_entries = []
@@ -109,13 +122,17 @@ PYEOF
 
 eval "$(TOML_FILE="$TOML_FILE" load_projects)"
 
-# Canonical order (B&B → Priceless → Personal)
-CANONICAL_ORDER=("${GROUP_BB[@]}" "${GROUP_PRICELESS[@]}" "${GROUP_PERSONAL[@]}")
+# Canonical order (b-and-b → priceless → cc → personal, declaration order
+# within each) — built directly from the full registry (ALL_CODES), not from
+# the old per-letter GROUP_* bulk-launch arrays. Used only for the reorder
+# pass below and the grouped --list/--help display; never a launch selector.
+CANONICAL_ORDER=("${ALL_CODES[@]}")
 
 get_color() {
   case "${CATEGORIES[$1]:-Personal}" in
     "B&B")      echo "$COLOR_BB" ;;
     "Priceless")   echo "$COLOR_PRICELESS" ;;
+    "CC")       echo "$COLOR_CC" ;;
     "Personal") echo "$COLOR_PERSONAL" ;;
   esac
 }
@@ -173,7 +190,15 @@ pane_exec() {
     if [[ -n "$MAC_TAILSCALE_IP" ]]; then
       env_exports+=" CMUX_BRIDGE_HOST=$MAC_TAILSCALE_IP"
     fi
-    send_to "$ws" "$surface" "$env_exports && cd $full_path && ${ws_activate}$cmd"
+    # cmux tracks a workspace's cwd (sidebar-state, Files sidebar root) via an
+    # OSC 7 escape the shell's own prompt normally emits on every render. Since
+    # $cmd (claude) is a long-running foreground process chained onto the same
+    # `cd && ...` line, the shell never returns to its own prompt to emit that
+    # OSC 7 itself — cwd stays stuck at the SSH login home dir for the whole
+    # session (confirmed live: sidebar-state cwd never left /home/nyaptor).
+    # Emit it explicitly right after the cd, before handing off to $cmd.
+    local osc7_report='printf "\033]7;file://%s%s\007" "$(hostname)" "$PWD"'
+    send_to "$ws" "$surface" "$env_exports && cd $full_path && $osc7_report && ${ws_activate}$cmd"
   else
     send_to "$ws" "$surface" "cd $full_path && ${ws_activate}$cmd"
   fi
@@ -350,62 +375,77 @@ populate_workspace() {
   echo "  ✓ $code ready"
 }
 
+# --- Subcommand dispatch (doctor/ready/scan) ---
+#
+# These don't launch cmux workspaces at all — dispatch and exit before
+# wait_for_cmux, so `mux doctor`/`mux ready`/`mux scan` work even when cmux
+# itself isn't running. Only recognized as the very first argument.
+case "${1:-}" in
+  doctor) shift; exec "$SCRIPT_DIR/../packages/workspace/bin/ws-doctor" "$@" ;;
+  ready)  shift; exec "$SCRIPT_DIR/../packages/workspace/bin/ws-ready" "$@" ;;
+  scan)   shift; exec "$SCRIPT_DIR/../packages/workspace/bin/ws-scan" "$@" ;;
+esac
+
 # --- Arg parsing ---
 
 targets=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    b)  targets+=("${GROUP_BB[@]}"); shift ;;
-    c)  targets+=("${GROUP_PRICELESS[@]}"); shift ;;
-    p)  targets+=("${GROUP_PERSONAL[@]}"); shift ;;
     --local)  MODE="local"; shift ;;
     --ssh)    MODE="ssh"; shift ;;
     --host)   SSH_HOST="$2"; shift 2 ;;
     --list)
-      echo "Available projects:"
+      echo "Available projects (one workspace per code — mux never bulk-launches):"
       echo ""
-      echo "  B&B [b] (amber):"
-      for code in "${GROUP_BB[@]}"; do
-        printf "    %-4s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
+      echo "  B&B (amber):"
+      for code in "${GROUP_B_AND_B[@]}"; do
+        printf "    %-14s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
       done
       echo ""
-      echo "  Priceless [c] (green):"
+      echo "  Priceless (green):"
       for code in "${GROUP_PRICELESS[@]}"; do
-        printf "    %-4s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
+        printf "    %-14s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
       done
       echo ""
-      echo "  Personal [p] (blue):"
+      echo "  CC (violet):"
+      for code in "${GROUP_CC[@]}"; do
+        printf "    %-14s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
+      done
+      echo ""
+      echo "  Personal (blue):"
       for code in "${GROUP_PERSONAL[@]}"; do
-        printf "    %-4s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
+        printf "    %-14s %-25s %s\n" "$code" "${FULL_NAMES[$code]:-$code}" "${PROJECTS[$code]}"
       done
       echo ""
       echo "Modes: --ssh (default → $SSH_HOST) | --local"
       exit 0
       ;;
     --help|-h)
-      bb_list=$(IFS=", "; echo "${GROUP_BB[*]}")
-      priceless_list=$(IFS=", "; echo "${GROUP_PRICELESS[*]}")
-      personal_list=$(IFS=", "; echo "${GROUP_PERSONAL[*]}")
       cat <<HELP
-Usage: mux [OPTIONS] [b|c|p|PROJECT...]
+Usage: mux [OPTIONS] [PROJECT...]
 
-Groups:
-  b    B&B (amber)       — $bb_list
-  c    Priceless (green) — $priceless_list
-  p    Personal (blue)   — $personal_list
+mux never bulk-launches — every code opens exactly one workspace. Each org
+root (brown/priceless/cc/personal) is an ordinary registered code pointing
+at its ~/dev/<org> directory, launched the same way as any other project.
+
+Subcommands:
+  doctor [code]  Provenance inspection (what config is active where)
+  ready [org]    Tracker-ready work query
+  scan           Filesystem detection scan — keeps home/projects.toml honest
 
 Options:
   --local        Run locally instead of SSH
   --ssh          SSH to homelab (default)
   --host HOST    SSH to a different host
-  --list         List available projects
+  --list         List all available project codes, grouped by org
 
 Examples:
-  mux b              # Open all B&B projects
-  mux c              # Open all Priceless projects
-  mux oo mv          # Open specific projects
-  mux b oo           # B&B group + oo
+  mux oo mv          # Open specific projects (one workspace each)
+  mux brown          # Open the b-and-b org root
+  mux priceless personal   # Open two org roots
+  mux doctor         # Inspect config provenance for \$PWD
+  mux ready priceless      # Ready-work query for the priceless org
 
 Layout per workspace:
   ┌───────────────────────────────┐
@@ -421,10 +461,10 @@ done
 wait_for_cmux
 
 if [[ ${#targets[@]} -eq 0 ]]; then
-  echo "Usage: mux [b|c|p|PROJECT...]"
-  echo "  b = B&B, c = Priceless, p = Personal"
-  echo "  Or specify project codes: mux oo tc mv"
-  echo "  Run 'mux --list' for all projects"
+  echo "Usage: mux [PROJECT...]"
+  echo "  Specify project codes: mux oo tc mv"
+  echo "  Or an org root: mux brown | mux priceless | mux cc | mux personal"
+  echo "  Run 'mux --list' for all projects, 'mux --help' for subcommands"
   exit 0
 fi
 
