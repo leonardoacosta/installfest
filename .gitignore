@@ -42,6 +42,7 @@ ssh-mesh/keys/
 .dolt/
 *.db
 .beads-credential-key
+.beads/issues.jsonl
 
 # Terraform
 infra/.secrets.env
