@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Install/update dj95/zjstatus — replaces zellij's built-in tab-bar/status-bar
+# with a customizable bar (layouts/default.kdl). Downloads the prebuilt
+# release .wasm binary — no Rust/wasm32-wasip1 toolchain, no patching needed.
+#
+# Root cause of the long debugging saga this closes out: zjstatus's load()
+# unconditionally requests 3 permissions (ReadApplicationState,
+# ChangeApplicationState, RunCommands) even though RunCommands is only
+# actually used by the command widget, which this layout doesn't configure.
+# check_permissions() requires ALL requested permissions to already be
+# granted or it fails entirely — missing just RunCommands made the grant
+# fail, which cascaded into a spurious pane-frame line (plugin never called
+# set_selectable(false), which only fires on a real granted-permission
+# event) AND blank bar content (an internal ready-flag gated on the same
+# event never flipped). Confirmed via a from-scratch zellij server rebuild
+# with debug tracing added to its own permission-check code — the trace
+# showed `requested=[...RunCommands] granted=false` on every launch. Grant
+# all 3 below and the stock, unpatched zjstatus.wasm just works.
+#
+# Re-runs whenever zellij's config.kdl or the zjstatus layout changes (the
+# files that wire this plugin in) so a fresh machine picks up the download
+# automatically.
+#
+#   config.kdl: {{ include "dot_config/zellij/config.kdl.tmpl" | sha256sum }}
+#   layout:     {{ include "dot_config/zellij/layouts/default.kdl.tmpl" | sha256sum }}
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+PLUGIN_DIR="$HOME/.local/share/zellij/plugins"
+PLUGIN_PATH="$PLUGIN_DIR/zjstatus.wasm"
+REPO="dj95/zjstatus"
+mkdir -p "$PLUGIN_DIR"
+
+if ! command -v curl >/dev/null 2>&1; then
+  warning "zjstatus: curl not available; skipping install"
+  exit 0
+fi
+
+DOWNLOAD_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+  | grep -o '"browser_download_url": *"[^"]*zjstatus\.wasm"' \
+  | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
+
+if [ -z "$DOWNLOAD_URL" ]; then
+  warning "zjstatus: could not resolve latest release asset URL — leaving existing install as-is"
+  exit 0
+fi
+
+info "zjstatus: downloading $DOWNLOAD_URL"
+if curl -fsSL "$DOWNLOAD_URL" -o "$PLUGIN_PATH.tmp"; then
+  mv "$PLUGIN_PATH.tmp" "$PLUGIN_PATH"
+  success "zjstatus: installed to $PLUGIN_PATH"
+else
+  rm -f "$PLUGIN_PATH.tmp"
+  warning "zjstatus: download failed — plugin will not load until this succeeds"
+  exit 0
+fi
+
+# zjstatus runs in a real pane, so it can normally show its own y/n approval
+# prompt on first launch — EXCEPT our layout hosts it in
+# `pane size=2 borderless=true`, and a borderless pane can't render the
+# multi-line permission dialog at all (confirmed community pitfall). Pre-
+# granting is the correct fix for this layout shape, not a shortcut around
+# real consent.
+#
+# All 3 permissions below are REQUIRED — zjstatus's load() requests all 3
+# unconditionally regardless of configured widgets, and a partial grant
+# fails the whole check (see the root-cause note above). Do not trim this
+# to just the 2 that seem relevant to {mode}/{tabs}.
+{{ if eq .chezmoi.os "darwin" -}}
+PERM_DIR="$HOME/Library/Caches/org.Zellij-Contributors.Zellij"
+{{ else -}}
+PERM_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zellij"
+{{ end -}}
+PERM_FILE="$PERM_DIR/permissions.kdl"
+mkdir -p "$PERM_DIR"
+touch "$PERM_FILE"
+
+if ! grep -qF "\"$PLUGIN_PATH\"" "$PERM_FILE" 2>/dev/null; then
+  info "zjstatus: pre-granting plugin permissions in $PERM_FILE"
+  cat >> "$PERM_FILE" <<EOF
+"$PLUGIN_PATH" {
+    ReadApplicationState
+    ChangeApplicationState
+    RunCommands
+}
+EOF
+  success "zjstatus: permissions granted"
+else
+  info "zjstatus: permissions already granted"
+fi

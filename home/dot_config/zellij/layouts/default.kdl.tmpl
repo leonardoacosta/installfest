@@ -1,0 +1,74 @@
+// Leo's zellij default layout — chezmoi-managed. Overrides zellij's built-in
+// "default" layout (tab-bar top + status-bar bottom) with a zjstatus bar
+// showing real mode/tab text.
+//
+// Root cause of the long debugging saga this replaces: zjstatus's load()
+// unconditionally requests 3 permissions (ReadApplicationState,
+// ChangeApplicationState, RunCommands) even though RunCommands is only
+// actually used by the command widget (which this layout doesn't use).
+// check_permissions() requires ALL requested permissions to be granted —
+// missing just RunCommands made the whole grant fail, which cascaded into
+// everything that looked like separate bugs (pane never non-selectable ->
+// spurious frame line, internal ready-flag never set -> blank content, and
+// the fallback-to-interactive-prompt path is what caused the intermittent
+// "PluginId not found" race in zellij's own log). Fix is only in the
+// install script's permission grant (all 3, not 2) — zjstatus itself is
+// unpatched, stock upstream .wasm.
+//
+// Flat, no-pill style deliberately — matches starship's canonical flat
+// layout (see MEMORY project_abyss_theme.md): powerline pill/arrow glyphs
+// were tried and rolled back repo-wide because GeistMono Nerd Font Mono
+// renders the soft-divider glyphs (U+E0B6/U+E0B4) squared, not curved. Plain
+// `#[fg=#hex]` text segments only, same as starship/tmux/ghostty.
+//
+// Colors are reused as-is from the matching theme block in
+// ../config.kdl.tmpl (zellij's own `themes { <name> { ... } }`), not
+// reinvented — same accent/warn/tmux/inactive roles, just hex instead of
+// decimal RGB triples.
+{{ $theme := .theme -}}
+{{ if eq $theme "tokyo-night-abyss" -}}
+{{   $accent := "#5278C4" -}}
+{{   $warn := "#BC925C" -}}
+{{   $tmuxAccent := "#8E6DC4" -}}
+{{   $inactiveFg := "#B0B9D5" -}}
+{{   template "zjstatus-layout" (dict "accent" $accent "warn" $warn "tmuxAccent" $tmuxAccent "inactiveFg" $inactiveFg "home" .chezmoi.homeDir) -}}
+{{ else if eq $theme "one-hunter-vercel" -}}
+{{   $accent := "#43AAF9" -}}
+{{   $warn := "#FAC760" -}}
+{{   $tmuxAccent := "#B267E6" -}}
+{{   $inactiveFg := "#454D54" -}}
+{{   template "zjstatus-layout" (dict "accent" $accent "warn" $warn "tmuxAccent" $tmuxAccent "inactiveFg" $inactiveFg "home" .chezmoi.homeDir) -}}
+{{ else -}}
+{{   $accent := "#006efe" -}}
+{{   $warn := "#ffae00" -}}
+{{   $tmuxAccent := "#9440d5" -}}
+{{   $inactiveFg := "#454545" -}}
+{{   template "zjstatus-layout" (dict "accent" $accent "warn" $warn "tmuxAccent" $tmuxAccent "inactiveFg" $inactiveFg "home" .chezmoi.homeDir) -}}
+{{ end -}}
+
+{{ define "zjstatus-layout" -}}
+layout {
+    default_tab_template {
+        children
+        pane size=2 borderless=true {
+            plugin location="file:{{ .home }}/.local/share/zellij/plugins/zjstatus.wasm" {
+                format_left  "{mode} {tabs}"
+                format_right ""
+                format_space ""
+
+                border_enabled             "false"
+                hide_frame_for_single_pane "false"  // pane_frames is already globally off (config.kdl) — don't let zjstatus re-toggle it
+
+                mode_normal "#[fg={{ .accent }},bold] {name} "
+                mode_locked "#[fg={{ .warn }},bold] {name} "
+                mode_tmux   "#[fg={{ .tmuxAccent }},bold] {name} "
+                // every other mode (pane/tab/resize/move/scroll/search/session/...)
+                // falls back to mode_normal's format, per zjstatus's own default
+
+                tab_normal "#[fg={{ .inactiveFg }}] {name} "
+                tab_active "#[fg={{ .accent }},bold] {name} "
+            }
+        }
+    }
+}
+{{ end -}}
