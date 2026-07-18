@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -d .beads ] && bd sync --flush-only 2>/dev/null || true",
+            "command": "[ -d .beads ] && bd export -o .beads/issues.jsonl 2>/dev/null || true",
             "timeout": 5000,
             "continueOnError": true
           }
