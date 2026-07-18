@@ -40,7 +40,19 @@ list_subcommands() {
     done | awk '!seen[$0]++'
 }
 
+print_workspace() {
+  # Fail-soft: no wsenv on PATH, or cwd doesn't resolve to a registered project ->
+  # just skip the line rather than erroring the whole help/list output.
+  command -v wsenv >/dev/null 2>&1 || return 0
+  local org code
+  org=$(wsenv --org 2>/dev/null) || return 0
+  code=$(wsenv --code 2>/dev/null) || return 0
+  [[ -n "$org" ]] || return 0
+  printf 'Workspace: %s (code %s, resolved from cwd)\n\n' "$org" "$code"
+}
+
 print_help() {
+  print_workspace
   cat <<'HELP'
 wk — workspace command-center umbrella
 
