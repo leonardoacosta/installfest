@@ -17,18 +17,18 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `src/discovery.ts`: walk `--root` (default `~/dev`), identify project [beads:if-ke6q]
+- [x] [2.1] Implement `src/discovery.ts`: walk `--root` (default `~/dev`), identify project [beads:if-ke6q]
   roots (`CLAUDE.md` | `.claude/` | `.mcp.json` present), dedupe to the outermost git root,
   apply the hard-exclusion list at descent time, and guard symlink cycles via a realpath set.
   - depends on: 1.2
-- [ ] [2.2] Implement `src/settings-resolver.ts`: read `.claude/settings.json`, [beads:if-zffx]
+- [x] [2.2] Implement `src/settings-resolver.ts`: read `.claude/settings.json`, [beads:if-zffx]
   `.claude/settings.local.json`, `.mcp.json` (+ root `mcp.json`), and the user layer
   (`~/.claude/settings.json`), and resolve the winning layer per key in precedence order
   `managed → CLI → .claude/settings.local.json → .claude/settings.json →
   ~/.claude/settings.json`. A malformed JSON file reports a per-file parse error in the output
   rather than throwing.
   - depends on: 1.2
-- [ ] [2.3] Implement global-layer identification: resolve `~/.claude` via `realpath` (following [beads:if-t3ne]
+- [x] [2.3] Implement global-layer identification: resolve `~/.claude` via `realpath` (following [beads:if-t3ne]
   the `~/dev/cc` symlink target where present), scan it once as the `global` origin, and exclude
   it from the discovered-project list even when it structurally matches the discovery predicate.
   - depends on: 2.1
