@@ -6,46 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal dotfiles and development environment configuration for macOS and Arch Linux. Cross-platform shell setup with SSH mesh networking between machines.
 
-## Directory Structure
-
-```
-if/                                    # repo root (~/dev/personal/installfest)
-├── .chezmoiroot                       # points chezmoi at home/ subdirectory
-├── home/                              # chezmoi source root (all deployed files)
-│   ├── .chezmoi.toml.tmpl             # chezmoi config template (machine-specific data)
-│   ├── .chezmoiignore                 # Files excluded from chezmoi management
-│   ├── projects.toml                  # Project registry (used by templates + scripts)
-│   ├── dot_zshenv.tmpl                # -> ~/.zshenv (env vars, templated)
-│   ├── dot_zshrc                      # -> ~/.zshrc (interactive shell entry)
-│   ├── dot_zsh/                       # -> ~/.zsh/ (shell modules)
-│   │   ├── rc/
-│   │   │   ├── shared.zsh             # Options + aliases (cross-platform)
-│   │   │   ├── darwin.zsh             # macOS-specific (Homebrew, pnpm)
-│   │   │   └── linux.zsh             # Arch-specific (pacman, docker)
-│   │   ├── functions/
-│   │   │   ├── setup-completions.zsh  # compinit, fpath
-│   │   │   ├── load-plugins.zsh      # syntax-hl, autosuggestions
-│   │   │   ├── load-tools.zsh        # zoxide, atuin, fzf, mise
-│   │   │   └── init-starship.zsh     # prompt (load last)
-│   │   └── completions/               # Custom completion scripts
-│   ├── dot_config/                    # -> ~/.config/
-│   │   ├── ghostty/config.tmpl        # Ghostty terminal (templated)
-│   │   ├── starship/starship.toml.tmpl # Starship prompt (templated)
-│   │   ├── tmux/tmux.conf             # Tmux config
-│   │   └── karabiner/assets/...       # Karabiner-Elements
-│   ├── Library/LaunchAgents/          # -> ~/Library/LaunchAgents/ (macOS)
-│   ├── run_once_install-packages.sh.tmpl  # One-time package installer
-│   └── run_onchange_*.sh.tmpl         # Change-triggered scripts
-├── platform/                          # Platform-specific tooling (repo-only)
-│   ├── homebrew/                      # Brewfile
-│   ├── windows/                       # Windows/CloudPC setup scripts
-│   └── raycast-scripts/               # Raycast automation
-├── scripts/                           # Utility scripts (repo-only)
-├── ssh-mesh/                          # Multi-machine SSH setup (repo-only)
-├── docs/                              # Documentation (repo-only)
-└── openspec/                          # Change specifications
-```
-
 ## Key Concepts
 
 ### Shell Configuration Flow
