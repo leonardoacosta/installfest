@@ -3,42 +3,40 @@
  * (ctx-scan-core task [4.3], beads:if-7gyx).
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveSettings } from "../src/settings-resolver";
+import { cleanup, dir, file, tmpRoot } from "./helpers/tree";
 
-const cleanupDirs: string[] = [];
+const roots: string[] = [];
 
-afterEach(async () => {
-  while (cleanupDirs.length) {
-    const dir = cleanupDirs.pop()!;
-    await rm(dir, { recursive: true, force: true });
-  }
+afterEach(() => {
+  while (roots.length) cleanup(roots.pop()!);
 });
 
-async function tmp(prefix: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), prefix));
-  cleanupDirs.push(dir);
-  return dir;
+function tmp(prefix: string): string {
+  const root = tmpRoot(prefix);
+  roots.push(root);
+  return root;
 }
 
 describe("resolveSettings — precedence [4.3]", () => {
-  test("local settings win over project settings win over user settings", async () => {
-    const projectPath = await tmp("ctx-scan-settings-");
-    const userDir = await tmp("ctx-scan-user-");
+  test("local settings win over project settings win over user settings", () => {
+    const projectPath = tmp("ctx-scan-settings-");
+    const userDir = tmp("ctx-scan-user-");
 
-    await mkdir(join(projectPath, ".claude"), { recursive: true });
-    await writeFile(
-      join(projectPath, ".claude", "settings.local.json"),
+    dir(projectPath, ".claude");
+    file(
+      projectPath,
+      ".claude/settings.local.json",
       JSON.stringify({ sharedKey: "from-local", localOnlyKey: "local" }),
     );
-    await writeFile(
-      join(projectPath, ".claude", "settings.json"),
+    file(
+      projectPath,
+      ".claude/settings.json",
       JSON.stringify({ sharedKey: "from-project", projectOnlyKey: "project" }),
     );
+    file(userDir, "settings.json", JSON.stringify({ sharedKey: "from-user", userOnlyKey: "user" }));
     const userSettingsPath = join(userDir, "settings.json");
-    await writeFile(userSettingsPath, JSON.stringify({ sharedKey: "from-user", userOnlyKey: "user" }));
 
     const result = resolveSettings(projectPath, { userSettingsPath });
 
@@ -63,16 +61,16 @@ describe("resolveSettings — precedence [4.3]", () => {
     ]);
   });
 
-  test("malformed JSON reports parseError and never throws; other layers still resolve", async () => {
-    const projectPath = await tmp("ctx-scan-settings-malformed-");
-    const userDir = await tmp("ctx-scan-user-malformed-");
+  test("malformed JSON reports parseError and never throws; other layers still resolve", () => {
+    const projectPath = tmp("ctx-scan-settings-malformed-");
+    const userDir = tmp("ctx-scan-user-malformed-");
 
-    await mkdir(join(projectPath, ".claude"), { recursive: true });
+    dir(projectPath, ".claude");
     // Malformed: local settings is broken JSON.
-    await writeFile(join(projectPath, ".claude", "settings.local.json"), "{ not valid json");
-    await writeFile(join(projectPath, ".claude", "settings.json"), JSON.stringify({ ok: "from-project" }));
+    file(projectPath, ".claude/settings.local.json", "{ not valid json");
+    file(projectPath, ".claude/settings.json", JSON.stringify({ ok: "from-project" }));
+    file(userDir, "settings.json", JSON.stringify({ ok: "from-user" }));
     const userSettingsPath = join(userDir, "settings.json");
-    await writeFile(userSettingsPath, JSON.stringify({ ok: "from-user" }));
 
     expect(() => resolveSettings(projectPath, { userSettingsPath })).not.toThrow();
 
@@ -87,8 +85,8 @@ describe("resolveSettings — precedence [4.3]", () => {
     expect(result.resolved.ok?.layer).toBe(".claude/settings.json");
   });
 
-  test("missing files are absent, not errors", async () => {
-    const projectPath = await tmp("ctx-scan-settings-missing-");
+  test("missing files are absent, not errors", () => {
+    const projectPath = tmp("ctx-scan-settings-missing-");
     const result = resolveSettings(projectPath, { userSettingsPath: join(projectPath, "nonexistent.json") });
     for (const layer of result.layers) {
       if (layer.path === null) continue; // synthetic managed/CLI tiers

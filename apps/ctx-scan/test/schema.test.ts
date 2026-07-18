@@ -8,33 +8,27 @@
  * unversioned shape change trips it.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { buildFleet } from "../src/cli";
 import { schemaVersion } from "../src/model";
+import { cleanup, dir, file, tmpRoot } from "./helpers/tree";
 
-const cleanupDirs: string[] = [];
+const roots: string[] = [];
 
-afterEach(async () => {
-  while (cleanupDirs.length) {
-    const dir = cleanupDirs.pop()!;
-    await rm(dir, { recursive: true, force: true });
-  }
+afterEach(() => {
+  while (roots.length) cleanup(roots.pop()!);
 });
 
-async function tmp(prefix: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), prefix));
-  cleanupDirs.push(dir);
-  return dir;
+function tmp(prefix: string): string {
+  const root = tmpRoot(prefix);
+  roots.push(root);
+  return root;
 }
 
 describe("Fleet document shape [4.4]", () => {
-  test("matches the committed schema exactly for a fixed fixture", async () => {
-    const root = await tmp("ctx-scan-schema-");
-    const proj = join(root, "fixture-project");
-    await mkdir(join(proj, ".git"), { recursive: true });
-    await writeFile(join(proj, "CLAUDE.md"), "# fixture\n");
+  test("matches the committed schema exactly for a fixed fixture", () => {
+    const root = tmp("ctx-scan-schema-");
+    dir(root, "fixture-project/.git");
+    file(root, "fixture-project/CLAUDE.md", "# fixture\n");
 
     const fleet = buildFleet(root);
 

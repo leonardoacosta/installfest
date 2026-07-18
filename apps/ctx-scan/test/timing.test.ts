@@ -7,40 +7,33 @@
  * fleet-wide bar mentioned in the roadmap.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { buildFleet } from "../src/cli";
+import { cleanup, dir, file, tmpRoot } from "./helpers/tree";
 
 const TIMING_BUDGET_MS = 2_000;
 
-const cleanupDirs: string[] = [];
+const roots: string[] = [];
 
-afterEach(async () => {
-  while (cleanupDirs.length) {
-    const dir = cleanupDirs.pop()!;
-    await rm(dir, { recursive: true, force: true });
-  }
+afterEach(() => {
+  while (roots.length) cleanup(roots.pop()!);
 });
 
-async function tmp(prefix: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), prefix));
-  cleanupDirs.push(dir);
-  return dir;
+function tmp(prefix: string): string {
+  const root = tmpRoot(prefix);
+  roots.push(root);
+  return root;
 }
 
 describe("buildFleet timing [4.5]", () => {
-  test("completes within budget for a small multi-project fixture tree", async () => {
-    const root = await tmp("ctx-scan-timing-");
+  test("completes within budget for a small multi-project fixture tree", () => {
+    const root = tmp("ctx-scan-timing-");
     for (const name of ["proj-a", "proj-b", "proj-c", "proj-d", "proj-e"]) {
-      const proj = join(root, name);
-      await mkdir(join(proj, ".git"), { recursive: true });
-      await writeFile(join(proj, "CLAUDE.md"), `# ${name}\n`);
+      dir(root, `${name}/.git`);
+      file(root, `${name}/CLAUDE.md`, `# ${name}\n`);
       // A moderate amount of unrelated file noise per project, so the walk
       // does real work rather than measuring an empty tree.
-      await mkdir(join(proj, "src"), { recursive: true });
       for (let i = 0; i < 20; i++) {
-        await writeFile(join(proj, "src", `file-${i}.ts`), `export const x${i} = ${i};\n`);
+        file(root, `${name}/src/file-${i}.ts`, `export const x${i} = ${i};\n`);
       }
     }
 
