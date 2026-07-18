@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# wk-doctor — workspace provenance inspector.
+# ws-doctor — workspace provenance inspector.
 #
 # Answers "what Claude-Code / shell config is active in THIS directory now, and
 # which layer put it there?" — the runtime companion to workspace-profile-validate
@@ -23,10 +23,10 @@
 # It is strictly READ-ONLY: it inspects, never mutates.
 #
 # Usage:
-#   wk doctor                 # inspect the org resolved from $PWD
-#   wk doctor <code>          # inspect a specific repo's org (e.g. ws, oo)
-#   wk doctor --json          # machine-readable provenance object
-#   wk doctor -i | --interactive   # fzf drill-down (preview the live file per layer)
+#   mux doctor                 # inspect the org resolved from $PWD
+#   mux doctor <code>          # inspect a specific repo's org (e.g. ws, oo)
+#   mux doctor --json          # machine-readable provenance object
+#   mux doctor -i | --interactive   # fzf drill-down (preview the live file per layer)
 #
 # Exit codes:
 #   0  inspected ok (regardless of contract validity — see CONTRACT row / .contract.valid)
@@ -47,15 +47,15 @@ while [[ $# -gt 0 ]]; do
     --json)            MODE="json"; shift ;;
     -i|--interactive)  MODE="interactive"; shift ;;
     -h|--help)
-      awk '/^# wk-doctor/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'
+      awk '/^# ws-doctor/,/^set -euo pipefail/{print}' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
-    -*) echo "wk-doctor: unknown flag $1 (try --help)" >&2; exit 1 ;;
+    -*) echo "ws-doctor: unknown flag $1 (try --help)" >&2; exit 1 ;;
     *)  ARG="$1"; RESOLVED_VIA="code"; shift ;;
   esac
 done
 
-command -v wsenv >/dev/null 2>&1 || { echo "wk-doctor: wsenv not on PATH" >&2; exit 1; }
+command -v wsenv >/dev/null 2>&1 || { echo "ws-doctor: wsenv not on PATH" >&2; exit 1; }
 
 PROFILE_ROOT="${WSENV_PROFILE_DIR:-$HOME/.config/workspace}"
 GLOBAL="$HOME/.claude"
@@ -229,13 +229,13 @@ render_plain() {
 
 render_interactive() {
   if ! command -v fzf >/dev/null 2>&1; then
-    echo "wk-doctor: --interactive needs fzf; falling back to plain" >&2
+    echo "ws-doctor: --interactive needs fzf; falling back to plain" >&2
     render_plain; return
   fi
   # One selectable row per layer; preview shows the live file/dir behind it.
   jq -r '(.injection + .shell)[] | [.label, (.path // "")] | @tsv' <<<"$DOC" \
     | fzf --with-nth=1 --delimiter='\t' \
-          --header="wk doctor: $(jq -r '.org' <<<"$DOC") — Enter a layer to inspect its source" \
+          --header="mux doctor: $(jq -r '.org' <<<"$DOC") — Enter a layer to inspect its source" \
           --preview='p={2}; if [ -z "$p" ]; then echo "(absent — nothing injected)"; elif [ -d "$p" ]; then ls -la "$p"; else cat "$p"; fi' \
           >/dev/null || true
 }

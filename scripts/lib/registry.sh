@@ -7,7 +7,7 @@
 # copy-pasted probe loop in 4 scripts and a bare `python3` call (Mac-broken)
 # in 3 more. One sourced lib, one fix.
 #
-# Sourced by: wsenv, generate-profiles, wk-ready, cmux-workspaces.sh,
+# Sourced by: wsenv, generate-profiles, ws-ready, ws-scan, cmux-workspaces.sh,
 # generate-raycast.sh, mux-remote.sh, copen, scripts/lib/open-core.sh.
 (return 0 2>/dev/null) || set -euo pipefail
 

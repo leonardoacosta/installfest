@@ -1,7 +1,7 @@
 # tracker adapters
 
 Per-tracker shell scripts that emit a normalized JSON array of "ready" work for
-an org. Called by `packages/workspace/bin/wk-ready`, which reads each org's
+an org. Called by `packages/workspace/bin/ws-ready (mux ready)`, which reads each org's
 `profile.toml` and dispatches to the right adapter.
 
 ## Adapters
@@ -83,7 +83,7 @@ Adapters **never** fail the dispatcher hard. On any error they:
 - Emit `[]` on **stdout**.
 - Exit 0.
 
-Rationale: a single misconfigured org should not block `wk ready` for the rest
+Rationale: a single misconfigured org should not block `mux ready` for the rest
 of the portfolio. The dispatcher and consumer decide whether `[]` counts as a
 failure for their use case.
 
@@ -93,7 +93,7 @@ failure for their use case.
 2. Accept `<org>` as `$1`. Read any tracker-specific config from
    `~/.config/workspace/<org>/profile.toml` under `[tracker.<name>]`.
 3. Emit a JSON array on stdout. Fail gracefully per the rule above.
-4. Update `bin/wk-ready` to recognize `tracker = "<name>"` in `profile.toml`.
+4. Update `bin/ws-ready (mux ready)` to recognize `tracker = "<name>"` in `profile.toml`.
 5. Add a row to the adapters table above.
 
 There is no `Adapter` interface, base class, or shared library — adapters are
