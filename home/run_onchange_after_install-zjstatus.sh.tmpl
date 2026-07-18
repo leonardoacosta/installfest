@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Install/update dj95/zjstatus + b0o/zjstatus-hints — replaces zellij's
+# built-in tab-bar/status-bar with a single customizable bar (layouts/default.kdl)
+# that shows the ACTUAL live keybindings for the current mode, not just the
+# compact hint row the built-in bar shows. Supersedes zj-which-key (popup
+# approach — see run_onchange_after_install-zj-which-key.sh.tmpl, removed).
+# Downloads prebuilt release .wasm binaries — no Rust/wasm32-wasip1 toolchain.
+#
+# Re-runs whenever zellij's config.kdl or the zjstatus layout changes (the
+# files that wire these plugins in) so a fresh machine picks up the download
+# automatically.
+#
+#   config.kdl: {{ include "dot_config/zellij/config.kdl.tmpl" | sha256sum }}
+#   layout:     {{ include "dot_config/zellij/layouts/default.kdl.tmpl" | sha256sum }}
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+PLUGIN_DIR="$HOME/.local/share/zellij/plugins"
+mkdir -p "$PLUGIN_DIR"
+
+if ! command -v curl >/dev/null 2>&1; then
+  warning "zjstatus: curl not available; skipping install"
+  exit 0
+fi
+
+install_release_asset() {
+  local name="$1" repo="$2" asset="$3"
+  local path="$PLUGIN_DIR/$asset"
+
+  local url
+  url=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
+    | grep -o "\"browser_download_url\": *\"[^\"]*${asset}\"" \
+    | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
+
+  if [ -z "$url" ]; then
+    warning "$name: could not resolve latest release asset URL — leaving existing install as-is"
+    return 0
+  fi
+
+  info "$name: downloading $url"
+  if curl -fsSL "$url" -o "$path.tmp"; then
+    mv "$path.tmp" "$path"
+    success "$name: installed to $path"
+  else
+    rm -f "$path.tmp"
+    warning "$name: download failed — plugin will not load until this succeeds"
+  fi
+}
+
+install_release_asset "zjstatus"       "dj95/zjstatus"     "zjstatus.wasm"
+install_release_asset "zjstatus-hints" "b0o/zjstatus-hints" "zjstatus-hints.wasm"
+
+# zjstatus-hints is background-loaded (load_plugins, no pane of its own), so —
+# same limitation as zj-which-key before it (zellij-org/zellij#4982) — it can't
+# show zellij's interactive y/n approval prompt. Pre-grant its 2 permissions
+# (confirmed via its request_permission() call in src/main.rs: ReadApplicationState
+# + MessageAndLaunchOtherPlugins) into zellij's permissions cache.
+#
+# zjstatus itself is NOT pre-granted here — it runs in a real pane (the bar
+# itself), so it shows its own approval prompt normally on first launch/update
+# (navigate to the bar pane, press `y`). Pre-granting a plugin with broader
+# ReadApplicationState/ChangeApplicationState reach when it's fully able to
+# prompt interactively would bypass a real consent step for no reason.
+{{ if eq .chezmoi.os "darwin" -}}
+PERM_DIR="$HOME/Library/Caches/org.Zellij-Contributors.Zellij"
+{{ else -}}
+PERM_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/zellij"
+{{ end -}}
+PERM_FILE="$PERM_DIR/permissions.kdl"
+mkdir -p "$PERM_DIR"
+touch "$PERM_FILE"
+
+HINTS_PATH="$PLUGIN_DIR/zjstatus-hints.wasm"
+if ! grep -qF "\"$HINTS_PATH\"" "$PERM_FILE" 2>/dev/null; then
+  info "zjstatus-hints: pre-granting plugin permissions in $PERM_FILE"
+  cat >> "$PERM_FILE" <<EOF
+"$HINTS_PATH" {
+    ReadApplicationState
+    MessageAndLaunchOtherPlugins
+}
+EOF
+  success "zjstatus-hints: permissions granted"
+else
+  info "zjstatus-hints: permissions already granted"
+fi
