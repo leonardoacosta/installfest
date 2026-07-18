@@ -1,0 +1,103 @@
+// claude-sessions: minimal left custom sidebar prototype (task 3.1,
+// openspec/changes/add-cmux-sidebar-widgets).
+//
+// This first pass uses ONLY cmux's natively-free `workspaces` fields — no
+// smuggled `description` encoding yet (see docs/cmux-sidebar-encoding.md for
+// that scheme, added on top in tasks 3.2/3.3):
+//   - directory basename (visually truncated, see FINDING below), then
+//     title (Claude Code session name), omitted when empty
+//   - branch, with a dirty-indicator dot when dirty is true
+//
+// FINDING (cmux 0.64.19, live-verified 2026-07-18, task 3.1, beads if-boqe):
+// character-position string slicing is NOT supported by cmux's sidebar
+// interpreter. Exhaustively tested live via five disposable diagnostic
+// sidebars deployed to the real Mac (`~/.config/cmux/sidebars/diag-test{,2,
+// 3,4,5}.swift`, validated + opened + inspected via `System Events`
+// accessibility-tree text dumps of the real rendered pane — no screen-capture
+// access over SSH, so this was the available live-introspection method):
+//   - `String(name.prefix(5))`, `"\(name.prefix(5))"`, and bare
+//     `name.prefix(5)` concatenation all evaluate to an empty string (or drop
+//     the whole containing Text row) — `.prefix(n)`/`.dropFirst(n)` are
+//     documented as Array methods only, not String methods, and that holds
+//     live: they silently no-op on a String.
+//   - `Array(name)` DOES bridge to `[Character]` correctly for `.count`
+//     (confirmed: `Array("installfest").count` -> 11), but every path taking
+//     a single `Character` back to displayable text fails empty:
+//     `.map { String($0) }.joined()`, `.map { "\($0)" }.joined()`, direct
+//     interpolation of an array-subscript result (`"\(Array(name)[0])"`),
+//     and `"installfest".first` all evaluate empty.
+//   - `.split(separator: "")` (empty separator) also evaluates empty/drops
+//     the row.
+//   - The ONLY confirmed-working string-shortening primitive is
+//     `.split(separator: <literal non-empty Character>)` producing
+//     multi-character Substrings, where `String(substring)` conversion DOES
+//     work (verified: `"installfest".split(separator: "l")` ->
+//     `["insta", "fest"]`, `.map { String($0) }.joined(separator: "|")` ->
+//     `"insta|fest"`). This is not usable for generic N-character truncation
+//     since it depends on a separator character existing at the right
+//     position.
+// Given this hard interpreter limitation, truncation here is done VISUALLY
+// via `.lineLimit(1)` + `.truncationMode(.tail)` + a narrow `.frame` (all
+// confirmed-supported modifiers per the authoring guide) rather than a
+// literal 5-character string cut. The accessible/underlying text value is
+// the FULL basename, not a programmatically-shortened string — this is a
+// genuine cmux 0.64.19 interpreter constraint, not an implementation
+// shortcut. Follow-up: if a literal string-level truncation is required
+// (e.g. for a text-based E2E assertion rather than a visual/pixel check),
+// either file the gap upstream to cmux or revisit the spec scenario wording
+// to describe visual/frame truncation instead of exact character-count
+// truncation.
+//
+// Deployed via chezmoi to ~/.config/cmux/sidebars/claude-sessions.swift
+// (task 3.4 wires the chezmoi source-state; this file has no per-machine
+// templating needs today, so it carries no chezmoi template directives despite the
+// .tmpl extension — see t3-code-patterns' chezmoi naming convention).
+
+func basename(_ path: String) -> String {
+    let parts = path.split(separator: "/")
+    if parts.count > 0 {
+        return String(parts[parts.count - 1])
+    }
+    return path
+}
+
+VStack(alignment: .leading, spacing: 0) {
+    Text("Claude Sessions").font(.headline)
+    Divider()
+    ForEach(workspaces) { w in
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(basename(w.directory))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 44, alignment: .leading)
+                if !w.title.isEmpty {
+                    Text(w.title)
+                        .font(.system(.body))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            HStack(spacing: 4) {
+                if let branch = w.branch {
+                    Text(branch)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    if let dirty = w.dirty {
+                        if dirty {
+                            Text("●")
+                                .font(.system(.caption))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .onTapGesture { cmux("workspace.select", workspace_id: w.id) }
+        Divider()
+    }
+}
+.padding(8)

@@ -157,7 +157,44 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Prototype a minimal left custom sidebar (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) using only cmux's natively-free fields: `title`/`directory` (truncated to 5 chars) + session name, `branch`, `dirty` — verify it renders correctly in a real cmux session before adding smuggled-field rows on top [beads:if-boqe]
+- [x] [3.1] Prototype a minimal left custom sidebar (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) using only cmux's natively-free fields: `title`/`directory` (truncated to 5 chars) + session name, `branch`, `dirty` — verify it renders correctly in a real cmux session before adding smuggled-field rows on top [beads:if-boqe]
+
+  **Finding (cmux 0.64.19, live-verified 2026-07-18)**: exact 5-character string slicing is NOT
+  achievable with the sidebar interpreter's supported subset. Exhaustively confirmed live via a
+  series of disposable diagnostic `.swift` sidebars (deployed to the real Mac, validated + opened
+  + inspected via `System Events` accessibility-tree text dumps — no Screen Recording TCC grant
+  for the SSH session, so `screencapture`/`browser snapshot` were unavailable and the AX-tree text
+  dump was the working live-introspection substitute): `String.prefix(n)`/`.dropFirst(n)` are
+  documented as Array-only methods and silently no-op on a `String` (return empty or drop the
+  containing `Text` row); `Array(name)` bridges to `[Character]` correctly for `.count` but not for
+  further chained methods; `.map { String($0) }` on a String's characters, direct `Character`
+  interpolation via array-subscript, and `"name".first` all evaluate empty; `var` mutation is a
+  silent no-op (accepted syntactically, writes never persist) and a self-recursive `func` blanks
+  the entire render (evaluation budget or missing self-reference support). The only confirmed
+  working string-shortening primitive is `.split(separator: <literal char>)` producing multi-char
+  `Substring`s (`String(substring)` conversion works), not usable for generic positional
+  truncation. Landed truncation as VISUAL truncation instead
+  (`.lineLimit(1)` + `.truncationMode(.tail)` + `.frame(maxWidth: 44)`, all confirmed-supported
+  modifiers) — the accessible/underlying text value is the full basename, not a
+  programmatically-shortened string; this is a real interpreter constraint, not a shortcut. Filed
+  as a note for a later spec-wording pass (task 4.2's live E2E check should assert visual/frame
+  truncation, not an exact "insta…" string).
+
+  Live-verified end to end on the real Mac (`ssh mac`, cmux 0.64.19): `cmux sidebar validate
+  claude-sessions` → `OK ... 1 valid, 0 invalid`; `cmux sidebar open claude-sessions` rendered a
+  real pane whose AX-tree text dump showed `Claude Sessions` (header) followed by one row per real
+  live workspace — `installfest`/`if` (directory basename + title), `brown`, `tc` — matching the
+  three actual open workspaces (`if`, `brown`, `tc`) with no interpreter errors and no crash;
+  branch/dirty rows correctly omitted for these three SSH-backed workspaces since their live
+  `branch` field is currently nil (guarded by `if let`, not a bug). Cleanup verified per the
+  session's safety protocol: closed only the disposable diagnostic-sidebar panes this dispatch
+  personally created (never `close-others`); a `cmux list-workspaces` before/after confirmed
+  `workspace:9`/`10`/`11` (`brown`/`tc`/`if`) unaffected. Note: a concurrent session was verified
+  live-testing this identical task on the same shared Mac/checkout at the same time (confirmed via
+  a second `claude` process visible in the target session's own transcript) and had independently
+  reached the same root-cause finding and landed the same visual-truncation fix in this file before
+  this dispatch's own edit — the two converged on byte-identical file content (confirmed via
+  `shasum -a 256` on both the repo source and the Mac-deployed copy).
 - [ ] [3.2] Extend the sidebar with the Claude-state indicator: SF-Symbol/shape stand-in for the Claude mark, solid when `idle`, pulsating opacity when `active` (alternating on `clock` wall-clock parity), pulsing red when `waiting` with reason `permission`; parses the [1.2] encoding from `description` [beads:if-n2oq]
   - depends on: 2.1, 3.1
 - [ ] [3.3] Extend the sidebar with the openspec-status + beads-status row and the compact usage-meter footer (CYAN/YELLOW/RED thresholds ported from `usage.py`), both sourced from the [2.4] writer's smuggled fields [beads:if-6to1]
