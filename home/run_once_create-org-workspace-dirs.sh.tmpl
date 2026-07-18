@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# run_once_create-org-workspace-dirs.sh - chezmoi provisioning for the four
+# org-level workspace directories (brown/priceless/cc/personal).
+#
+# Idempotent: mkdir -p never touches contents of an already-existing directory
+# (whether empty or already holding real projects). ~/dev/cc is the live
+# Claude Code config repo (~/.claude symlinks to it) — this script only
+# ensures the directory exists, never moves/empties it.
+#
+# Runs once per machine (chezmoi tracks by content hash); safe to re-run.
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+export DOTFILES
+
+# Source utilities
+. "$DOTFILES/scripts/utils.sh"
+
+info "Provisioning org workspace directories under ~/dev ..."
+
+for org in brown priceless cc personal; do
+  dir="$HOME/dev/$org"
+  if [[ -d "$dir" ]]; then
+    info "  [x] $dir (already exists, untouched)"
+  else
+    mkdir -p "$dir"
+    success "  [+] $dir (created)"
+  fi
+done

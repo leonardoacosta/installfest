@@ -4,7 +4,7 @@
 # Fields:
 #   code      Short code used for script names and cmux workspaces
 #   name      Human-readable project name
-#   category  One of: "b-and-b", "priceless", "personal"
+#   category  One of: "b-and-b", "priceless", "cc", "personal"
 #   icon      Emoji icon for Raycast metadata
 #   path      Relative path from home dir (e.g. "dev/oo" or ".claude")
 #   tiers     Deployment tiers: "remote" (SSH homelab), "local" (Mac), "cloudpc" (SSH cloudpc)
@@ -116,6 +116,14 @@ tiers = ["remote"]
 # =============================================================================
 
 [[projects]]
+code = "priceless"
+name = "Priceless"
+category = "priceless"
+icon = "💎"
+path = "dev/priceless"
+tiers = ["remote", "local"]
+
+[[projects]]
 code = "oo"
 name = "Otaku Odyssey"
 category = "priceless"
@@ -166,6 +174,14 @@ tiers = ["remote", "local"]
 # =============================================================================
 # Personal Projects
 # =============================================================================
+
+[[projects]]
+code = "personal"
+name = "Personal"
+category = "personal"
+icon = "🏠"
+path = "dev/personal"
+tiers = ["remote", "local"]
 
 [[projects]]
 code = "ap"
@@ -226,7 +242,7 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "cs"
 name = "Card Scope"
-category = "personal"
+category = "priceless"
 icon = "🃏"
 path = "dev/priceless/card-scope"
 tiers = ["remote", "local"]
@@ -234,9 +250,9 @@ tiers = ["remote", "local"]
 [[projects]]
 code = "cc"
 name = "Central Claude"
-category = "personal"
+category = "cc"
 icon = "💻"
-path = ".claude"
+path = "dev/cc"
 tiers = ["remote", "local", "cloudpc"]
 
 [[projects]]

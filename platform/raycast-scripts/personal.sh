@@ -2,15 +2,15 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title ccl
+# @raycast.title personal
 # @raycast.mode silent
 
 # Optional parameters:
-# @raycast.icon 💻
+# @raycast.icon 🏠
 
 # Documentation:
-# @raycast.description Central Claude
+# @raycast.description Personal
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/cc/
+cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/personal/"

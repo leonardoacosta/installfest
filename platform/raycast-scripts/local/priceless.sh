@@ -2,15 +2,15 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title ccl
+# @raycast.title pricelessl
 # @raycast.mode silent
 
 # Optional parameters:
-# @raycast.icon 💻
+# @raycast.icon 💎
 
 # Documentation:
-# @raycast.description Central Claude
+# @raycast.description Priceless
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/cc/
+cursor ~/dev/priceless/
