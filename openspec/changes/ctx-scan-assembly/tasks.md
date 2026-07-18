@@ -14,21 +14,21 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `src/imports.ts`: `@import` chain walker, ≤4 hops, code-fence-aware [beads:if-714m]
+- [x] [2.1] Implement `src/imports.ts`: `@import` chain walker, ≤4 hops, code-fence-aware [beads:if-714m]
   (an `@`-prefixed token inside a fenced code block is never resolved as an import).
   - depends on: 1.1
-- [ ] [2.2] Implement nested-CLAUDE.md subtree mapping in `src/assembly.ts`: identify non-root [beads:if-rlmt]
+- [x] [2.2] Implement nested-CLAUDE.md subtree mapping in `src/assembly.ts`: identify non-root [beads:if-rlmt]
   CLAUDE.md files, scope each to its governed subtree, classify as T2 trigger-paid.
   - depends on: 1.1
-- [ ] [2.3] Implement `src/truncation.ts`: frontmatter parsing (gray-matter, multiline YAML) for [beads:if-5lpf]
+- [x] [2.3] Implement `src/truncation.ts`: frontmatter parsing (gray-matter, multiline YAML) for [beads:if-5lpf]
   skills/commands/agents, 1,536-char per-entry cap, listing budget-fraction cap with
   least-invoked-first drop ordering (sourced from telemetry `tool_name="Skill"` counts when
   reachable, else `order: unknown`), MEMORY.md 200-line/25KB cap, MCP description 2KB cap.
   - depends on: 1.1
-- [ ] [2.4] Implement plugin-surface ingestion in `src/assembly.ts`, reusing `[2.3]`'s truncation [beads:if-101u]
+- [x] [2.4] Implement plugin-surface ingestion in `src/assembly.ts`, reusing `[2.3]`'s truncation [beads:if-101u]
   rules for plugin-provided descriptions/tool surfaces.
   - depends on: 2.3
-- [ ] [2.5] Implement `src/telemetry-probe.ts`: the C4b sequence — endpoint resolution [beads:if-fnwt]
+- [x] [2.5] Implement `src/telemetry-probe.ts`: the C4b sequence — endpoint resolution [beads:if-fnwt]
   (`CTX_SCAN_LOKI_URL` env → `http://localhost:3100` → docker-inspect discovery of the
   `loki`/`victoria-metrics` containers → Grafana datasource-proxy fallback via `GRAFANA_URL` +
   `GRAFANA_SA_TOKEN`), schema self-verification (labels + sampled recent events, asserting the
@@ -37,12 +37,12 @@ stack: t3
   resolution or assertion failure degrades the affected feature to `unavailable` with the reason
   recorded, exit 0 either way.
   - depends on: 1.1
-- [ ] [2.6] Implement hook-size ingestion: consume `hook_output_metrics` events via `[2.5]`'s [beads:if-5ema]
+- [x] [2.6] Implement hook-size ingestion: consume `hook_output_metrics` events via `[2.5]`'s [beads:if-5ema]
   probe module when reachable; fall back to `--probe-hooks` (execute the hook with a timeout,
   measure stdout) when telemetry is unreachable; render `unknown` (never zero) when neither
   source is available.
   - depends on: 2.5
-- [ ] [2.7] Implement `src/calibrate.ts` and the `ctx-scan calibrate` command: parse a pasted [beads:if-lmxg]
+- [x] [2.7] Implement `src/calibrate.ts` and the `ctx-scan calibrate` command: parse a pasted [beads:if-lmxg]
   `/context` output, or (default when reachable) `--from-telemetry` — pull the first
   `api_request` per session's `cache_read_tokens`/`cache_creation_tokens` via `[2.5]`'s probe and
   fit the chars→tokens ratio against it.
