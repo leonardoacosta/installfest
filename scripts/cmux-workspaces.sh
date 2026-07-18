@@ -122,9 +122,7 @@ get_color() {
 
 # Layout:
 #   ┌──────────────┬──────────────┐
-#   │              │   nvim .      │
-#   │  Claude Code ├──────────────┤
-#   │              │   lazygit     │
+#   │  Claude Code │   nvim .      │
 #   └──────────────┴──────────────┘
 
 wait_for_cmux() {
@@ -167,7 +165,7 @@ find_workspace_uuid() {
 pane_exec() {
   local ws="$1" surface="$2" full_path="$3" cmd="$4" code="${5:-}"
   # Workspace activation: source the org profile (env + wrappers PATH) so every
-  # pane (nvim/claude/lazygit) inherits the correct identity. wsenv resolves the
+  # pane (nvim/claude) inherits the correct identity. wsenv resolves the
   # org from $code via projects.toml; harmless no-op if the profile is absent.
   local ws_activate=""
   if [[ -n "$code" ]]; then
@@ -344,7 +342,7 @@ populate_workspace() {
   # monochrome); wsenv --flags supplies the org-specific launch flags ws-claude used
   # to inject via its generated layout. Local mode keeps ws-claude/zellij unchanged —
   # this was only tested against the SSH-disconnect case, not local persistence.
-  # nvim/lazygit stay plain cmux panes (only the long-running claude session persists).
+  # nvim stays a plain cmux pane (only the long-running claude session persists).
   if [[ "$MODE" == "ssh" ]]; then
     pane_exec "$ws_uuid" "$claude_surface" "$full_path" \
       "export COLORTERM=truecolor && claude \$(wsenv --flags $code 2>/dev/null)" "$code"
@@ -361,16 +359,6 @@ populate_workspace() {
   sleep 0.3
 
   pane_exec "$ws_uuid" "$editor_surface" "$full_path" "nvim ." "$code"
-  sleep 0.3
-
-  # Split down from the editor pane: lazygit
-  local split_out2
-  split_out2=$($CMUX new-split down --workspace "$ws_uuid" --surface "$editor_surface" 2>&1)
-  local git_surface
-  git_surface=$(parse_surface "$split_out2")
-  sleep 0.3
-
-  pane_exec "$ws_uuid" "$git_surface" "$full_path" "lazygit" "$code"
 
   echo "  ✓ $code ready"
 }
@@ -434,9 +422,7 @@ Examples:
 
 Layout per workspace:
   ┌──────────────┬──────────────┐
-  │              │  nvim .       │
-  │  claude      ├──────────────┤
-  │              │  lazygit      │
+  │  claude      │  nvim .       │
   └──────────────┴──────────────┘
 HELP
       exit 0
