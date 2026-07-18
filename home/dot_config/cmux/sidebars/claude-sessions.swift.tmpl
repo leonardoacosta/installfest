@@ -96,6 +96,58 @@
 // changing wall-clock value across captures (observed seconds 17, 49, 46;
 // parities 1, 1, 0), so the alternation is driven by real time, not a static
 // value.
+//
+// OPENSPEC/BEADS ROW + USAGE FOOTER (task 3.3,
+// openspec/changes/add-cmux-sidebar-widgets, beads if-6to1): reads the
+// smuggled `openspec` (segment 4), `beads` (segment 5), `usage_5h` (segment
+// 6), `usage_7d` (segment 7) fields populated by scripts/cmux-status-writer.py
+// (task 2.4).
+//
+// FINDING (cmux 0.64.19, beads if-n2oq/if-6to1): positional field indexing was
+// unrecoverable through cmux's split (empty-subsequence collapse, see the
+// STATE INDICATOR finding above and docs/cmux-sidebar-encoding.md § Empty-field
+// sentinel). RESOLVED writer-side, not reader-side: the shared encoder now
+// substitutes a `-` sentinel for every empty field
+// (scripts/lib/cmux_status_encoding.py), so an encoded string has ZERO empty
+// segments and a plain `.split(separator: "|")` reliably returns all 8. The
+// `cc1Field` helper below indexes positionally on that guarantee and maps the
+// `-` sentinel back to "" (fail-closed to "" on any wrong-shape string, e.g. a
+// pre-sentinel old-format description whose split still collapses -- so the
+// smuggled-field rows simply don't render until the next writer pass upgrades
+// the string, never a crash). The task 3.2 state indicator above is
+// deliberately left on its `hasPrefix` matching, which is strictly more robust
+// (works even on a collapsing old-format string) and needs no change for the
+// sentinel form (`CC1|idle|-|...` still has prefix `CC1|idle|`).
+//
+// Usage footer thresholds are ported from apps/cc-tmux/src/cc_tmux/usage.py's
+// `color_for` at integer-percent granularity (the encoding stores usage as an
+// integer percent, not the 0..1 float `color_for` takes): `> 80` -> RED,
+// `>= 50` -> YELLOW, else CYAN -- i.e. p>80 <=> util>0.80 and p>=50 <=>
+// util>=0.50 for integer p, a faithful 1:1 port of color_for's boundaries. The
+// footer is rendered once per panel (not per row): per
+// docs/cmux-sidebar-encoding.md § Usage Carrier the usage figures live on
+// exactly one carrier workspace's description, so a post-list `ForEach` that
+// renders a meter only for the row whose `usage_5h` is non-empty yields exactly
+// one footer (and none when no carrier is present -- the spec's "missing usage
+// data renders no footer" scenario) without needing collection-accumulation
+// primitives the interpreter lacks.
+
+// Positional CC1 field extractor (docs/cmux-sidebar-encoding.md § Swift reader
+// contract). Depends on the writer-side `-` sentinel so `.split` returns all 8
+// segments; returns "" for a wrong-shape string, the magic slot, or the "-"
+// sentinel. Index map: 0=CC1 1=state 2=wait_reason 3=epoch 4=openspec 5=beads
+// 6=usage_5h 7=usage_7d.
+func cc1Field(_ d: String, _ index: Int) -> String {
+    let segs = d.split(separator: "|")
+    if segs.count != 8 {
+        return ""
+    }
+    let v = String(segs[index])
+    if v == "-" {
+        return ""
+    }
+    return v
+}
 
 func basename(_ path: String) -> String {
     let parts = path.split(separator: "/")
@@ -173,10 +225,65 @@ VStack(alignment: .leading, spacing: 0) {
                     }
                 }
             }
+            // openspec / beads smuggled-field row (task 3.3). Each segment is
+            // rendered only when the writer populated it; both empty -> the
+            // HStack renders nothing (zero-height), no extra guard needed.
+            if let d = w.description {
+                let openspecSummary = cc1Field(d, 4)
+                let beadsSummary = cc1Field(d, 5)
+                HStack(spacing: 8) {
+                    if !openspecSummary.isEmpty {
+                        Text("◇ \(openspecSummary)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    if !beadsSummary.isEmpty {
+                        Text("● \(beadsSummary)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+            }
         }
         .padding(.vertical, 4)
         .onTapGesture { cmux("workspace.select", workspace_id: w.id) }
         Divider()
+    }
+    // Compact usage-meter footer (task 3.3), rendered once per panel from the
+    // single usage-carrier workspace (docs/cmux-sidebar-encoding.md § Usage
+    // Carrier). Only the carrier's `usage_5h` is non-empty, so this renders
+    // exactly one row -- and none when no carrier is present (the spec's
+    // "missing usage data renders no footer" scenario). Threshold colors are
+    // ported from usage.py `color_for` at integer-percent granularity: >80 RED,
+    // >=50 YELLOW, else CYAN.
+    ForEach(workspaces) { w in
+        if let d = w.description {
+            let usage5h = cc1Field(d, 6)
+            let usage7d = cc1Field(d, 7)
+            if !usage5h.isEmpty {
+                HStack(spacing: 8) {
+                    Text("Usage")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    if let u5 = Int(usage5h) {
+                        Text("5H \(usage5h)%")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(u5 > 80 ? .red : (u5 >= 50 ? .yellow : .cyan))
+                    }
+                    if let u7 = Int(usage7d) {
+                        Text("7D \(usage7d)%")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(u7 > 80 ? .red : (u7 >= 50 ? .yellow : .cyan))
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+        }
     }
 }
 .padding(8)

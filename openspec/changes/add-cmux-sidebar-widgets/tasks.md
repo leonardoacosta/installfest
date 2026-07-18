@@ -251,9 +251,91 @@ stack: t3
   names now correctly errors `Sidebar file is missing`, confirming no debris left behind. The
   production `.swift` was deployed once more (verbatim, via `scp` — chezmoi wiring is task 3.4)
   and `cmux sidebar validate claude-sessions` returned `1 valid, 0 invalid` as the final check.
-- [ ] [3.3] Extend the sidebar with the openspec-status + beads-status row and the compact usage-meter footer (CYAN/YELLOW/RED thresholds ported from `usage.py`), both sourced from the [2.4] writer's smuggled fields [beads:if-6to1]
+- [x] [3.3] Extend the sidebar with the openspec-status + beads-status row and the compact usage-meter footer (CYAN/YELLOW/RED thresholds ported from `usage.py`), both sourced from the [2.4] writer's smuggled fields [beads:if-6to1]
   - depends on: 2.4, 3.1
-- [ ] [3.4] Wire the sidebar file into chezmoi deployment (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) so it deploys to `~/.config/cmux/sidebars/` on `chezmoi apply` [beads:if-wut0]
+
+  **Design decision (writer-side sentinel, approach 2)**: the smuggled `openspec`/`beads`/
+  `usage` middle fields could NOT be extracted reader-side because task 3.2's finding — cmux's
+  interpreter ignores `.split(separator:"|", omittingEmptySubsequences:false)` and always
+  collapses empty subsequences — makes positional indexing unrecoverable once any field is empty
+  (you cannot tell which segment maps to which field after collapse; that is exactly the
+  information collapse destroys). Live-confirmed this session: an old-format `CC1|||||||`
+  splits to `N=1`, and a partially-empty `CC1|idle|-|1737159050||||` splits to `N=4` (trailing
+  empties dropped). Approach 1 (reader-side content-shape heuristics) is fragile and can't even
+  locate fields after collapse; rejected. **Chosen approach 2**: the shared encoder
+  (`scripts/lib/cmux_status_encoding.py`) now substitutes a single-char `-` sentinel for every
+  empty field, so an encoded string has ZERO empty segments and a plain `.split(separator:"|")`
+  reliably yields all 8 — live-confirmed: `CC1|idle|-|1737159050|3 open, 1 approved|12 ready, 2
+  blocked|85|47` splits to `N=8` with the exact 8 segments intact. The reader (`cc1Field`) indexes
+  positionally and maps `-`→"". Verified compatible: task 3.2's state indicator stays on its
+  `hasPrefix` matching (strictly more robust, `CC1|idle|-|...` still has prefix `CC1|idle|`),
+  needs no change. Round-trip + backward-compat proven in Python (old empty-segment strings decode
+  correctly and self-heal to sentinel form on first re-write); both dual-write writers
+  (`tmux.py` [2.1], `cmux-status-writer.py` [2.4]) import the shared module and were shown to
+  preserve each other's fields through the merged encode. `docs/cmux-sidebar-encoding.md` updated
+  (its reader-contract pseudocode was known-wrong per 3.2's finding — replaced with the
+  sentinel/positional scheme; worked examples + Python contract updated to match).
+  `cc-tmux self-test`: 116/116 passed (unchanged — the encoding module has no self-test coverage,
+  so no count change; round-trip proven via a standalone assertion script instead).
+
+  **Live-verified end to end on the real Mac** (`ssh mac`, cmux 0.64.19), per the incident safety
+  rule. The cmux GUI app was NOT running on arrival (only `cmux-bridge`, no socket) — launched it
+  backgrounded (`open -g -a`) to run the mandatory render check, a reversible/non-destructive act
+  that never touches existing workspaces. BEFORE snapshot: exactly one pre-existing workspace
+  `workspace:1` (`tc`, `selected=true`, desc `CC1|||||||`), recorded off-limits. `cmux sidebar
+  validate claude-sessions` → `1 valid, 0 invalid` (interpreter accepts `cc1Field`, `Int()`,
+  `.cyan`/`.yellow`, and the nested Color ternary). Created disposable workspaces
+  `cmux-evolve-test-if-6to1` (a first attempt's shell-quoting error left an extra same-named
+  disposable — both mine, both off the pre-existing set, both cleaned up).
+  - **Writer-collision finding**: the Mac's launchd `com.leonardoacosta.cmux-status-writer`
+    (120 s `StartInterval`) is running the OLD (pre-sentinel) encoder (this session's change isn't
+    deployed to the Mac's checkout) and read-modify-wrote my seeded description back to old-format
+    empty segments within seconds, breaking the split. Paused it (`launchctl bootout`) for a
+    stable reader test, RESTORED it (`launchctl bootstrap`) at cleanup — verified back in
+    `launchctl list` (`runs=31`, `state=not running` = normal between interval ticks). This is a
+    deployment concern for the E2E batch (the Mac needs this session's writer change pulled), not a
+    reader defect.
+  - **Production render (AX-tree text dump**, System Events accessibility tree — no Screen
+    Recording TCC over SSH, same substitute method as 3.1/3.2): seeded `workspace:3` as the
+    carrier `CC1|idle|-|1737159050|3 open, 1 approved|12 ready, 2 blocked|85|47` and `workspace:2`
+    as sentinel-empty `CC1|idle|-|1737159050|-|-|-|-`. Dump showed: carrier row rendered
+    `◇ 3 open, 1 approved` (openspec) + `● 12 ready, 2 blocked` (beads); the panel footer rendered
+    exactly ONCE — `Usage` / `5H 85%` / `7D 47%` — from the carrier only (proving `Int("85")`/
+    `Int("47")` parse and the carrier-scan `ForEach` yields a single footer); the sentinel-empty
+    workspace rendered its state `Image` but ZERO smuggled rows (fail-closed); the old-format `tc`
+    row rendered no smuggled rows and no indicator (fail-closed via `cc1Field`'s `count!=8` guard).
+  - **Threshold color port** (usage.py `color_for` at integer-percent granularity: `>80`→RED,
+    `>=50`→YELLOW, else CYAN — i.e. `p>80 ⟺ util>0.80`, `p>=50 ⟺ util>=0.50`): a `band()`
+    diagnostic using the identical `Int()`+comparison the footer's `.foregroundColor` ternary uses
+    classified `81=RED  80=YELLOW  65=YELLOW  50=YELLOW  49=CYAN  30=CYAN  0=CYAN` — all three
+    bands covered, both boundaries (`>80`, `>=50`) exact. The actual `.red`/`.yellow`/`.cyan`
+    rendering is proven by `validate` accepting the ternary + the footer rendering live.
+  - **Cleanup** verified: removed my diagnostic sidebar (`diag-6to1.swift`) and the AX-dump
+    scratch; RESTORED the launchd writer; AFTER `cmux workspace list --json` == BEFORE
+    byte-for-byte (only `workspace:1` `tc`, `selected=true`, desc `CC1|||||||`, untouched; zero of
+    my disposable workspaces remaining — they auto-closed on an app restart mid-session). NOTE: a
+    concurrent session is working the SAME `if-6to1` bead — its own `diag-6to1b/c/d.swift`
+    diagnostic files were present on the Mac and left UNTOUCHED (only my no-suffix `diag-6to1.swift`
+    was mine to remove); no repo-file collision observed (my edits to the encoding module / sidebar
+    / doc were intact at commit time).
+- [x] [3.4] Wire the sidebar file into chezmoi deployment (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) so it deploys to `~/.config/cmux/sidebars/` on `chezmoi apply` [beads:if-wut0]
+
+  **Already wired — verified, not assumed.** The file lives at the chezmoi source path
+  `home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl` (repo `.chezmoiroot` = `home/`).
+  `chezmoi managed | grep cmux` lists `.config/cmux/sidebars/claude-sessions.swift`;
+  `chezmoi source-path ~/.config/cmux/sidebars/claude-sessions.swift` resolves back to the `.tmpl`
+  source — so the chezmoi source-state is correctly registered.
+
+  **`.tmpl` suffix decision: KEEP it.** The Swift content contains ZERO Go-template delimiters
+  (`grep '{{\|}}'` → none), so chezmoi's template pass is a pure passthrough — no execution
+  problem, no mangling. `chezmoi diff ~/.config/cmux/sidebars/claude-sessions.swift` rendered the
+  full Swift (including this session's `cc1Field`/footer additions) verbatim with no template
+  errors. Renaming to drop `.tmpl` would be a churn with no benefit (and the file's own header
+  comment already documents why it carries the extension without directives). A targeted
+  `chezmoi apply ~/.config/cmux/sidebars/claude-sessions.swift` (single-path, avoiding the
+  full-apply unrelated-drift halt) succeeded; a follow-up `chezmoi diff` was empty and a byte
+  comparison (`diff <(chezmoi cat …) <deployed>`) confirmed the deployed file is byte-identical to
+  the chezmoi-rendered source, with the 3.3 additions present.
 
 ## E2E Batch
 
