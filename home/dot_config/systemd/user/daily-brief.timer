@@ -1,0 +1,11 @@
+[Unit]
+Description=Run daily-brief.service every morning at 06:00
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+# Catches up on wake if the timer was missed (e.g. laptop asleep at 6am).
+Persistent=true
+Unit=daily-brief.service
+
+[Install]
+WantedBy=timers.target

@@ -16,10 +16,10 @@ stack: t3
 
 ## API Batch
 
-- [ ] 2.1 Implement radar action client in `src/sources/mx.ts`: `POST /triage/{id}/snooze` and `POST /triage/{id}/status` unauthenticated first, on 401 retry once with `Authorization: Bearer` read from `~/.mx/gateway.env`, return structured result (never throw) for inline UI rendering [beads:if-oq5o]
-- [ ] 2.2 Add `home/dot_config/systemd/user/daily-brief.service` (Type=oneshot, ExecStart running `bun run` on the collect entrypoint with `--open-widget`, fail-soft wrapper so a bad morning never marks the unit failed) and `daily-brief.timer` (`OnCalendar=*-*-* 06:00:00`, `Persistent=true`, WantedBy=timers.target) [beads:if-5rsx]
-- [ ] 2.3 Add `home/Library/LaunchAgents/com.leonardoacosta.daily-brief.plist` (StartCalendarInterval 06:00 running the same collect --open-widget entrypoint via bun) [beads:if-iyz4]
-- [ ] 2.4 Register both units in `home/run_onchange_after_install-user-schedulers.sh.tmpl` with a bun-absence guard: sha256sum include lines at top, timer enabled in the Linux loop ONLY when `command -v bun` succeeds (warn + skip otherwise, chezmoi apply still exits 0 — the if-vit.1 brick class), plist in the macOS bootstrap list [beads:if-epc5]
+- [x] 2.1 Implement radar action client in `src/sources/mx.ts`: `POST /triage/{id}/snooze` and `POST /triage/{id}/status` unauthenticated first, on 401 retry once with `Authorization: Bearer` read from `~/.mx/gateway.env`, return structured result (never throw) for inline UI rendering [beads:if-oq5o]
+- [x] 2.2 Add `home/dot_config/systemd/user/daily-brief.service` (Type=oneshot, ExecStart running `bun run` on the collect entrypoint with `--open-widget`, fail-soft wrapper so a bad morning never marks the unit failed) and `daily-brief.timer` (`OnCalendar=*-*-* 06:00:00`, `Persistent=true`, WantedBy=timers.target) [beads:if-5rsx]
+- [x] 2.3 Add `home/Library/LaunchAgents/com.leonardoacosta.daily-brief.plist` (StartCalendarInterval 06:00 running the same collect --open-widget entrypoint via bun) [beads:if-iyz4]
+- [x] 2.4 Register both units in `home/run_onchange_after_install-user-schedulers.sh.tmpl` with a bun-absence guard: sha256sum include lines at top, timer enabled in the Linux loop ONLY when `command -v bun` succeeds (warn + skip otherwise, chezmoi apply still exits 0 — the if-vit.1 brick class), plist in the macOS bootstrap list [beads:if-epc5]
 
 ## UI Batch
 

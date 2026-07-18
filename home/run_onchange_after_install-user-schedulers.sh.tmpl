@@ -5,12 +5,14 @@
 #
 #   weekly-cleanup script:    {{ include "dot_local/bin/executable_weekly-cleanup" | sha256sum }}
 #   nexus-listener script:    {{ include "dot_local/share/nexus-listener.ts" | sha256sum }}
+#   daily-brief entry script: {{ include "../apps/daily-brief/src/index.tsx" | sha256sum }}
 {{- if eq .chezmoi.os "darwin" }}
 #   weekly-cleanup plist:     {{ include "Library/LaunchAgents/com.leonardoacosta.weekly-cleanup.plist" | sha256sum }}
 #   nexus-listener plist:     {{ include "Library/LaunchAgents/com.leonardoacosta.nexus-listener.plist" | sha256sum }}
 #   cmux-bridge plist:        {{ include "Library/LaunchAgents/com.leonardoacosta.cmux-bridge.plist" | sha256sum }}
 #   cmux-bridge main.rs:      {{ include "../ssh-mesh/scripts/remote/cmux-bridge/src/main.rs" | sha256sum }}
 #   cmux-bridge Cargo.toml:   {{ include "../ssh-mesh/scripts/remote/cmux-bridge/Cargo.toml" | sha256sum }}
+#   daily-brief plist:        {{ include "Library/LaunchAgents/com.leonardoacosta.daily-brief.plist" | sha256sum }}
 {{- else if eq .chezmoi.os "linux" }}
 #   weekly-cleanup service:   {{ include "dot_config/systemd/user/weekly-cleanup.service" | sha256sum }}
 #   weekly-cleanup timer:     {{ include "dot_config/systemd/user/weekly-cleanup.timer" | sha256sum }}
@@ -22,6 +24,8 @@
 #   mesh-heartbeat script:    {{ include "../scripts/mesh-heartbeat.sh" | sha256sum }}
 #   mesh-heartbeat service:   {{ include "dot_config/systemd/user/mesh-heartbeat.service" | sha256sum }}
 #   mesh-heartbeat timer:     {{ include "dot_config/systemd/user/mesh-heartbeat.timer" | sha256sum }}
+#   daily-brief service:      {{ include "dot_config/systemd/user/daily-brief.service" | sha256sum }}
+#   daily-brief timer:        {{ include "dot_config/systemd/user/daily-brief.timer" | sha256sum }}
 {{- end }}
 
 set -euo pipefail
@@ -71,6 +75,7 @@ case "$(uname -s)" in
     }
     bootstrap_plist com.leonardoacosta.weekly-cleanup
     bootstrap_plist com.leonardoacosta.nexus-listener
+    bootstrap_plist com.leonardoacosta.daily-brief
 
     # ── cmux-bridge: build-from-source (if-j8g) ────────────────────────
     # No prebuilt binary is committed (arch-specific, non-reproducible) —
@@ -114,7 +119,21 @@ case "$(uname -s)" in
     # next boot (clearing reboot-orphaned slots); start manually if needed.
     systemctl --user enable cmux-relay-cleanup.service
     echo "scheduler: enabled cmux-relay-cleanup.service (runs at boot)"
-    systemctl --user list-timers weekly-cleanup.timer az-reauth-nudge.timer mesh-heartbeat.timer --no-pager 2>/dev/null || true
+
+    # ── daily-brief: bun-dependent, guarded (if-vit.1 bun-less-brick class) ──
+    # daily-brief.service's ExecStart runs `bun run ...` -- on a bun-less box
+    # enabling it anyway would either fail the enable/start outright or leave
+    # a unit that only ever crash-loops. Skip with a warning instead; never
+    # `exit` non-zero here, so a missing bun never aborts the rest of this
+    # run_onchange script (or chezmoi apply as a whole).
+    if command -v bun >/dev/null 2>&1; then
+      systemctl --user enable --now daily-brief.timer
+      echo "scheduler: enabled daily-brief.timer"
+    else
+      echo "scheduler: bun not available; skipping daily-brief.timer (install bun first)"
+    fi
+
+    systemctl --user list-timers weekly-cleanup.timer az-reauth-nudge.timer mesh-heartbeat.timer daily-brief.timer --no-pager 2>/dev/null || true
     systemctl --user status nexus-listener.service --no-pager 2>/dev/null | head -5 || true
     ;;
 

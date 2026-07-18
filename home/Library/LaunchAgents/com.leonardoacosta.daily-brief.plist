@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.leonardoacosta.daily-brief</string>
+
+    <!--
+      Runs the daily-brief collector + widget-open entrypoint via Bun.
+      Absolute bun path: launchd does not inherit an interactive shell
+      PATH. collect.ts has its own top-level try/catch and always exits 0
+      on internal failure (see apps/daily-brief/src/collect.ts), so no
+      extra fail-soft wrapper is needed here the way ExecStart="-" is used
+      on the systemd side.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/bun</string>
+        <string>run</string>
+        <string>/Users/leonardoacosta/dev/personal/installfest/apps/daily-brief/src/index.tsx</string>
+        <string>collect</string>
+        <string>--open-widget</string>
+    </array>
+
+    <!--
+      06:00 local time daily. RunAtLoad=false so apply doesn't kick a
+      collection mid-session: only the scheduled time triggers. If the
+      Mac is asleep at 06:00, launchd fires it on next wake (same as the
+      systemd Persistent=true behavior).
+    -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>6</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/leonardoacosta/.local/bin:/Users/leonardoacosta/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/sbin:/usr/sbin</string>
+        <key>HOME</key>
+        <string>/Users/leonardoacosta</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/leonardoacosta/.local/state/daily-brief.launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/leonardoacosta/.local/state/daily-brief.launchd.log</string>
+</dict>
+</plist>

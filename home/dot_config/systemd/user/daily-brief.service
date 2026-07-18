@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily brief collection (mx + open-items + docs snapshot) + widget open
+Documentation=file:%h/dev/personal/installfest/apps/daily-brief/src/index.tsx
+
+[Service]
+Type=oneshot
+# Leading "-" marks a non-zero exit as ignored -- collect.ts already has its
+# own top-level try/catch that writes a best-effort snapshot and exits 0 on
+# internal failure, but the unit shape must not depend solely on that: a bad
+# morning (crashed Bun runtime, OOM, etc.) must never mark this unit failed.
+ExecStart=-/usr/bin/bun run %h/dev/personal/installfest/apps/daily-brief/src/index.tsx collect --open-widget
+EnvironmentFile=-%h/.env
+StandardOutput=append:%h/.local/state/daily-brief.systemd.log
+StandardError=append:%h/.local/state/daily-brief.systemd.log
+# Don't restart on failure -- the timer retries next morning; a stuck run
+# should not chain-retry mid-morning.
+Restart=no
