@@ -247,5 +247,8 @@ program
 // the `ctx-scan` bin entry) — not when `buildFleet` is imported for tests,
 // which would otherwise hand commander the test runner's own argv.
 if (import.meta.main) {
-  program.parse();
+  // parseAsync (not parse) — both `scan` and `calibrate` actions are async;
+  // parse() does not await the action promise, so a rejection surfaces as an
+  // unhandled-rejection crash instead of a clean CLI error path.
+  await program.parseAsync();
 }
