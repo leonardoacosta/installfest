@@ -15,7 +15,10 @@ umbrella CLI entirely: its provenance-inspection and tracker-query jobs fold int
 (`scripts/cmux-workspaces.sh`), the one remaining workspace-facing command, alongside a new
 `mux scan` for the detection work. Physically `cd`-ing into `~/dev/<org>` (chpwd already
 auto-activates identity via `wsenv`) becomes the actual "which workspace am I in" signal —
-no separate CLI needed to answer that question.
+no separate CLI needed to answer that question. `mux` also drops its letter-group bulk-launch
+("suite") mode entirely — every org root becomes reachable as an ordinary single-workspace
+project code (`mux brown`/`mux priceless`/`mux cc`/`mux personal`), matching how `brown` and
+`cc` already work today.
 
 ## Context
 - Extends: `packages/workspace/bin/wsenv`, `home/projects.toml`,
@@ -30,6 +33,9 @@ no separate CLI needed to answer that question.
   correction on the CLI shape — `wk` as a second, parallel command-center surface duplicated
   what `mux` already does (both read `projects.toml`, both group by org); collapsing to one
   surface is the resolution.
+- Also deprecates: `mux`'s letter-group bulk-launch mode (`b`/`c`/`p`, `GROUP_BB`/
+  `GROUP_PRICELESS`/`GROUP_PERSONAL`) — every org root becomes an ordinary single-workspace
+  project code instead (see Requirements)
 - touches: `home/projects.toml`, `scripts/cmux-workspaces.sh`,
   `packages/workspace/bin/{wk,wk-doctor,wk-ready,ws-doctor,ws-ready,ws-scan}`,
   `packages/workspace/lib/org-detect.sh`, `home/run_once_create-org-workspace-dirs.sh.tmpl`,
@@ -37,7 +43,7 @@ no separate CLI needed to answer that question.
   `packages/workspace/README.md`
 
 ## Motivation
-Two problems surfaced in the same session. First, `home/projects.toml` has drifted from
+Three problems surfaced in the same session. First, `home/projects.toml` has drifted from
 reality: several `path` fields already describe a nested `dev/<org>/<project>` layout (e.g.
 `ba` -> `dev/brown/b3admin`) that was never realized on the Mac — `~/dev` there is a flat pile
 of ~50 sibling directories, while the **homelab machine already completed this exact
@@ -46,9 +52,13 @@ session). Second, once `wk` started growing a "show me every org" display, it be
 and `mux` were becoming two overlapping command-center surfaces reading the same registry for
 adjacent purposes (`wk`: identity/status/tracker-ready; `mux`: bulk-launch workspaces) — and
 `mux` already calls `wsenv` per-pane for identity activation, so it's the one with the deeper
-existing integration. Leo's call: fold `wk`'s provenance (`wk doctor`) and tracker-query
-(`wk ready`) jobs into `mux`, and let the physical `~/dev/<org>` directories — not a CLI command
-— be the answer to "what workspace am I in."
+existing integration. Third, once the four org directories became real, physical places, Leo
+flagged that `mux <orgid>` should behave like opening any other single workspace — not fan out
+into a "suite" of one workspace per project the way the legacy `mux b`/`mux c`/`mux p` group
+letters do. Leo's calls: fold `wk`'s provenance (`wk doctor`) and tracker-query (`wk ready`) jobs
+into `mux`, let the physical `~/dev/<org>` directories — not a CLI command — be the answer to
+"what workspace am I in," and drop bulk-launch entirely in favor of the single-workspace-per-code
+model `mux` already uses everywhere else.
 
 ## Requirements
 
@@ -177,30 +187,50 @@ remain directly invocable outside `mux` too, for scripting.
 - When: `mux ready <org>` runs
 - Then: the output matches what `wk ready <org>` produced before this change
 
-### Requirement: `mux`'s bulk-launch groups gain a fourth `cc` bucket
-`scripts/cmux-workspaces.sh`'s category grouping (`GROUP_BB`/`GROUP_PRICELESS`/`GROUP_PERSONAL`,
-selected via `mux b`/`mux c`/`mux p`) SHALL gain a fourth `GROUP_CC` bucket selected via `mux cc`,
-so a project registered under the new `cc` category is discoverable via bulk-launch the same way
-the other three orgs are, not silently dropped from every group (today's `groups = {"b-and-b":
-[], "priceless": [], "personal": []}` dict has no `cc` key, so a `cc`-category project would be
-invisible to `mux b`/`c`/`p` even though `mux <code>` direct-launch would still work). `mux
---list` and `mux --help` SHALL be extended to show the `cc` group alongside the existing three.
-`scripts/mux-remote.sh`'s AppleScript picker (3-bucket, and already using the stale `"client"`
-label instead of `"priceless"`) is OUT of scope for this proposal — flagged as pre-existing drift,
-not fixed here.
+### Requirement: bulk-launch ("suite") mode is removed; every org root becomes a single-code launch target
+`scripts/cmux-workspaces.sh`'s (`mux`) letter-group bulk-launch mode (`mux b`/`mux c`/`mux p`,
+`GROUP_BB`/`GROUP_PRICELESS`/`GROUP_PERSONAL`, and the group-driven `CANONICAL_ORDER` reordering
+pass) SHALL be removed entirely — `mux` MUST NOT open more than one workspace per invocation
+going forward. `home/projects.toml` gains two new self-referential `[[projects]]` entries —
+`priceless` (`path = "dev/priceless"`, `category = "priceless"`) and `personal`
+(`path = "dev/personal"`, `category = "personal"`) — mirroring the pattern the already-registered
+`brown` (`b-and-b`, `dev/brown`) and `cc` (`cc`, `dev/cc`) entries establish: each org's physical
+root is reachable as an ordinary project code, and `mux <code>` already opens exactly one
+workspace, never a suite. This makes `mux brown`/`mux priceless`/`mux cc`/`mux personal` the
+single-workspace org-root launch mechanism, with no new argument type or dispatch branch needed —
+it reuses the existing per-code launch path verbatim. Individual project launches (`mux fb`,
+`mux ws`, `mux oo`, ...) are unaffected. `CANONICAL_ORDER` (used only to reorder whichever
+workspaces are currently open, across any invocations) is rebuilt from every registered code in
+registry order (grouped by `category`, then declaration order) rather than from the removed
+per-letter group arrays.
 
-#### Scenario: mux cc bulk-launches every cc-org project
-- Given: `home/projects.toml` has at least one entry with `category = "cc"`
-- When: `mux cc` runs
-- Then: every `cc`-category project is launched, the same way `mux b`/`mux c`/`mux p` launch
-  their respective groups
+#### Scenario: mux <org> opens exactly one workspace
+- Given: `home/projects.toml` has the `priceless` self-referential entry
+- When: `mux priceless` runs
+- Then: exactly one workspace opens, rooted at `~/dev/priceless`, and no other workspace is
+  created as a side effect
+
+#### Scenario: an org root with no git repo skips the lazygit pane
+- Given: `mux priceless` resolves to `~/dev/priceless`, which has no `.git` at its root (a plain
+  container directory, unlike `brown`/`cc` which are themselves git repos)
+- When: the workspace is populated
+- Then: the workspace has two panes (claude, nvim), not three — `lazygit` is skipped rather than
+  spawned against a non-repo and failing
+
+#### Scenario: mux b/c/p no longer resolve
+- Given: this proposal is implemented
+- When: `mux b` runs
+- Then: it is treated as an unknown project code (the same error path as any other unregistered
+  code), not a bulk-launch trigger
 
 ## Scope
 - **IN**: `run_once_` provisioning of the four org directories; `category` enum + `cc`/`cs`
-  registry corrections; git-remote-based org-derivation helper; `mux scan` detection/report/
-  safe-auto-register subcommand; retiring `wk` and folding `wk-doctor`/`wk-ready` into `mux
-  doctor`/`mux ready` (renamed to `ws-doctor`/`ws-ready`); a 4th `cc` bulk-launch group on `mux`;
-  `packages/workspace/README.md` documentation of the convention.
+  registry corrections; two new self-referential `priceless`/`personal` project-code entries;
+  git-remote-based org-derivation helper; `mux scan` detection/report/safe-auto-register
+  subcommand; retiring `wk` and folding `wk-doctor`/`wk-ready` into `mux doctor`/`mux ready`
+  (renamed to `ws-doctor`/`ws-ready`); removing `mux`'s letter-group bulk-launch mode entirely
+  (`b`/`c`/`p`, `GROUP_*` arrays, group-driven reordering); a non-git-root pane-layout fallback
+  (skip lazygit); `packages/workspace/README.md` documentation of the convention.
 - **OUT**: physically moving, renaming, or `mv`-ing any existing project directory or git
   checkout (including resolving the `~/dev/priceless` name collision and the ~7 duplicate-clone
   pairs found on the Mac — `ct`/`civalent`, `mv`/`modern-visa`, `tc`/`tribal-cities`,
@@ -210,30 +240,32 @@ not fixed here.
   machine (already fully migrated, confirmed via SSH this session); rewriting `wsenv`'s existing
   code/cwd -> org resolution logic (unaffected — both `chpwd.zsh` and `mux`'s `pane_exec` keep
   calling it exactly as before); fixing `scripts/mux-remote.sh`'s stale 3-bucket AppleScript
-  picker (pre-existing drift, separate concern).
+  picker (pre-existing drift, itself now further stale since it references the removed `b`/`c`/`p`
+  groups — separate concern, not fixed here).
 
 ## Testing
 | Affected seam | Unit task | E2E task |
 |----------------|-----------|----------|
 | org-derivation helper (`packages/workspace/lib/org-detect.sh`) | [4.1] | N/A — pure shell function, no user-facing flow |
 | `mux scan` (`ws-scan`) detection/report/auto-register | [4.2] | [4.2] (runtime scan against the real `~/dev`, output inspected) |
-| `mux doctor` / `mux ready` / `mux --list` (4th cc group) | [4.3] | [4.3] (runtime output inspected against pre-change `wk doctor`/`wk ready` baseline) |
+| `mux doctor` / `mux ready` / `mux --list` | [4.3] | [4.3] (runtime output inspected against pre-change `wk doctor`/`wk ready` baseline) |
+| `mux <org>` single-workspace launch + non-git-root pane fallback | [4.5] | [4.5] (runtime-launch `mux priceless`, inspect pane count and confirm `mux b` no longer bulk-launches) |
 | `run_once_create-org-workspace-dirs.sh.tmpl` provisioning | [4.4] | [4.4] (runtime `chezmoi apply --dry-run` + idempotency re-run) |
 
 ## Impact
 | Area | Change |
 |------|--------|
-| `home/projects.toml` | `category` enum gains `cc`; `cc` and `cs` entries corrected |
+| `home/projects.toml` | `category` enum gains `cc`; `cc`/`cs` entries corrected; `priceless`/`personal` self-referential entries added |
 | `packages/workspace/bin/wk` | deleted |
 | `packages/workspace/bin/wk-doctor` | renamed to `ws-doctor`, unchanged body |
 | `packages/workspace/bin/wk-ready` | renamed to `ws-ready`, unchanged body |
 | `packages/workspace/bin/ws-scan` | new file |
 | `packages/workspace/lib/org-detect.sh` | new file |
-| `scripts/cmux-workspaces.sh` | gains `ready`/`doctor`/`scan` subcommands + `GROUP_CC` |
+| `scripts/cmux-workspaces.sh` | gains `ready`/`doctor`/`scan` subcommands; loses `b`/`c`/`p` bulk-launch + `GROUP_*` arrays; `pane_exec`/`populate_workspace` skip lazygit when the resolved path has no `.git` |
 | `home/run_once_create-org-workspace-dirs.sh.tmpl` | new file |
 | `home/dot_local/bin/symlink_wk*.tmpl` | deleted (3 files) |
 | `home/dot_local/bin/symlink_ws-{doctor,ready,scan}.tmpl` | new files |
-| `packages/workspace/README.md` | documents the 4-org convention, `mux` as sole CLI surface, known collision |
+| `packages/workspace/README.md` | documents the 4-org convention, `mux` as sole CLI surface, single-workspace-per-code model, known collision |
 
 ## Risks
 | Risk | Mitigation |
@@ -243,4 +275,5 @@ not fixed here.
 | Registry corruption from a buggy TOML-append | `ws-scan` appends via the same `registry_python`/`tomllib` read-then-append pattern `wsenv`/`ws-ready` already use, never regex/string-splice; task [4.2] requires a runtime dry-run inspection before any real append |
 | Duplicate clones get silently merged/deleted | Explicitly out of scope — reported only, never touched |
 | Renaming wk-doctor/wk-ready silently changes behavior | Requirement explicitly mandates verbatim body preservation (rename-and-rehome, not rewrite); task [4.3] runtime-compares output against the pre-change baseline |
-| Muscle memory breaks (`wk doctor`/`wk ready` no longer exist) | One-time, deliberate: Leo's explicit call this session, not an incidental break |
+| Muscle memory breaks (`wk doctor`/`wk ready`, `mux b`/`c`/`p` no longer exist) | One-time, deliberate: Leo's explicit calls this session, not an incidental break |
+| `lazygit` crashes/errors against a non-git org root | Requirement mandates detecting `.git` absence and skipping the pane rather than spawning `lazygit` there; task [4.5] runtime-verifies |

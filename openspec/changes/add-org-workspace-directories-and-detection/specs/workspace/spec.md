@@ -125,15 +125,38 @@ rename-and-rehome, not a rewrite. `ws-doctor`/`ws-ready` get their own chezmoi s
 - When: `mux ready <org>` runs
 - Then: the output matches what `wk ready <org>` produced before this change
 
-### Requirement: `mux`'s bulk-launch groups gain a fourth `cc` bucket
-`scripts/cmux-workspaces.sh`'s category grouping (`GROUP_BB`/`GROUP_PRICELESS`/`GROUP_PERSONAL`,
-selected via `mux b`/`mux c`/`mux p`) SHALL gain a fourth `GROUP_CC` bucket selected via `mux cc`,
-so a project registered under the new `cc` category is discoverable via bulk-launch the same way
-the other three orgs are, not silently dropped from every group. `mux --list` and `mux --help`
-SHALL be extended to show the `cc` group alongside the existing three.
+### Requirement: bulk-launch ("suite") mode is removed; every org root becomes a single-code launch target
+`scripts/cmux-workspaces.sh`'s (`mux`) letter-group bulk-launch mode (`mux b`/`mux c`/`mux p`,
+`GROUP_BB`/`GROUP_PRICELESS`/`GROUP_PERSONAL`, and the group-driven `CANONICAL_ORDER` reordering
+pass) SHALL be removed entirely — `mux` MUST NOT open more than one workspace per invocation
+going forward. `home/projects.toml` gains two new self-referential `[[projects]]` entries —
+`priceless` (`path = "dev/priceless"`, `category = "priceless"`) and `personal`
+(`path = "dev/personal"`, `category = "personal"`) — mirroring the pattern the already-registered
+`brown` (`b-and-b`, `dev/brown`) and `cc` (`cc`, `dev/cc`) entries establish: each org's physical
+root is reachable as an ordinary project code, and `mux <code>` already opens exactly one
+workspace, never a suite. This makes `mux brown`/`mux priceless`/`mux cc`/`mux personal` the
+single-workspace org-root launch mechanism, with no new argument type or dispatch branch needed —
+it reuses the existing per-code launch path verbatim. Individual project launches (`mux fb`,
+`mux ws`, `mux oo`, ...) are unaffected. `CANONICAL_ORDER` (used only to reorder whichever
+workspaces are currently open, across any invocations) is rebuilt from every registered code in
+registry order (grouped by `category`, then declaration order) rather than from the removed
+per-letter group arrays.
 
-#### Scenario: mux cc bulk-launches every cc-org project
-- Given: `home/projects.toml` has at least one entry with `category = "cc"`
-- When: `mux cc` runs
-- Then: every `cc`-category project is launched, the same way `mux b`/`mux c`/`mux p` launch
-  their respective groups
+#### Scenario: mux <org> opens exactly one workspace
+- Given: `home/projects.toml` has the `priceless` self-referential entry
+- When: `mux priceless` runs
+- Then: exactly one workspace opens, rooted at `~/dev/priceless`, and no other workspace is
+  created as a side effect
+
+#### Scenario: an org root with no git repo skips the lazygit pane
+- Given: `mux priceless` resolves to `~/dev/priceless`, which has no `.git` at its root (a plain
+  container directory, unlike `brown`/`cc` which are themselves git repos)
+- When: the workspace is populated
+- Then: the workspace has two panes (claude, nvim), not three — `lazygit` is skipped rather than
+  spawned against a non-repo and failing
+
+#### Scenario: mux b/c/p no longer resolve
+- Given: this proposal is implemented
+- When: `mux b` runs
+- Then: it is treated as an unknown project code (the same error path as any other unregistered
+  code), not a bulk-launch trigger

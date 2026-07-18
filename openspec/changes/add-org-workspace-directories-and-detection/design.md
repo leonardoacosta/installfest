@@ -92,8 +92,33 @@ an explicit rename-and-rehome, verified by comparing output against the pre-chan
 inspection, tracker-ready query) is real and unrelated to the umbrella-dispatcher question — only
 `wk` itself (the thin `wk-<name>` PATH-scanning shim) was the redundant layer.
 
+## Key decision: org-root launch reuses the existing single-code path, no new argument type
+
+Mid-session, Leo flagged that `mux <orgid>` should behave like any other single-workspace launch
+— never fan out into a suite. The naive fix would add a parallel "org launch mode" (a new arg
+shape, a new dispatch branch, its own pane-layout logic). But `home/projects.toml` already proves
+a simpler mechanism works: `brown` (`code = "brown"`, `path = "dev/brown"`) is registered exactly
+like any other project, and `mux brown` already opens one workspace at `~/dev/brown` today — no
+special-casing needed, because `mux <code>` has never had bulk-launch semantics; only the
+`b`/`c`/`p` *group letters* did. `cc` will work the same way once its `path` is corrected to
+`dev/cc` (Requirement above). So the actual gap is narrow: `priceless` and `personal` are
+categories, not registered codes — there is no `[[projects]]` row pointing at their org roots.
+Adding two self-referential rows (mirroring `brown`) closes that gap using the mechanism that
+already exists, rather than inventing a second one (Reader Gate: reuse before reinvention). The
+group letters and their bulk-launch machinery are then dead weight and get deleted outright,
+per Leo's explicit choice to drop suite-mode entirely rather than keep it behind a flag.
+
+**Non-git org roots need a pane-layout fallback.** `brown` and `cc` are themselves git repos at
+their root (confirmed via SSH this session — `brown` even carries its own `.beads`, matching the
+`central-planning` hydration-hub pattern), so a `lazygit` pane there works today. `priceless` and
+`personal`, per the homelab's own layout, are plain container directories with no `.git` at their
+root — `lazygit` would error immediately if launched there. `populate_workspace` needs a `[[ -d
+"$full_path/.git" ]]` check (or equivalent) to skip that pane rather than open a broken one; the
+claude and nvim panes are unaffected either way (both work fine in a non-git directory).
+
 ## Non-goals restated
 
 No repo `mv`, no dedup of duplicate clones, no change to `cc-audit`, no homelab-side change
-(already correct), no change to `wsenv`'s resolution algorithm itself — only the registry data
-and a new detection/display layer around it.
+(already correct), no change to `wsenv`'s resolution algorithm itself, no bulk/suite launch mode
+in any form (not even behind a flag — dropped entirely per Leo's explicit choice) — only the
+registry data and a new detection/display layer around it.
