@@ -80,7 +80,7 @@ def main():
 
     elif cmd == "set-status":
         if len(sys.argv) < 4:
-            print("Usage: cmux-bridge set-status <key> <value> [--color hex] [--icon name]", file=sys.stderr)
+            print("Usage: cmux-bridge set-status <key> <value> [--color hex] [--icon name] [--priority n]", file=sys.stderr)
             sys.exit(1)
         key, value = sys.argv[2], sys.argv[3]
         params = {"key": key, "value": value}
@@ -93,6 +93,11 @@ def main():
                 params["color"] = args[i + 1]
             elif arg == "--icon" and i + 1 < len(args):
                 params["icon"] = args[i + 1]
+            elif arg == "--priority" and i + 1 < len(args):
+                # cmux v0.64.7 added --priority to the native `cmux set-status` CLI
+                # (sort priority in the sidebar, default 0); mirrored here since this
+                # script speaks the same set_status socket method directly.
+                params["priority"] = int(args[i + 1])
         resp = send_command("set_status", params)
         if resp:
             print(json.dumps(resp, indent=2))
