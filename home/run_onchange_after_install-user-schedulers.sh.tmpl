@@ -102,15 +102,22 @@ case "$(uname -s)" in
       echo "scheduler: systemctl not available; skipping"
       exit 0
     fi
+    HAVE_BUN=1
     if ! command -v bun >/dev/null 2>&1; then
+      HAVE_BUN=0
       echo "scheduler: bun not available; skipping nexus-listener (install bun first)"
     fi
     systemctl --user daemon-reload
     # Stop/disable the legacy bash notifier service if it's installed.
     systemctl --user stop nexus-notifier.service 2>/dev/null || true
     systemctl --user disable nexus-notifier.service 2>/dev/null || true
-    # Enable our managed units.
+    # Enable our managed units. nexus-listener requires bun at runtime — skip
+    # it entirely (not just warn) when bun is absent, or `enable --now` fails
+    # and aborts the whole chezmoi apply under set -e (if-vit.1).
     for unit in weekly-cleanup.timer nexus-listener.service az-reauth-nudge.timer mesh-heartbeat.timer; do
+      if [ "$unit" = "nexus-listener.service" ] && [ "$HAVE_BUN" -eq 0 ]; then
+        continue
+      fi
       systemctl --user enable --now "$unit"
       echo "scheduler: enabled ${unit}"
     done
