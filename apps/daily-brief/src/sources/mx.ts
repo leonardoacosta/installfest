@@ -28,7 +28,10 @@ import { join } from "node:path";
 
 const MX_BASE_URL = process.env.MX_GATEWAY_URL ?? "http://127.0.0.1:8799";
 const TIMEOUT_MS = 3000;
-const GATEWAY_ENV_PATH = join(homedir(), ".mx/gateway.env");
+// Overridable so tests can supply a fixture gateway.env instead of reading
+// Leo's real token file — same env-override idiom as MX_GATEWAY_URL above
+// (add-daily-brief-tui task 4.3).
+const GATEWAY_ENV_PATH = process.env.MX_GATEWAY_ENV_PATH ?? join(homedir(), ".mx/gateway.env");
 
 export interface MxAvailable<T> {
   available: true;

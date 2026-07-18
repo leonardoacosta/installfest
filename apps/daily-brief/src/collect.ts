@@ -30,7 +30,11 @@ import {
   type TriageItem,
 } from "./sources/mx";
 
-const STATE_DIR = join(homedir(), ".local/state/daily-brief");
+// Overridable so tests can point collect() at a scratch directory instead of
+// permanently writing into (and clobbering) the real daily-brief state on
+// this machine — same env-override idiom as MX_GATEWAY_URL in sources/mx.ts
+// and DOTFILES in sources/openItems.ts (add-daily-brief-tui task 4.1).
+const STATE_DIR = process.env.DAILY_BRIEF_STATE_DIR ?? join(homedir(), ".local/state/daily-brief");
 const CALENDAR_SOURCE_IDS = new Set(["gcal", "outlook-calendar"]);
 const CALENDAR_STALE_MS = 24 * 60 * 60 * 1000;
 

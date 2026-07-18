@@ -20,8 +20,17 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const RESULTS_JSONL_PATH = join(homedir(), ".local/state/docs-hygiene-daily/results.jsonl");
-const SWEEP_LAST_RUN_PATH = join(homedir(), ".claude/state/docs-sweep-last-run.json");
+// Overridable so tests can exercise the missing/stale-file paths against a
+// scratch location instead of depending on this machine's real doc-hygiene
+// state (which changes on its own 04:15 timer) — same env-override idiom as
+// MX_GATEWAY_URL in sources/mx.ts and DOTFILES in sources/openItems.ts
+// (add-daily-brief-tui task 4.1).
+const RESULTS_JSONL_PATH =
+  process.env.DAILY_BRIEF_HYGIENE_RESULTS_PATH ??
+  join(homedir(), ".local/state/docs-hygiene-daily/results.jsonl");
+const SWEEP_LAST_RUN_PATH =
+  process.env.DAILY_BRIEF_SWEEP_LAST_RUN_PATH ??
+  join(homedir(), ".claude/state/docs-sweep-last-run.json");
 const STALE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
 
 export interface HygieneEntry {

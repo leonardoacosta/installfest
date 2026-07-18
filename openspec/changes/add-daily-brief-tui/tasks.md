@@ -30,8 +30,8 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 4.1 Add `bun test` suite `test/collect.test.ts`: collector fail-open cases (mx down, one repo erroring, missing docs state) via stubbed fetch/HTTP server, atomic-write interruption, snapshot schema assertions [beads:if-mbm6]
-- [ ] 4.2 Add `test/openItems.test.ts`: fixture projects.toml with an `archive/`-path entry, a beads-less repo, and a normal repo — assert exclusion, silent skip, and inclusion respectively [beads:if-2wo6]
-- [ ] 4.3 Add `test/mxActions.test.ts`: stub server returning 401 then 200 — assert unauthenticated-first, single token retry from a fixture gateway.env, structured error on double failure [beads:if-77uy]
-- [ ] 4.4 Runtime-verify widget injection: disposable Zellij session gets the pinned floating pane with existing panes untouched; tmux-only fallback lands the window before the lowest index without stealing focus; exit 0 with neither mux running [beads:if-gox5]
-- [ ] 4.5 Runtime-verify scheduling: `chezmoi apply --dry-run` shows both units + installer registration; `systemctl --user daemon-reload` + `systemctl --user list-timers daily-brief.timer` (Linux) and `plutil -lint` on the plist (macOS) pass; installer guard exercised on a PATH without bun (warn + skip, exit 0) [beads:if-8gyl]
+- [x] 4.1 Add `bun test` suite `test/collect.test.ts`: collector fail-open cases (mx down, one repo erroring, missing docs state) via stubbed fetch/HTTP server, atomic-write interruption, snapshot schema assertions [beads:if-mbm6]
+- [x] 4.2 Add `test/openItems.test.ts`: fixture projects.toml with an `archive/`-path entry, a beads-less repo, and a normal repo — assert exclusion, silent skip, and inclusion respectively [beads:if-2wo6]
+- [x] 4.3 Add `test/mxActions.test.ts`: stub server returning 401 then 200 — assert unauthenticated-first, single token retry from a fixture gateway.env, structured error on double failure [beads:if-77uy]
+- [x] 4.4 Runtime-verify widget injection: disposable Zellij session gets the pinned floating pane with existing panes untouched; tmux-only fallback lands the window before the lowest index without stealing focus; exit 0 with neither mux running [beads:if-gox5]
+- [x] 4.5 Runtime-verify scheduling: `chezmoi apply --dry-run` shows both units + installer registration; `systemctl --user daemon-reload` + `systemctl --user list-timers daily-brief.timer` (Linux) and `plutil -lint` on the plist (macOS) pass; installer guard exercised on a PATH without bun (warn + skip, exit 0) [beads:if-8gyl]
