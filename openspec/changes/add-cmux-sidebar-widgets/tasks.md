@@ -28,7 +28,7 @@ stack: t3
   `remote.*` fields (`.connected`, `.state`, etc.) are unaffected — confirmed pre-existing and
   populated for both surface types, as expected. Cleanup verified: `cmux close-workspace` + a bare
   `cmux list-workspaces` confirming `workspace:52` no longer listed.
-- [ ] [1.2] Define the shared smuggled-field encoding scheme (state token, optional wait-reason, transition epoch, openspec summary, beads summary, usage 5H/7D figures) as a single documented format both the Python writer and the Swift reader consume identically — one canonical reference, not reinvented per field [beads:if-c2ad]
+- [x] [1.2] Define the shared smuggled-field encoding scheme (state token, optional wait-reason, transition epoch, openspec summary, beads summary, usage 5H/7D figures) as a single documented format both the Python writer and the Swift reader consume identically — one canonical reference, not reinvented per field [beads:if-c2ad]
 - [x] [1.3] Confirm the exact `cmux workspace-action` CLI param names and `cmux()` action-method name/params for setting a workspace's `description` from both a CLI call (Python) and in-sidebar context, via `cmux docs api` and the `cli-contract.md` raw resource [beads:if-nxb6]
 
 ## API Batch
