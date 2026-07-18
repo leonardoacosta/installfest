@@ -74,6 +74,22 @@ export PNPM_HOME="$HOME/Library/pnpm"
 # Maestro (mobile testing)
 [[ -d "$HOME/.maestro/bin" ]] && export PATH="$PATH:$HOME/.maestro/bin"
 
+# Ghostty ssh-terminfo under cmux — cmux embeds Ghostty's terminal engine and
+# exports GHOSTTY_BIN_DIR/GHOSTTY_SHELL_FEATURES like real Ghostty, but its
+# app bundle ships the binary as `cmux`, not `ghostty`. Ghostty's zsh
+# integration installs its own `ssh` wrapper via a deferred precmd hook (which
+# always wins over any user-defined `ssh` function, including ours in
+# rc/shared.zsh — it (re)defines `ssh` on the first prompt, after .zshrc has
+# already run). With ssh-terminfo enabled it execs "$GHOSTTY_BIN_DIR/ghostty"
+# on every ssh call, which fails "no such file or directory" since that
+# binary doesn't exist under cmux. GHOSTTY_SHELL_FEATURES is read dynamically
+# at precmd time, so stripping it here (before precmd fires) takes effect.
+# Leaves ssh-env (no binary exec) and every other feature intact, and is a
+# no-op under real Ghostty.app where the binary exists.
+if [[ "$TERM_PROGRAM" == "ghostty" && -n "$GHOSTTY_BIN_DIR" && ! -x "$GHOSTTY_BIN_DIR/ghostty" ]]; then
+  export GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES//ssh-terminfo/}"
+fi
+
 {{ else if eq .chezmoi.os "linux" -}}
 # PATH (user binaries — no path_helper on Linux, safe to set early)
 export PATH="$HOME/.claude/bin:$HOME/.local/bin:$PATH"
