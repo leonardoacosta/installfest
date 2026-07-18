@@ -60,36 +60,36 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Fixture project with known `@import` chain and nested CLAUDE.md files; assert [beads:if-e4wx]
+- [x] [4.1] Fixture project with known `@import` chain and nested CLAUDE.md files; assert [beads:if-e4wx]
   hand-computed effective totals match exactly.
   - depends on: 2.1, 2.2
-- [ ] [4.2] Deterministic drop-prediction fixture (fixed invocation-frequency input); assert the [beads:if-7kg9]
+- [x] [4.2] Deterministic drop-prediction fixture (fixed invocation-frequency input); assert the [beads:if-7kg9]
   drop-prediction list is identical across repeated runs.
   - depends on: 2.3
-- [ ] [4.3] Oversized MEMORY.md and MCP-description fixtures; assert the capped `effective` value [beads:if-qwvt]
+- [x] [4.3] Oversized MEMORY.md and MCP-description fixtures; assert the capped `effective` value [beads:if-qwvt]
   and the retained uncapped `raw` value are both correct.
   - depends on: 2.3
-- [ ] [4.4] Mocked telemetry endpoint fixture (fake Loki responses); assert hook-size ingestion [beads:if-h3x3]
+- [x] [4.4] Mocked telemetry endpoint fixture (fake Loki responses); assert hook-size ingestion [beads:if-h3x3]
   correctly prefers telemetry data when present.
   - depends on: 2.6
-- [ ] [4.5] Schema-assertion fixture covering both a reachable-with-valid-schema case and an [beads:if-aa5w]
+- [x] [4.5] Schema-assertion fixture covering both a reachable-with-valid-schema case and an [beads:if-aa5w]
   unreachable case; assert `unavailable` degradation with a recorded reason in the latter, exit 0
   in both.
   - depends on: 2.5
-- [ ] [4.6] `--probe-hooks` run against a real fixture hook with a timeout-bounded misbehaving [beads:if-7jx4]
+- [x] [4.6] `--probe-hooks` run against a real fixture hook with a timeout-bounded misbehaving [beads:if-7jx4]
   sibling hook; assert the timed-out hook renders `unknown`, not a hang or a false zero.
   - depends on: 2.6
-- [ ] [4.7] Live run of `ctx-scan calibrate --from-telemetry --json` when local Grafana/Loki [beads:if-cdv8]
+- [x] [4.7] Live run of `ctx-scan calibrate --from-telemetry --json` when local Grafana/Loki [beads:if-cdv8]
   containers are available; paste the actual endpoint-provenance + fitted-ratio output as
   runtime evidence. When containers are stopped, paste the static-only degraded-mode output
   instead, confirming exit 0 either way.
   - depends on: 3.1
-- [ ] [4.8] Full scan of `~/dev/cc` (cc-audit); assert the reproduced totals (46,200-char [beads:if-9ynu]
+- [x] [4.8] Full scan of `~/dev/cc` (cc-audit); assert the reproduced totals (46,200-char [beads:if-9ynu]
   listing incl. commands; ~16.1K-token chain) match the 2026-07-18 rubric scorecard within the
   documented estimate tolerance.
   - depends on: 3.2
-- [ ] [4.9] Grep the shipped source for hardcoded Grafana/Loki hostnames or datasource UIDs; [beads:if-w4wv]
+- [x] [4.9] Grep the shipped source for hardcoded Grafana/Loki hostnames or datasource UIDs; [beads:if-w4wv]
   assert zero matches — every endpoint must come through `[2.5]`'s resolution order.
   - depends on: 2.5
-- [ ] [4.10] `tsc --noEmit` and `bun test` both green. [beads:if-1wsa]
+- [x] [4.10] `tsc --noEmit` and `bun test` both green. [beads:if-1wsa]
   - depends on: 3.2
