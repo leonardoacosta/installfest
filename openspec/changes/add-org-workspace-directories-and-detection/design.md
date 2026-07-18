@@ -116,6 +116,37 @@ root — `lazygit` would error immediately if launched there. `populate_workspac
 "$full_path/.git" ]]` check (or equivalent) to skip that pane rather than open a broken one; the
 claude and nvim panes are unaffected either way (both work fine in a non-git directory).
 
+## Blast-radius audit (this session, prompted by prior cc-repo history)
+
+A sibling, already-cancelled cc proposal (`cancel-reorg-dev-by-org`, 2026-05-30 and again
+2026-07-05) found that physically moving ~31 populated repos into org-grouped directories was
+catastrophic: 122 hardcoded `~/dev/<code>` reference breakages, 114 worktree gitdir-pointer
+orphanings, and live `~/.claude` symlink retarget risk — and that the *actual* underlying want
+("workspace-scoped env/config/wrappers") was already served by `packages/workspace`/`wsenv`
+without any repo movement. Leo flagged this history mid-session and asked for a blast-radius
+audit of THIS proposal specifically, since it touches similar territory (org-grouped `~/dev`
+directories) even though it never moves an existing populated repo.
+
+A fork audited every consumer of `home/projects.toml` plus `apps/cc-tmux`'s cwd-to-code resolver.
+Findings:
+
+- **No risk from `code == category` naming overlap.** `cc-tmux`'s `resolve_project_code`
+  (`apps/cc-tmux/src/cc_tmux/registry.py:66-79`) resolves by longest-prefix match, so a nested
+  project's code always wins over its org-root code by construction — verified, not assumed.
+- **Two real regressions THIS proposal causes** (not pre-existing drift, as an earlier draft of
+  this document mischaracterized them): `scripts/mux-remote.sh`'s hardcoded 3-bucket picker
+  (Leo's Shortcuts/NFC remote launcher) calls `mux b`/`c`/`p` — dead once bulk-launch is removed;
+  `scripts/audit-projects.sh`'s hardcoded `CATS` set fails validation on the new `cc` category and
+  never checks for a `cc` workspace profile (which doesn't exist yet). Filed as `if-kiy.2` and
+  `if-kiy.3` rather than folded into this proposal — Leo's explicit choice, ship narrower.
+- **Confirmed (not new) evidence of the same "hardcoded path" failure class already latent in
+  THIS repo**: `platform/raycast-scripts/local/{ba,bo,se,ws,fb,sc}.sh` already hardcode nested
+  `~/dev/brown/<project>/` paths that don't exist on the Mac today — mechanical
+  `generate-raycast.sh` output mirroring the registry's already-aspirational `path` fields. This
+  predates this session and isn't made worse by it; it's supporting evidence for why the
+  registry-accuracy work here (report drift, never silently auto-fix) is the right conservative
+  posture, not a reason to expand scope further.
+
 ## Non-goals restated
 
 No repo `mv`, no dedup of duplicate clones, no change to `cc-audit`, no homelab-side change

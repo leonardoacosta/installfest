@@ -239,9 +239,16 @@ per-letter group arrays.
   `cc-audit`'s classification (explicitly excluded, stays as-is); any change to the homelab
   machine (already fully migrated, confirmed via SSH this session); rewriting `wsenv`'s existing
   code/cwd -> org resolution logic (unaffected — both `chpwd.zsh` and `mux`'s `pane_exec` keep
-  calling it exactly as before); fixing `scripts/mux-remote.sh`'s stale 3-bucket AppleScript
-  picker (pre-existing drift, itself now further stale since it references the removed `b`/`c`/`p`
-  groups — separate concern, not fixed here).
+  calling it exactly as before).
+- **Deliberately deferred, tracked separately** (blast-radius audit this session found these are
+  real regressions this proposal causes, not pre-existing drift — Leo's explicit call was to
+  ship narrower and follow up rather than fold them in): `scripts/mux-remote.sh`'s 3-bucket
+  AppleScript picker (`cat_meta`/`cat_order`, lines 41-45) drives Leo's Shortcuts/NFC remote
+  launcher via `mux b`/`mux c`/`mux p`/`mux b c p` — once this proposal removes bulk-launch,
+  those buttons call now-unrecognized codes (`if-kiy.2`); `scripts/audit-projects.sh`'s hardcoded
+  `CATS = {"b-and-b", "priceless", "personal"}` set (line 57) fails validation on the new
+  `category = "cc"` rows, and its org-loop checks (lines 165, 171) never look for a `cc` workspace
+  profile — which doesn't exist yet either (`if-kiy.3`).
 
 ## Testing
 | Affected seam | Unit task | E2E task |
