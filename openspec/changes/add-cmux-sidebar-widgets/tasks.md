@@ -195,8 +195,62 @@ stack: t3
   reached the same root-cause finding and landed the same visual-truncation fix in this file before
   this dispatch's own edit — the two converged on byte-identical file content (confirmed via
   `shasum -a 256` on both the repo source and the Mac-deployed copy).
-- [ ] [3.2] Extend the sidebar with the Claude-state indicator: SF-Symbol/shape stand-in for the Claude mark, solid when `idle`, pulsating opacity when `active` (alternating on `clock` wall-clock parity), pulsing red when `waiting` with reason `permission`; parses the [1.2] encoding from `description` [beads:if-n2oq]
+- [x] [3.2] Extend the sidebar with the Claude-state indicator: SF-Symbol/shape stand-in for the Claude mark, solid when `idle`, pulsating opacity when `active` (alternating on `clock` wall-clock parity), pulsing red when `waiting` with reason `permission`; parses the [1.2] encoding from `description` [beads:if-n2oq]
   - depends on: 2.1, 3.1
+
+  **Finding (cmux 0.64.19, live-verified 2026-07-18)**: the encoding doc's own reader-contract
+  pseudocode — `description.split(separator: "|", omittingEmptySubsequences: false)` expecting
+  exactly 8 segments — does NOT work. The interpreter silently ignores the
+  `omittingEmptySubsequences` argument and always omits empty subsequences (the real Swift
+  default, `true`): splitting a real CC1 string like `CC1|idle||1737158765||||` (8 fields, 3
+  empty) produced `segs.count == 3`, not 8 — confirmed live via a disposable diagnostic sidebar
+  rendering the split result as text, deployed to the real Mac and inspected via a System Events
+  accessibility-tree text dump (no Screen Recording TCC grant over SSH, same substitute method
+  task 3.1 used). This breaks positional field indexing for any real CC1 string, since most fields
+  are legitimately empty most of the time. **Workaround**: since fields are fixed-order, `state`
+  and `wait_reason` are identified by exact-prefix match instead (`d.hasPrefix("CC1|idle|")`,
+  `"CC1|active|"`, `"CC1|waiting|permission|"`) — the trailing `|` after each vocabulary token
+  disambiguates it from any other field value, sidestepping `.split` entirely. This is the same
+  class of workaround as task 3.1's visual-truncation fix: a confirmed interpreter limitation
+  worked around at the call site, not a shortcut.
+
+  Live-verified end to end on the real Mac (`ssh mac`, cmux 0.64.19), per the incident safety
+  rule: listed existing workspaces first (`if`/`brown`/`tc`, all off-limits), created exactly one
+  disposable workspace (`cmux-evolve-test-if-n2oq-v2`, workspace:19). Iterated a diagnostic
+  sidebar rendering the `cc1Mode`-equivalent classification as literal text, then the full
+  production-shaped sidebar (identical logic plus the real `Image`/`.opacity`/`.foregroundColor`
+  indicator), seeding the workspace's `description` via `cmux workspace-action --action
+  set-description` for each state in turn and re-capturing the AX-tree text dump after each:
+  - `CC1|idle||1737158765||||` → diagnostic text showed `MODE=[idle]`; the full sidebar showed a
+    real SwiftUI `Image` element (`DESC:image`) immediately before the workspace's basename text,
+    in the exact position the indicator renders.
+  - `CC1|active||1737158900||||` → `MODE=[active]`; same `Image` element present.
+  - `CC1|waiting|permission|1737159001||||` → `MODE=[waiting-permission]`/`MODE=[waiting]`; same
+    `Image` element present.
+  - The pre-existing `if` workspace (state field empty, `CC1||||1 in-progress|46 ready, 0
+    blocked||`) and `brown`/`tc` (no description at all) all rendered **zero** `Image` elements
+    for their rows in every capture — the fail-closed "no known state → no indicator" case falls
+    out of the same `hasPrefix` chain with no extra code path, matching the spec's "unparseable or
+    absent description renders no state indicator" scenario. `cmux sidebar validate` returned
+    `1 valid, 0 invalid` for every iteration of the production file (zero interpreter parse
+    errors on `Image`/`.opacity`/`.foregroundColor`/`.accessibilityLabel`/`if let`).
+  - `clock.second` confirmed live and real (not static): captured values 17, 49, 46 across
+    separate dumps (parities 1, 1, 0 respectively) — the active/waiting pulse ternary
+    (`clock.second % 2 == 0 ? 1.0 : 0.35`) is driven by a genuinely changing wall-clock value.
+  - AX-tree focus was intermittently flaky mid-session (a concurrent session's own active work in
+    the `brown` workspace repeatedly stole front-window focus, and the Mac's own workspace:18 test
+    instance disappeared on its own between captures — same concurrent-collision class task 2.1
+    documented for workspace:15, not caused by any command here) — every capture actually used
+    above succeeded before or after a focus reset; captures that returned empty were discarded,
+    not treated as findings.
+
+  Cleanup verified per the safety rule: closed only `workspace:19` via `cmux close-workspace
+  --workspace workspace:19`; `cmux list-workspaces` before/after confirmed `if`/`brown`/`tc`
+  unaffected. Removed both diagnostic sidebar files (`diag-n2oq.swift`, `diag-n2oq-full.swift`)
+  from `~/.config/cmux/sidebars/` on the Mac — re-running `cmux sidebar validate` against their
+  names now correctly errors `Sidebar file is missing`, confirming no debris left behind. The
+  production `.swift` was deployed once more (verbatim, via `scp` — chezmoi wiring is task 3.4)
+  and `cmux sidebar validate claude-sessions` returned `1 valid, 0 invalid` as the final check.
 - [ ] [3.3] Extend the sidebar with the openspec-status + beads-status row and the compact usage-meter footer (CYAN/YELLOW/RED thresholds ported from `usage.py`), both sourced from the [2.4] writer's smuggled fields [beads:if-6to1]
   - depends on: 2.4, 3.1
 - [ ] [3.4] Wire the sidebar file into chezmoi deployment (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) so it deploys to `~/.config/cmux/sidebars/` on `chezmoi apply` [beads:if-wut0]

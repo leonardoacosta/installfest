@@ -52,6 +52,50 @@
 // (task 3.4 wires the chezmoi source-state; this file has no per-machine
 // templating needs today, so it carries no chezmoi template directives despite the
 // .tmpl extension — see t3-code-patterns' chezmoi naming convention).
+//
+// STATE INDICATOR (task 3.2, openspec/changes/add-cmux-sidebar-widgets, beads
+// if-n2oq): parses the CC1-prefixed encoding (docs/cmux-sidebar-encoding.md)
+// out of `description` and renders an SF-Symbol stand-in for the Claude mark,
+// solid when idle, pulsating when active, pulsing red when waiting on a
+// permission prompt.
+//
+// FINDING (cmux 0.64.19, live-verified 2026-07-18, beads if-n2oq): the
+// encoding doc's own reader-contract pseudocode --
+// `description.split(separator: "|", omittingEmptySubsequences: false)` then
+// expecting exactly 8 segments -- does NOT work. The interpreter silently
+// ignores the `omittingEmptySubsequences` argument and always omits empty
+// subsequences (the actual Swift default, true), so splitting a real CC1
+// string like "CC1|idle||1737158765||||" (8 fields, 3 empty) yields
+// segs.count == 3, not 8 -- confirmed live via a disposable diagnostic
+// sidebar deployed to the real Mac, seeded via `cmux workspace-action
+// --action set-description` against a disposable test workspace, and
+// inspected via a System Events accessibility-tree text dump of the
+// diagnostic's own rendered Text output (no Screen Recording TCC grant over
+// SSH, same substitute method task 3.1 used). This breaks positional 8-field
+// indexing for any real-world CC1 string, since most fields are legitimately
+// empty. WORKAROUND: because the encoding's fields are fixed-order, `state`
+// and `wait_reason` can be identified by exact-prefix match instead --
+// `hasPrefix("CC1|idle|")` etc. -- which sidesteps `.split` entirely (the
+// trailing `|` after each vocabulary token disambiguates it from any other
+// field value, since none of the 3 state tokens is a prefix of another).
+// Live-verified against the real disposable test workspace
+// (cmux-evolve-test-if-n2oq-v2): seeding `CC1|idle||...`, `CC1|active||...`,
+// and `CC1|waiting|permission|...` in turn onto the workspace's description
+// each produced the correct `cc1Mode` classification (confirmed via a
+// diagnostic sidebar rendering the classified string as text), and a real
+// SwiftUI Image element appeared in the AX-tree dump in the exact position
+// this indicator renders for all three -- while workspaces with no CC1 state
+// yet (`if`, empty `state` field) or no description at all (`brown`/`tc`)
+// correctly rendered zero image elements, matching the fail-closed
+// "unparseable renders no indicator" requirement without any extra code path
+// (the same hasPrefix fallthrough already covers "no known state").
+//
+// `clock.second` (live data, re-rendered ~1/sec) drives the active/waiting
+// pulse via `clock.second % 2` parity, mirroring cc-tmux's own tick-based
+// pulse (`apps/cc-tmux/src/cc_tmux/render.py`) -- confirmed live to be a real,
+// changing wall-clock value across captures (observed seconds 17, 49, 46;
+// parities 1, 1, 0), so the alternation is driven by real time, not a static
+// value.
 
 func basename(_ path: String) -> String {
     let parts = path.split(separator: "/")
@@ -61,12 +105,47 @@ func basename(_ path: String) -> String {
     return path
 }
 
+// Classify a workspace's `description` per the CC1 encoding, using
+// exact-prefix match instead of positional `.split` (see FINDING above).
+// Returns "none" for empty/absent/unparseable/unhandled-combination
+// descriptions -- the caller renders no indicator for that case.
+func cc1Mode(_ d: String) -> String {
+    if d.hasPrefix("CC1|idle|") {
+        return "idle"
+    } else if d.hasPrefix("CC1|active|") {
+        return "active"
+    } else if d.hasPrefix("CC1|waiting|permission|") {
+        return "waiting"
+    } else {
+        return "none"
+    }
+}
+
 VStack(alignment: .leading, spacing: 0) {
     Text("Claude Sessions").font(.headline)
     Divider()
     ForEach(workspaces) { w in
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
+                if let d = w.description {
+                    let mode = cc1Mode(d)
+                    let pulseOpacity = clock.second % 2 == 0 ? 1.0 : 0.35
+                    if mode == "idle" {
+                        Image(systemName: "sparkle")
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Claude state: idle")
+                    } else if mode == "active" {
+                        Image(systemName: "sparkle")
+                            .foregroundColor(.orange)
+                            .opacity(pulseOpacity)
+                            .accessibilityLabel("Claude state: active")
+                    } else if mode == "waiting" {
+                        Image(systemName: "sparkle")
+                            .foregroundColor(.red)
+                            .opacity(pulseOpacity)
+                            .accessibilityLabel("Claude state: waiting for permission")
+                    }
+                }
                 Text(basename(w.directory))
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.primary)
