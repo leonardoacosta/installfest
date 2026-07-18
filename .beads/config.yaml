@@ -67,3 +67,5 @@
 # - github.repo
 
 dolt.auto-commit: "batch"
+sync:
+    remote: "git+https://github.com/leonardoacosta/installfest.git"
