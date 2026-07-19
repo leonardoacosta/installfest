@@ -20,6 +20,11 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	sed -n '5,14p' "$0" | sed 's/^# \{0,1\}//'
+	exit 0
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/lib/registry.sh"
@@ -280,3 +285,57 @@ action = "Would generate" if dry_run else "Generated"
 print(f"{action} {remote_count} remote + {local_count} local + {cloudpc_count} cloudpc + 2 dropdown = {remote_count + local_count + cloudpc_count + 2} scripts total")
 
 PYTHON_SCRIPT
+
+# --- Prune orphaned scripts ---
+#
+# Diff each output dir against the current registry (registry_orphan_codes,
+# scripts/lib/registry.sh) and remove any {code}.sh no longer backed by a
+# projects.toml key carrying that dir's tier. root.sh / open-project.sh are
+# already excluded inside registry_orphan_codes itself (intentional launcher
+# infra, not registry-derived).
+#
+# Tier mapping for the 3 output dirs:
+#   platform/raycast-scripts/local/    -> "local"   (gen_local_script)
+#   platform/raycast-scripts/cloudpc/  -> "cloudpc"  (gen_cloudpc_script)
+#   platform/raycast-scripts/ (root)   -> "remote"  (gen_remote_script) — root/
+#     is the dir gen_remote_script() + the "remote"-tier dropdown picker write
+#     to; it is NOT a 4th tier of its own, so "remote" is the correct diff key.
+#
+# root/ ALSO holds a couple of genuinely hand-maintained, non-registry Raycast
+# scripts (img.sh, paste-image.sh — clipboard/image-paste helpers). They are
+# never written by this generator (confirmed: their body doesn't match any
+# gen_*_script() template, and git history shows independent hand-edits), so a
+# naive registry-diff would treat them as orphans and delete real files the
+# first time this prune pass runs. scripts/audit-projects.sh's own orphan
+# check (section 3, section_raycast) sidesteps this by never scanning root/ at
+# all — only local/ and cloudpc/. This prune pass DOES scan root/ (the spec
+# requires it), so it must exclude these names explicitly instead.
+NON_REGISTRY_SCRIPTS=(img paste-image)
+
+_is_non_registry_script() {
+  local code="$1" x
+  for x in "${NON_REGISTRY_SCRIPTS[@]}"; do
+    [[ "$code" == "$x" ]] && return 0
+  done
+  return 1
+}
+
+_prune_dir() {
+  local dir="$1" tier="$2" label="$3" orphan code path
+  while IFS= read -r orphan; do
+    [[ -n "$orphan" ]] || continue
+    code="${orphan%.sh}"
+    _is_non_registry_script "$code" && continue
+    path="$dir/$orphan"
+    if $DRY_RUN; then
+      echo "  Would prune: $label/$orphan"
+    else
+      rm -f "$path"
+      echo "  Pruned: $label/$orphan"
+    fi
+  done < <(registry_orphan_codes "$dir" "$tier")
+}
+
+_prune_dir "$RAYCAST_DIR" "remote" "platform/raycast-scripts"
+_prune_dir "$RAYCAST_DIR/local" "local" "platform/raycast-scripts/local"
+_prune_dir "$RAYCAST_DIR/cloudpc" "cloudpc" "platform/raycast-scripts/cloudpc"
