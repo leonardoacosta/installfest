@@ -8,26 +8,26 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Write `src/rubric.ts`: a single constants block for Table A rows A1–A14 from [beads:if-khk9]
+- [x] [1.1] Write `src/rubric.ts`: a single constants block for Table A rows A1–A14 from [beads:if-khk9]
   `docs/context-budget-rubric.md`, each entry carrying `{id, surface, greenMax, amberMax, limit,
   source: "H"|"G"|"R", sourceCitation}` sourced verbatim from the doc's Table A columns
   (Measurement / GREEN / AMBER / RED / Limit+tag columns).
-- [ ] [1.2] Extend `src/model.ts`'s `Node.bands` type (currently an empty placeholder from [beads:if-njnb]
+- [x] [1.2] Extend `src/model.ts`'s `Node.bands` type (currently an empty placeholder from [beads:if-njnb]
   `ctx-scan-core`) to the real shape: `{rule: string, band: "GREEN"|"AMBER"|"RED", measured:
   number, limit: number}[]`.
 
 ## API Batch
 
-- [ ] [2.1] Implement Part 0's three band-derivation rules as pure functions in `src/rubric.ts`: [beads:if-e64w]
+- [x] [2.1] Implement Part 0's three band-derivation rules as pure functions in `src/rubric.ts`: [beads:if-e64w]
   Rule 1 (hard limits, GREEN ≤ 0.8·L / AMBER 0.8·L–L / RED > L), Rule 2 (guidance values, GREEN ≤
   V / AMBER V–2·V / RED > 2·V), Rule 3 (repo-set anchor values, same shape as Rule 1 but tagged
   `source: "R"`).
   - depends on: 1.1
-- [ ] [2.2] Implement `Node` band annotation: for every scanned `Node`, apply the applicable [beads:if-9b5o]
+- [x] [2.2] Implement `Node` band annotation: for every scanned `Node`, apply the applicable [beads:if-9b5o]
   Table A row(s) (matched by `cls`/measurement type) via `[2.1]`'s derivation functions, and
   populate `Node.bands`.
   - depends on: 2.1, 1.2
-- [ ] [2.3] Implement `src/audit.ts` and the `ctx-scan audit --json` subcommand: emit [beads:if-gqvm]
+- [x] [2.3] Implement `src/audit.ts` and the `ctx-scan audit --json` subcommand: emit [beads:if-gqvm]
   `{"rows":[{"id":"A1","surface":...,"measured":...,"budget":...,"band":"GREEN"|"AMBER"|"RED",
   "source":"H"|"G"|"R"}],"error":null}` for every Table A row against the current scan, exit 0
   always (partial failures surface as an `error` key, never a non-zero exit), warm runtime under
@@ -36,7 +36,7 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Wire `ctx-scan audit [--json]` as a top-level commander.js command alongside `scan` [beads:if-fq0g]
+- [x] [3.1] Wire `ctx-scan audit [--json]` as a top-level commander.js command alongside `scan` [beads:if-fq0g]
   and `calibrate`.
   - depends on: 2.3
 

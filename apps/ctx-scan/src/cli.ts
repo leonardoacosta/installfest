@@ -21,6 +21,7 @@ import { schemaVersion, type Fleet } from "./model";
 import { assembleGlobalSurfaces, assembleProjectSurfaces } from "./pipeline";
 import { parseContextOutput, fitRatioFromTelemetry, type ParsedContextOutput } from "./calibrate";
 import type { Provenance } from "./telemetry-probe";
+import { auditFleet, type AuditResult } from "./audit";
 
 /** Expand a leading `~` / `~/…` to the current user's home directory. */
 function expandHome(p: string): string {
@@ -217,6 +218,37 @@ async function runCalibrate(opts: CalibrateOptions): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// `audit`
+// ─────────────────────────────────────────────────────────────────────────
+
+interface AuditOptions {
+  root: string;
+  json?: string;
+}
+
+/**
+ * Build the Fleet for `--root` (same assembly pipeline `scan` uses, hook
+ * probing disabled — the audit contract's "no network access" applies to
+ * this command's own row-computation logic, not the underlying scan; a
+ * project with configured hooks may still see `ctx-scan-assembly`'s
+ * telemetry probe attempt, exactly as `scan` does) and emit `auditFleet`'s
+ * §E-R1 rows. Never throws — any failure (bad `--root`, a scan-pipeline
+ * exception) degrades to `{rows: [], error: "<message>"}`, matching task
+ * [2.3]'s "exit 0 always" requirement.
+ */
+async function runAudit(opts: AuditOptions): Promise<void> {
+  const root = expandHome(opts.root);
+  let result: AuditResult;
+  try {
+    const { fleet } = await buildFleet(root, { allowProbeHooks: false });
+    result = auditFleet(fleet);
+  } catch (err) {
+    result = { rows: [], error: err instanceof Error ? err.message : String(err) };
+  }
+  emitJson(result, opts.json);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Program
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -242,6 +274,15 @@ program
   .option("--from-telemetry", "fit the ratio from live telemetry instead of parsing piped `/context` output", false)
   .option("--json <path>", "write JSON to this file (default: stdout)")
   .action((opts: CalibrateOptions) => runCalibrate(opts));
+
+program
+  .command("audit")
+  .description(
+    "Emit the docs/context-budget-rubric.md §E-R1 JSON contract: every Table A row's GREEN/AMBER/RED band against the current scan.",
+  )
+  .option("--root <path>", "root directory to scan", "~/dev")
+  .option("--json <path>", "write JSON to this file (default: stdout)")
+  .action((opts: AuditOptions) => runAudit(opts));
 
 // Only parse argv when this file is run directly (`bun run src/cli.ts ...` /
 // the `ctx-scan` bin entry) — not when `buildFleet` is imported for tests,
