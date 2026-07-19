@@ -37,18 +37,18 @@ stack: cc-meta
 
 ## E2E Batch
 
-- [ ] [4.1] Runtime-verify: seed a disposable extra `{code}.sh` file in each of the 3 raycast [beads:if-xuu0]
+- [x] [4.1] Runtime-verify: seed a disposable extra `{code}.sh` file in each of the 3 raycast [beads:if-xuu0]
   output directories (simulating a stale orphan), run `generate-raycast.sh --dry-run`, confirm
   it lists all 3 as pending deletion without removing them; run without `--dry-run`, confirm all
   3 are actually gone and every real registry-backed script is untouched.
   - depends on: 2.1
-- [ ] [4.2] Runtime-verify [2.2]'s finding: either confirm the prune pass correctly removes a [beads:if-ucod]
+- [x] [4.2] Runtime-verify [2.2]'s finding: either confirm the prune pass correctly removes a [beads:if-ucod]
   seeded orphan from `cmux-workspaces.sh`'s own output, or confirm the documented no-op case by
   running the script normally and showing no prunable output exists.
   - depends on: 2.2
-- [ ] [4.3] Runtime-verify: run `scripts/audit-projects.sh` before and after a full registry [beads:if-sbh3]
+- [x] [4.3] Runtime-verify: run `scripts/audit-projects.sh` before and after a full registry [beads:if-sbh3]
   removal + generator re-run; confirm the pre-run shows the orphan FAIL and the post-run shows
   `PASS: raycast-sync` with zero orphans reported.
   - depends on: 2.1, 2.2
-- [ ] [4.4] `bash -n` on both modified generator scripts; confirm no syntax errors. [beads:if-7wle]
+- [x] [4.4] `bash -n` on both modified generator scripts; confirm no syntax errors. [beads:if-7wle]
   - depends on: 2.1, 2.2, 3.1
