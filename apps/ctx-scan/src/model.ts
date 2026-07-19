@@ -48,11 +48,21 @@ export interface Truncation {
   cap: string;
 }
 
+/** The three verdicts a rubric row can assign a measured value (`ctx-scan-budgets`, Part 0). */
+export type BandVerdict = "GREEN" | "AMBER" | "RED";
+
 /**
- * A rubric-band record. Placeholder: the real shape (band id / ceiling /
- * verdict) is populated by `ctx-scan-budgets`. Kept opaque for now.
+ * One rubric-row verdict applied to a Node — populated by `ctx-scan-budgets`'s
+ * `src/rubric.ts` (`computeNodeBands`). `rule` is the `docs/context-budget-rubric.md`
+ * Table A row id the verdict was computed against (e.g. `"A2"`); `measured`/`limit`
+ * are the exact values fed into that row's band-derivation rule (Part 0).
  */
-export type Band = unknown;
+export interface Band {
+  rule: string;
+  band: BandVerdict;
+  measured: number;
+  limit: number;
+}
 
 /** A single measured context document. */
 export interface Node {
@@ -72,7 +82,12 @@ export interface Node {
   origin: NodeOrigin;
   /** Truncation records — populated by `ctx-scan-assembly`. */
   truncations: Truncation[];
-  /** Rubric-band records — populated by `ctx-scan-budgets`. */
+  /**
+   * Rubric-band verdicts — one per applicable `docs/context-budget-rubric.md`
+   * Table A row, populated by `ctx-scan-budgets`'s `annotateFleetBands`. `[]`
+   * when no Table A row applies to this Node's `cls`, or when the row's
+   * source file could not be re-read for a measurement that needs it.
+   */
   bands: Band[];
   /**
    * Listing-drop prediction rank for `skills-listing`/`commands-listing`
