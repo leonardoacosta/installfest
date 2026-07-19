@@ -618,6 +618,8 @@ category = "personal"
 icon = "📦"
 path = "dev/personal/harness"
 tiers = ["local"]
+deploy = { type = "docker", host = "homelab" }
+legacy_codes = ["hn"]
 
 [[projects]]
 code = "leonardoacosta"
@@ -778,6 +780,7 @@ category = "priceless"
 icon = "📦"
 path = "dev/terraform-modules"
 tiers = ["local"]
+legacy_codes = ["tm"]
 
 [[projects]]
 code = "TrioTexasLandingPage"
@@ -810,6 +813,11 @@ category = "personal"
 icon = "📦"
 path = "dev/personal/guardian"
 tiers = ["local"]
+stack = "t3-turbo"
+port = 3150
+has_beads = true
+has_openspec = true
+legacy_codes = ["gd"]
 
 [[projects]]
 code = "atlas"
@@ -818,6 +826,8 @@ category = "personal"
 icon = "📦"
 path = "dev/personal/atlas"
 tiers = ["local"]
+deploy = { type = "docker", host = "homelab" }
+legacy_codes = ["at"]
 
 [[projects]]
 code = "zsa-voyager-keymap"
@@ -842,6 +852,7 @@ category = "priceless"
 icon = "📦"
 path = "dev/priceless/priceless-config"
 tiers = ["local"]
+legacy_codes = ["pc"]
 
 [[projects]]
 code = "priceless-app"
@@ -850,6 +861,8 @@ category = "priceless"
 icon = "📦"
 path = "dev/priceless/priceless-app"
 tiers = ["local"]
+devPort = 3104
+legacy_codes = ["pa"]
 
 [[projects]]
 code = "seth-jones"
@@ -858,6 +871,22 @@ category = "personal"
 icon = "📦"
 path = "dev/priceless/seth-jones"
 tiers = ["local"]
+devPort = 3106
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "seth-jones", devBranch = "dev", prodBranch = "main" }
+legacy_codes = ["sj"]
+
+[projects.monitors.vercel]
+enabled = true
+project = "sj"
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = false
 
 [[projects]]
 code = "decus-aggregates"
