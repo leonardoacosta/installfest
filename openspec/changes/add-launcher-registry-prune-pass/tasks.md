@@ -8,7 +8,7 @@ stack: cc-meta
 
 ## DB Batch
 
-- [ ] [1.1] Add a shared `registry_orphan_codes()` helper to `scripts/lib/registry.sh`: given an [beads:if-6yss]
+- [x] [1.1] Add a shared `registry_orphan_codes()` helper to `scripts/lib/registry.sh`: given an [beads:if-6yss]
   output directory + tier, return the list of `{code}.sh` basenames present on disk whose code
   is NOT a `projects.toml` key with that tier — same diff logic `scripts/audit-projects.sh`
   section 3 already implements, extracted so both the auditor and the two generators share one

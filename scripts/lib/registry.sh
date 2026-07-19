@@ -44,3 +44,41 @@ registry_python() {
   echo "registry: no python3 with tomllib found (need Python >= 3.11)" >&2
   return 1
 }
+
+# registry_orphan_codes DIR TIER — echo the basename (<code>.sh, one per line)
+# of every <code>.sh file in DIR whose <code> is NOT a projects.toml [projects]
+# key carrying TIER. root.sh / open-project.sh are intentional launcher infra
+# and are never treated as orphans. This is the shared implementation of the
+# registry-diff that scripts/audit-projects.sh section 3 (section_raycast)
+# performs inline — extracted here so the auditor and both generators
+# (generate-raycast.sh, cmux-workspaces.sh) share one copy instead of three.
+#
+# Echoes nothing and returns 0 when DIR is absent or holds no orphans. Returns 1
+# (with a stderr message from the resolver) if the registry or a tomllib python
+# can't be found.
+registry_orphan_codes() {
+  local dir="$1" tier="$2"
+  [[ -d "$dir" ]] || return 0
+  local reg py
+  reg="$(registry_path)" || return 1
+  py="$(registry_python)" || return 1
+  # Codes that carry TIER, one per line — the valid set for this directory.
+  local valid
+  valid="$("$py" - "$reg" "$tier" <<'PYEOF'
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    data = tomllib.load(f)
+tier = sys.argv[2]
+for p in data.get("projects", []):
+    if tier in p.get("tiers", []):
+        print(p["code"])
+PYEOF
+)" || return 1
+  local f code
+  for f in "$dir"/*.sh; do
+    [[ -f "$f" ]] || continue          # no-match glob stays literal -> skipped
+    code="$(basename "$f" .sh)"
+    case "$code" in root|open-project) continue;; esac
+    grep -qxF "$code" <<<"$valid" || printf '%s\n' "$code.sh"
+  done
+}
