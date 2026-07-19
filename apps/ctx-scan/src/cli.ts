@@ -23,6 +23,8 @@ import { parseContextOutput, fitRatioFromTelemetry, type ParsedContextOutput } f
 import type { Provenance } from "./telemetry-probe";
 import { auditFleet, type AuditResult } from "./audit";
 import { writeRenderedFleet } from "./render";
+import { diffByName, formatTransition } from "./diff";
+import { startWatch } from "./watch";
 
 /** Expand a leading `~` / `~/…` to the current user's home directory. */
 function expandHome(p: string): string {
@@ -259,6 +261,7 @@ interface RenderCliOptions {
   fleet?: boolean;
   output: string;
   skill?: string;
+  history?: string;
 }
 
 /**
@@ -274,8 +277,111 @@ async function runRender(opts: RenderCliOptions): Promise<void> {
   const root = expandHome(opts.root);
   const { fleet } = await buildFleet(root, { allowProbeHooks: false });
   const outPath = expandHome(opts.output);
-  writeRenderedFleet(fleet, outPath, { project: opts.project, fleet: opts.fleet, skill: opts.skill });
+  writeRenderedFleet(fleet, outPath, {
+    project: opts.project,
+    fleet: opts.fleet,
+    skill: opts.skill,
+    historyFilePath: opts.history ? expandHome(opts.history) : undefined,
+  });
   process.stdout.write(`[ctx-scan] wrote report to ${outPath}\n`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// `watch`
+// ─────────────────────────────────────────────────────────────────────────
+
+interface WatchCliOptions {
+  root: string;
+  debounceMs?: string;
+  probeHooks?: boolean;
+  history?: string;
+}
+
+/**
+ * Wire `startWatch` (`watch.ts`) to the real `buildFleet`/`auditFleet`
+ * functions (dependency-injected — see `watch.ts`'s header doc for why this
+ * is passed in rather than imported there) and to process lifecycle:
+ * SIGINT/SIGTERM trigger a clean `WatchHandle.close()` (releases chokidar's
+ * fs watches) before exiting. `watch` is a long-running process BY DESIGN —
+ * this function blocks forever; the two signal handlers below are the only
+ * clean exit path. An external SIGKILL still works but skips the graceful
+ * teardown (same tradeoff every long-running dev-tool — nodemon, `vite dev`,
+ * etc. — accepts); a test/process-manager driving this command should
+ * prefer SIGTERM/SIGINT.
+ */
+async function runWatch(opts: WatchCliOptions): Promise<void> {
+  const root = expandHome(opts.root);
+  const debounceMs = opts.debounceMs ? Number.parseInt(opts.debounceMs, 10) : undefined;
+
+  const handle = startWatch({
+    root,
+    buildFleetFn: buildFleet,
+    auditFleetFn: auditFleet,
+    debounceMs,
+    historyFilePath: opts.history ? expandHome(opts.history) : undefined,
+    allowProbeHooks: opts.probeHooks ?? false,
+    onSnapshot: (snapshot) => {
+      process.stdout.write(`[ctx-scan watch] snapshot appended for ${snapshot.project} at ${snapshot.timestamp}\n`);
+    },
+    onError: (err, projectPath) => {
+      process.stderr.write(
+        `[ctx-scan watch] re-scan failed for ${projectPath}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    },
+  });
+
+  process.stdout.write(
+    `[ctx-scan watch] watching ${root} (${handle.projectPaths.length} project(s) discovered) — Ctrl+C to stop\n`,
+  );
+
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    process.stderr.write(`[ctx-scan watch] received ${signal}, closing watcher...\n`);
+    void handle.close().then(() => process.exit(0));
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  // Block forever — see this function's header doc for the shutdown contract.
+  await new Promise<void>(() => {});
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// `diff`
+// ─────────────────────────────────────────────────────────────────────────
+
+interface DiffCliOptions {
+  json?: string;
+  history?: string;
+}
+
+/**
+ * Load two named snapshots (by timestamp or index — `diff.ts`'s
+ * `resolveSnapshot`) and print every rubric band transition between them.
+ * Never throws: a resolution failure surfaces as a stderr message + exit
+ * code 1 in human-readable mode, or as `{transitions: [], error}` JSON in
+ * `--json` mode — matching `audit`'s own degrade-don't-crash contract.
+ */
+function runDiff(a: string, b: string, opts: DiffCliOptions): void {
+  const result = diffByName(a, b, { filePath: opts.history ? expandHome(opts.history) : undefined });
+
+  if (opts.json) {
+    emitJson(result, opts.json);
+    return;
+  }
+
+  if (result.error) {
+    process.stderr.write(`[ctx-scan diff] ${result.error}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (result.transitions.length === 0) {
+    process.stdout.write("No band transitions.\n");
+    return;
+  }
+  for (const t of result.transitions) process.stdout.write(`${formatTransition(t)}\n`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -324,7 +430,28 @@ program
   .option("--fleet", "initial view: the fleet leaderboard (default)", false)
   .option("-o, --output <path>", "output HTML file path", "./ctx-scan-report.html")
   .option("--skill <name>", "scope every project's references shelf panel to a single named skill/command/agent owner")
+  .option("--history <path>", "override the history.jsonl path the fleet-leaderboard sparkline reads (default: ~/.ctx-scan/history.jsonl)")
   .action((opts: RenderCliOptions) => runRender(opts));
+
+program
+  .command("watch")
+  .description(
+    "Watch every discovered project for file changes and append a timestamped scan+audit snapshot to ~/.ctx-scan/history.jsonl per re-scan (long-running; Ctrl+C or SIGTERM to stop).",
+  )
+  .option("--root <path>", "root directory to discover projects under", "~/dev")
+  .option("--debounce-ms <ms>", "debounce window (ms) per project before a settled change triggers a re-scan", "400")
+  .option("--probe-hooks", "execute hooks with no telemetry sample to measure stdout size (bounded by a timeout)", false)
+  .option("--history <path>", "override the history.jsonl path (default: ~/.ctx-scan/history.jsonl)")
+  .action((opts: WatchCliOptions) => runWatch(opts));
+
+program
+  .command("diff")
+  .description("Compare two history.jsonl snapshots (by timestamp or index) and print every rubric band transition between them.")
+  .argument("<a>", "first snapshot selector — an exact timestamp, or an integer index (negative counts from the end, -1 = most recent)")
+  .argument("<b>", "second snapshot selector")
+  .option("--json <path>", "write JSON to this file (default: human-readable stdout)")
+  .option("--history <path>", "override the history.jsonl path (default: ~/.ctx-scan/history.jsonl)")
+  .action((a: string, b: string, opts: DiffCliOptions) => runDiff(a, b, opts));
 
 // Only parse argv when this file is run directly (`bun run src/cli.ts ...` /
 // the `ctx-scan` bin entry) — not when `buildFleet` is imported for tests,

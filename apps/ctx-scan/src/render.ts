@@ -52,6 +52,8 @@ export interface RenderOptions {
   fleet?: boolean;
   /** Scope every project's references shelf panel (ctx-scan-refs) to a single named skill/command/agent owner. */
   skill?: string;
+  /** Override the history.jsonl path the level-0 fleet sparkline (`ctx-scan-watch` task [3.2]) reads — default: `~/.ctx-scan/history.jsonl` via `history.ts`'s own default. */
+  historyFilePath?: string;
 }
 
 const SHARED_CSS = `
@@ -88,13 +90,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .legend-swatch:first-child { margin-left: 0; }
 
 .fleet-leaderboard { display: flex; flex-direction: column; gap: 10px; }
-.fleet-row { display: grid; grid-template-columns: 160px 1fr 100px; align-items: center; gap: 12px; }
+.fleet-row { display: grid; grid-template-columns: 160px 1fr 104px 100px; align-items: center; gap: 12px; }
 .fleet-row-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-row-total { text-align: right; color: var(--muted); font-size: 0.9em; }
 .fleet-bar { display: flex; height: 28px; border-radius: 4px; overflow: hidden; background: var(--border); cursor: pointer; }
 .fleet-seg { height: 100%; min-width: 1px; }
 .fleet-seg-global { background: #94a3b8; }
 .fleet-seg-delta { background: #2563eb; }
+.fleet-row-sparkline { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 0.75em; }
+.fleet-row-sparkline:empty::after { content: "no history"; font-style: italic; }
+.fleet-sparkline { display: block; }
 
 .toggle-bar { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; padding: 10px 12px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 6px; font-size: 0.9em; }
 .toggle-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -291,7 +296,7 @@ export function renderFleetHtml(fleetDoc: Fleet, opts: RenderOptions = {}): stri
     }
   }
 
-  const level0Html = renderLevel0(vm.fleet);
+  const level0Html = renderLevel0(vm.fleet, { historyFilePath: opts.historyFilePath });
 
   // Resolved once per render — cheap (a single realpath call); ctx-scan-refs's
   // shelf panel needs the real global `~/.claude` layer path to discover
