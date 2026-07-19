@@ -41,3 +41,13 @@ Host *
     ServerAliveCountMax 3
     ConnectionAttempts 2
     ConnectTimeout 10
+    # Connection multiplexing (2026-07-19): paste-image.sh's SSH+Ghostty branch opens
+    # up to 5 separate ssh/scp calls to the same host per single image paste (CWD
+    # resolve, project-root walk, mkdir, scp, tmux inject) — each paying a full
+    # handshake+auth cost independently. ControlMaster lets calls 2-5 reuse the first
+    # call's already-authenticated connection instead of renegotiating every time.
+    # Matters most while the Mac<->homelab Tailscale link is DERP-relayed (dfw) rather
+    # than direct — handshake latency is the one part of that we can still cut locally.
+    ControlMaster auto
+    ControlPath ~/.ssh/control-%r@%h:%p
+    ControlPersist 10m
