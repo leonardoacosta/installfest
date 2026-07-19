@@ -41,26 +41,26 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Grep the rendered HTML output for any external `<script src=` / `<link href=` / [beads:if-elkk]
+- [x] [4.1] Grep the rendered HTML output for any external `<script src=` / `<link href=` / [beads:if-elkk]
   `fetch(`/`XMLHttpRequest` reference; assert zero matches. Open the file with network access
   disabled and assert it still renders (the airplane test).
   - depends on: 3.1
-- [ ] [4.2] Fixture data exercising all 4 levels; assert each level's DOM structure matches the [beads:if-j112]
+- [x] [4.2] Fixture data exercising all 4 levels; assert each level's DOM structure matches the [beads:if-j112]
   expected shape and that clicking through levels 0→1→2→3 works.
   - depends on: 3.1
-- [ ] [4.3] Fixture with known RED/AMBER/GREEN nodes; assert each renders with the correct band [beads:if-kj1x]
+- [x] [4.3] Fixture with known RED/AMBER/GREEN nodes; assert each renders with the correct band [beads:if-kj1x]
   color.
   - depends on: 2.3
-- [ ] [4.4] Fixture RED set with a known overage; assert the trim plan's running total reaches [beads:if-mpmv]
+- [x] [4.4] Fixture RED set with a known overage; assert the trim plan's running total reaches [beads:if-mpmv]
   or exceeds the overage.
   - depends on: 2.5
-- [ ] [4.5] Render `ctx-scan render --project cc -o /tmp/ctx-scan-cc.html` (or fleet equivalent) [beads:if-l21g]
+- [x] [4.5] Render `ctx-scan render --project cc -o /tmp/ctx-scan-cc.html` (or fleet equivalent) [beads:if-l21g]
   for the real `~/dev/cc` scan; open it, click through all 4 drill levels, and confirm the three
   known REDs (A1, A7/A8, A4×6 per `docs/context-budget-rubric.md` Part 2) render visibly RED and
   the trim panel's plan sums to at least the A1 overage.
   - depends on: 3.1
-- [ ] [4.6] Minimal empty-findings fixture (a tiny project with zero rubric violations); assert [beads:if-yv0e]
+- [x] [4.6] Minimal empty-findings fixture (a tiny project with zero rubric violations); assert [beads:if-yv0e]
   the renderer produces valid output with no error, at every level.
   - depends on: 3.1
-- [ ] [4.7] `tsc --noEmit` and `bun test` both green. [beads:if-lefh]
+- [x] [4.7] `tsc --noEmit` and `bun test` both green. [beads:if-lefh]
   - depends on: 3.1
