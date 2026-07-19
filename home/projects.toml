@@ -354,6 +354,7 @@ path = "dev/priceless/tribal-cities"
 tiers = ["remote", "local"]
 devPort = 3101
 deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "tribal-cities", devBranch = "dev", prodBranch = "main" }
+personas = ["attendee", "staff"]
 prod_url = "https://tribalcities.com"
 
 [projects.monitors.vercel]
