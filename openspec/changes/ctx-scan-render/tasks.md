@@ -8,33 +8,33 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Define the render-time view model in `src/render/view-model.ts`: derives the [beads:if-taql]
+- [x] [1.1] Define the render-time view model in `src/render/view-model.ts`: derives the [beads:if-taql]
   4-level drill-down structure (fleet → project → class → document) plus toggle state from the
   `Fleet` JSON document produced by `ctx-scan scan`, without mutating the source data.
 
 ## API Batch
 
-- [ ] [2.1] Implement `src/render/level0-fleet.ts`: leaderboard bar generation, global-baseline [beads:if-l8o0]
+- [x] [2.1] Implement `src/render/level0-fleet.ts`: leaderboard bar generation, global-baseline [beads:if-l8o0]
   vs project-delta sub-stack split.
   - depends on: 1.1
-- [ ] [2.2] Implement `src/render/level1-project.ts`: stacked bar per class, the four toggles [beads:if-qoaa]
+- [x] [2.2] Implement `src/render/level1-project.ts`: stacked bar per class, the four toggles [beads:if-qoaa]
   (post-compaction, include-T2, predicted-drops, calibrated-constant marking).
   - depends on: 1.1
-- [ ] [2.3] Implement `src/render/level2-class.ts`: proportional per-document bar, band-colored [beads:if-qw32]
+- [x] [2.3] Implement `src/render/level2-class.ts`: proportional per-document bar, band-colored [beads:if-qw32]
   borders sourced from `ctx-scan-budgets`' `Node.bands`.
   - depends on: 1.1
-- [ ] [2.4] Implement `src/render/level3-document.ts`: rendered content, violation header text [beads:if-fwhb]
+- [x] [2.4] Implement `src/render/level3-document.ts`: rendered content, violation header text [beads:if-fwhb]
   assembly (e.g. `"A2 listing entry 1,610/1,536 [H]"`), tier/origin/truncation/raw-vs-effective
   display.
   - depends on: 1.1
-- [ ] [2.5] Implement `src/render/trim-plan.ts`: greedy remediation plan over RED/AMBER rows, [beads:if-x8yr]
+- [x] [2.5] Implement `src/render/trim-plan.ts`: greedy remediation plan over RED/AMBER rows, [beads:if-x8yr]
   ranked by tokens-recovered-per-change, with a running total; read-only — no file-write code
   path.
   - depends on: 1.1
 
 ## UI Batch
 
-- [ ] [3.1] Implement `src/render.ts` and the `ctx-scan render [--project <name>|--fleet] [beads:if-9h3k]
+- [x] [3.1] Implement `src/render.ts` and the `ctx-scan render [--project <name>|--fleet] [beads:if-9h3k]
   [-o <path>]` command: assemble all levels + trim panel into one self-contained HTML file
   (inline CSS/JS, inline JSON data, no CDN dependency), write to `-o` or a default path.
   - depends on: 2.1, 2.2, 2.3, 2.4, 2.5
