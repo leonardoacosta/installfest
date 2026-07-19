@@ -42,28 +42,28 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Assert every constant in `src/rubric.ts` carries a traceable source citation matching [beads:if-hc1m]
+- [x] [4.1] Assert every constant in `src/rubric.ts` carries a traceable source citation matching [beads:if-hc1m]
   `docs/context-budget-rubric.md`'s stated sources (code.claude.com docs pages, or the specific
   anchor rationale for R-tagged rows); a constant with no citation fails the test.
   - depends on: 1.1
-- [ ] [4.2] Seeded boundary fixtures at exactly the GREEN/AMBER and AMBER/RED transition points [beads:if-ug8h]
+- [x] [4.2] Seeded boundary fixtures at exactly the GREEN/AMBER and AMBER/RED transition points [beads:if-ug8h]
   for a Rule-1 row, a Rule-2 row, and a Rule-3 row; assert each lands in the correct band.
   - depends on: 2.1
-- [ ] [4.3] Fixture `Node` set with hand-computed expected bands across multiple classes; assert [beads:if-byk3]
+- [x] [4.3] Fixture `Node` set with hand-computed expected bands across multiple classes; assert [beads:if-byk3]
   `[2.2]`'s annotation matches exactly.
   - depends on: 2.2
-- [ ] [4.4] Schema assertion that `ctx-scan audit --json`'s output matches the §E-R1 contract [beads:if-y2zm]
+- [x] [4.4] Schema assertion that `ctx-scan audit --json`'s output matches the §E-R1 contract [beads:if-y2zm]
   shape exactly, including the `error: null` success case and an `error`-populated partial
   failure case.
   - depends on: 2.3
-- [ ] [4.5] Run `ctx-scan audit --json` against `~/dev/cc` and assert it reproduces [beads:if-ujtc]
+- [x] [4.5] Run `ctx-scan audit --json` against `~/dev/cc` and assert it reproduces [beads:if-ujtc]
   `docs/context-budget-rubric.md` Part 2's scorecard exactly — same bands for A1 (RED,
   ~5.8× budget), A3 (RED, 1 over), A4 (RED, 6 over), A7 (RED, ~1.6×), A9 (GREEN), A13 (GREEN),
   and the AMBER rows (A5, A11, A12).
   - depends on: 3.1
-- [ ] [4.6] Mutate one constant in `src/rubric.ts` (e.g. A2's 1,536-char limit) and assert both [beads:if-150o]
+- [x] [4.6] Mutate one constant in `src/rubric.ts` (e.g. A2's 1,536-char limit) and assert both [beads:if-150o]
   `ctx-scan scan`'s band-annotated `Node` output and `ctx-scan audit --json`'s row output reflect
   the change identically — proves the single-source-of-truth guarantee.
   - depends on: 2.2, 2.3
-- [ ] [4.7] `tsc --noEmit` and `bun test` both green. [beads:if-hojq]
+- [x] [4.7] `tsc --noEmit` and `bun test` both green. [beads:if-hojq]
   - depends on: 3.1
