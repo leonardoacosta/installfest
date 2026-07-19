@@ -157,12 +157,13 @@ function Install-OpenSSHServer {
     Write-Step "Current OpenSSH version: $currentVersion"
 
     $targetVersion = "10.0.0.0"
+    $targetMajor = [int]($targetVersion.Split('.')[0])
     $needsUpgrade = $true
     if ($currentVersion -match "^(\d+)\.") {
         $majorVersion = [int]$Matches[1]
-        if ($majorVersion -ge 10) {
+        if ($majorVersion -ge $targetMajor) {
             $needsUpgrade = $false
-            Write-Ok "OpenSSH $currentVersion is current (>= 10.x)"
+            Write-Ok "OpenSSH $currentVersion is current (>= $targetMajor.x)"
         }
     }
 
@@ -714,11 +715,11 @@ function Install-NerdFonts {
 
     foreach ($font in $fonts) {
         $installed = scoop list $font 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        if ($LASTEXITCODE -eq 0 -and $installed -match $font) {
+            Write-Ok "$font already installed"
+        } else {
             Write-Step "Installing $font..."
             sudo scoop install -g $font
-        } else {
-            Write-Ok "$font already installed"
         }
     }
 }
