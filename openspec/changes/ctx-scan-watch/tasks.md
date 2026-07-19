@@ -8,29 +8,29 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Define the snapshot record shape in `src/history.ts`: `{timestamp, project, [beads:if-4c6b]
+- [x] [1.1] Define the snapshot record shape in `src/history.ts`: `{timestamp, project, [beads:if-4c6b]
   scanOutput, auditOutput}`, one JSON line per snapshot in `~/.ctx-scan/history.jsonl`
   (append-only).
 
 ## API Batch
 
-- [ ] [2.1] Implement `src/watch.ts`: chokidar watcher over the discovered fleet's project [beads:if-1rj9]
+- [x] [2.1] Implement `src/watch.ts`: chokidar watcher over the discovered fleet's project [beads:if-1rj9]
   roots, debounced re-scan of the changed project on file-change, invoking `ctx-scan scan` +
   `ctx-scan audit` for that project only.
   - depends on: 1.1
-- [ ] [2.2] Implement snapshot append in `src/history.ts`: write one new line to [beads:if-pg2a]
+- [x] [2.2] Implement snapshot append in `src/history.ts`: write one new line to [beads:if-pg2a]
   `~/.ctx-scan/history.jsonl` per re-scan triggered by `[2.1]`.
   - depends on: 2.1
-- [ ] [2.3] Implement `src/diff.ts`: load two named snapshots (by timestamp or index), compare [beads:if-4g67]
+- [x] [2.3] Implement `src/diff.ts`: load two named snapshots (by timestamp or index), compare [beads:if-4g67]
   every rubric row's `band` value between them, and produce a list of `{rule, from, to}`
   transitions — empty when nothing changed.
   - depends on: 1.1
 
 ## UI Batch
 
-- [ ] [3.1] Wire `ctx-scan watch` and `ctx-scan diff <a> <b>` as top-level commander.js commands. [beads:if-w7xv]
+- [x] [3.1] Wire `ctx-scan watch` and `ctx-scan diff <a> <b>` as top-level commander.js commands. [beads:if-w7xv]
   - depends on: 2.1, 2.3
-- [ ] [3.2] Extend `ctx-scan render --fleet`'s leaderboard (from `ctx-scan-render`) with a [beads:if-mqes]
+- [x] [3.2] Extend `ctx-scan render --fleet`'s leaderboard (from `ctx-scan-render`) with a [beads:if-mqes]
   per-project sparkline summarizing recent `history.jsonl` entries, rendered only when at least
   two snapshots exist for that project.
   - depends on: 2.2
