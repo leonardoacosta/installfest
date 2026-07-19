@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# ado-ready — Azure DevOps work-item tracker adapter for the wk portfolio surface.
+# ado-ready — Azure DevOps work-item tracker adapter for the ws portfolio surface.
 #
 # Calls `az boards query` against the ADO project declared in the org's
 # profile.toml and emits a JSON array on stdout. Designed to be called by
-# bin/wk-ready.
+# bin/ws-ready.
 #
 # Usage:
 #   ado-ready <org>          # e.g. ado-ready b-and-b

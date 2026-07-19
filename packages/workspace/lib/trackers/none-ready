@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # none-ready — sentinel adapter for orgs with no tracker.
 #
-# Returns an empty array. Used by `wk-ready` when an org's profile.toml
+# Returns an empty array. Used by `ws-ready` when an org's profile.toml
 # declares `tracker = "none"` so the dispatcher contract stays uniform.
 #
 # Usage: none-ready <org>

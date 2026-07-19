@@ -1,10 +1,10 @@
 # priceless workspace profile
 #
-# Consumed by packages/workspace/bin/wk-ready (and future wk-* commands).
+# Consumed by packages/workspace/bin/ws-ready (invoked as `mux ready`).
 # Sibling files in this dir (env.sh, claude/, wrappers/) are unrelated to
 # this config — those are sourced by wsenv at activation time.
 
 # Task tracker: priceless projects use beads (.beads/ dir per project).
-# wk-ready dispatches to packages/workspace/lib/trackers/beads-ready, which fans
+# ws-ready dispatches to packages/workspace/lib/trackers/beads-ready, which fans
 # out `bd ready --json` across every priceless project in projects.toml.
 tracker = "beads"

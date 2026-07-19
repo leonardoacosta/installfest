@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# beads-ready — beads tracker adapter for the wk portfolio surface.
+# beads-ready — beads tracker adapter for the ws portfolio surface.
 #
 # Fans out `bd ready --json` across every project that belongs to <org>
 # (per home/projects.toml), tags each issue with its project code, and emits
-# one JSON array on stdout. Designed to be called by bin/wk-ready.
+# one JSON array on stdout. Designed to be called by bin/ws-ready.
 #
 # Usage:
 #   beads-ready <org>           # e.g. beads-ready priceless

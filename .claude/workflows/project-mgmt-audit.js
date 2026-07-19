@@ -86,7 +86,7 @@ const SURFACES = [
   },
   {
     key: 'workspace-pkg',
-    prompt: `Surface: workspace package contract. Run packages/workspace/bin/wk-doctor --json for one repo per org (e.g. ws, oo, if) and packages/workspace/bin/wsenv --validate for the same codes. Compare packages/workspace/README.md claims against the code (bin/wsenv, bin/generate-profiles, profiles/*/profile.toml) and against ~/.config/workspace/<org> deployed state. Flag contract violations and README drift.`,
+    prompt: `Surface: workspace package contract. Run packages/workspace/bin/ws-doctor --json for one repo per org (e.g. ws, oo, if) and packages/workspace/bin/wsenv --validate for the same codes. Compare packages/workspace/README.md claims against the code (bin/wsenv, bin/generate-profiles, profiles/*/profile.toml) and against ~/.config/workspace/<org> deployed state. Flag contract violations and README drift.`,
   },
   {
     key: 'cross-repo',

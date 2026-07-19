@@ -31,5 +31,5 @@ or minted as beads under `if-vit` (workspace-resilience) / `if-7cce` (unsorted):
 | generator prune pass (raycast/cmux-workspaces orphans) | `if-vit.2` (feature-sized — run `/feature` when picked up) |
 | nexus/nova naming drift | `if-7cce.4` (`[user]` — needs Leo's live-state verification) |
 | CloudPC bootstrap fix-or-retire | `if-7cce.5` (`[user]` — direction call) |
-| `wk open <code>` launcher verb | `if-vit.3` (`[user]` — product decision) |
+| `wk open <code>` launcher verb | resolved — `wk` retired 2026-07-18, folded into `mux` (`mux doctor`/`mux ready`); `if-vit.3` closed, no separate verb added |
 | registry convergence (cc `projects.json` vs if `projects.toml`) | `if-7cce.6` (`[user]` — cross-repo decision) |

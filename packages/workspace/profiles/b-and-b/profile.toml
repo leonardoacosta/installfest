@@ -1,6 +1,6 @@
 # b-and-b workspace profile
 #
-# Consumed by packages/workspace/bin/wk-ready (and future wk-* commands).
+# Consumed by packages/workspace/bin/ws-ready (invoked as `mux ready`).
 # Sibling files in this dir (env.sh, claude/, wrappers/) are unrelated to
 # this config — those are sourced by wsenv at activation time.
 
@@ -17,7 +17,7 @@ org_url = "https://dev.azure.com/bbins"
 # "Wholesale Architecture" on whitespace (azure-devops extension 1.0.2 bug).
 # See packages/workspace/lib/trackers/README.md § ADO setup for how to fetch.
 #
-# This is intentionally LEFT BLANK so wk-ready exits gracefully ([]) instead
+# This is intentionally LEFT BLANK so ws-ready exits gracefully ([]) instead
 # of querying an unauthenticated ADO surface. To populate:
 #   1. Run `az devops login --organization https://dev.azure.com/bbins`
 #      (or `export AZURE_DEVOPS_EXT_PAT=<pat>`) under the BBAdmin identity.
