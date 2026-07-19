@@ -34,21 +34,21 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Fixture with one reference file cited via a markdown link from its owning SKILL.md [beads:if-8mly]
+- [x] [4.1] Fixture with one reference file cited via a markdown link from its owning SKILL.md [beads:if-8mly]
   and one genuinely orphaned reference file; assert the linked one reports its citing line and
   the orphaned one reports `orphan`. Include a third reference cited only via prose (no markdown
   link) to establish the detection boundary explicitly.
   - depends on: 2.1
-- [ ] [4.2] Assert shelf entries' ToC/nesting bands match `ctx-scan-budgets`' `Node.bands` output [beads:if-akzw]
+- [x] [4.2] Assert shelf entries' ToC/nesting bands match `ctx-scan-budgets`' `Node.bands` output [beads:if-akzw]
   exactly for the same fixture files — proves reuse, not re-derivation.
   - depends on: 1.1
-- [ ] [4.3] Multi-skill fixture; assert `--skill <name>` scoping excludes every other skill's [beads:if-rm5i]
+- [x] [4.3] Multi-skill fixture; assert `--skill <name>` scoping excludes every other skill's [beads:if-rm5i]
   references.
   - depends on: 2.3
-- [ ] [4.4] Run the shelf view against the real `~/dev/cc` scan; confirm any genuinely orphaned [beads:if-vyxh]
+- [x] [4.4] Run the shelf view against the real `~/dev/cc` scan; confirm any genuinely orphaned [beads:if-vyxh]
   reference files are flagged, the 79 known no-ToC files (per
   `docs/context-budget-rubric.md` Part 2's A5 row) appear AMBER, and every listed entry
   click-opens into the detail view.
   - depends on: 3.1
-- [ ] [4.5] `tsc --noEmit` and `bun test` both green. [beads:if-bl3s]
+- [x] [4.5] `tsc --noEmit` and `bun test` both green. [beads:if-bl3s]
   - depends on: 3.1
