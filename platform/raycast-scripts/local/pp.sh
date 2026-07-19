@@ -6,10 +6,10 @@
 # @raycast.mode silent
 
 # Optional parameters:
-# @raycast.icon 📦
+# @raycast.icon 📝
 
 # Documentation:
-# @raycast.description pp
+# @raycast.description PIPS
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 

@@ -6,10 +6,10 @@
 # @raycast.mode silent
 
 # Optional parameters:
-# @raycast.icon 📦
+# @raycast.icon 📐
 
 # Documentation:
-# @raycast.description terraform-modules
+# @raycast.description Terraform Modules
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 

@@ -460,7 +460,7 @@ deploy = { type = "docker", host = "homelab" }
 code = "if"
 name = "Installfest"
 category = "personal"
-icon = "📦"
+icon = "🔌"
 path = "dev/personal/installfest"
 tiers = ["remote", "local"]
 deploy = { type = "docker", host = "homelab" }
@@ -615,9 +615,9 @@ tiers = ["remote", "local"]
 
 [[projects]]
 code = "nova"
-name = "nova"
+name = "Nova"
 category = "personal"
-icon = "📦"
+icon = "✨"
 path = "dev/personal/nova"
 tiers = ["local"]
 devPort = 3110
@@ -625,9 +625,9 @@ deploy = { type = "systemd", host = "local" }
 
 [[projects]]
 code = "harness"
-name = "harness"
+name = "Harness"
 category = "personal"
-icon = "📦"
+icon = "🖥️"
 path = "dev/personal/harness"
 tiers = ["local"]
 deploy = { type = "docker", host = "homelab" }
@@ -787,9 +787,9 @@ tiers = ["local"]
 
 [[projects]]
 code = "terraform-modules"
-name = "terraform-modules"
+name = "Terraform Modules"
 category = "priceless"
-icon = "📦"
+icon = "📐"
 path = "dev/terraform-modules"
 tiers = ["local"]
 legacy_codes = ["tm"]
@@ -822,7 +822,7 @@ tiers = ["local"]
 code = "guardian"
 name = "guardian"
 category = "personal"
-icon = "📦"
+icon = ""
 path = "dev/personal/guardian"
 tiers = ["local"]
 stack = "t3-turbo"
@@ -833,9 +833,9 @@ legacy_codes = ["gd"]
 
 [[projects]]
 code = "atlas"
-name = "atlas"
+name = "Atlas"
 category = "personal"
-icon = "📦"
+icon = "🗺️"
 path = "dev/personal/atlas"
 tiers = ["local"]
 deploy = { type = "docker", host = "homelab" }
@@ -859,9 +859,9 @@ tiers = ["local"]
 
 [[projects]]
 code = "priceless-config"
-name = "priceless-config"
+name = "Priceless Central"
 category = "priceless"
-icon = "📦"
+icon = "🏢"
 path = "dev/priceless/priceless-config"
 tiers = ["local"]
 legacy_codes = ["pc"]
@@ -878,9 +878,9 @@ legacy_codes = ["pa"]
 
 [[projects]]
 code = "seth-jones"
-name = "seth-jones"
+name = "Seth Jones"
 category = "personal"
-icon = "📦"
+icon = "👤"
 path = "dev/priceless/seth-jones"
 tiers = ["local"]
 devPort = 3106
@@ -942,9 +942,9 @@ tiers = ["local"]
 
 [[projects]]
 code = "es"
-name = "es"
+name = "Email Scheduler"
 category = "b-and-b"
-icon = "📦"
+icon = "📧"
 path = "dev/brown/es"
 tiers = ["local"]
 deploy = { type = "azure", host = "local" }
@@ -1023,9 +1023,9 @@ tiers = ["local"]
 
 [[projects]]
 code = "pp"
-name = "pp"
+name = "PIPS"
 category = "b-and-b"
-icon = "📦"
+icon = "📝"
 path = "dev/brown/pp"
 tiers = ["local"]
 deploy = { type = "azure", host = "local" }

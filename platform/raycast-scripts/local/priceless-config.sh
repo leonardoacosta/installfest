@@ -6,10 +6,10 @@
 # @raycast.mode silent
 
 # Optional parameters:
-# @raycast.icon 📦
+# @raycast.icon 🏢
 
 # Documentation:
-# @raycast.description priceless-config
+# @raycast.description Priceless Central
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
