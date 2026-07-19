@@ -3,6 +3,19 @@
 # Source of truth: ~/dev/personal/installfest/scripts/cmux-workspaces.sh
 # Project data: ~/dev/personal/installfest/home/projects.toml
 #
+# Prune-pass investigation (add-launcher-registry-prune-pass [2.2]): this
+# script generates NO per-project-code file output. It reads projects.toml
+# each run into in-memory bash associative arrays (PROJECTS/CATEGORIES/
+# FULL_NAMES, via load_projects()) purely to drive live `cmux` CLI calls
+# (send/rename-workspace/set-status/...) — nothing from that data is ever
+# written to disk keyed by project code. The one on-disk artifact it does
+# write, ~/.cmux/workspace-cwd/$ws (see pane_exec/record_cwd), is keyed by
+# the ephemeral cmux workspace UUID assigned at launch time, not a stable
+# registry code, so it can't be diffed against projects.toml the way
+# registry_orphan_codes() diffs a {code}.sh directory — there is nothing
+# here for that helper to prune. No-op: registry_orphan_codes() is not
+# wired into this script.
+#
 # Requires bash 4+ (uses `declare -A`). macOS ships only bash 3.2 at /bin/bash and
 # interactive PATH often resolves it ahead of Homebrew's, so re-exec under a bash 4+
 # if we were started under an older one.
