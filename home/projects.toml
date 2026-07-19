@@ -690,14 +690,6 @@ path = "dev/bsi.Aggregates"
 tiers = ["local"]
 
 [[projects]]
-code = "tb"
-name = "tb"
-category = "b-and-b"
-icon = "📦"
-path = "dev/tb"
-tiers = ["local"]
-
-[[projects]]
 code = "TRECommercial"
 name = "TRECommercial"
 category = "priceless"
@@ -1054,6 +1046,7 @@ icon = "📦"
 path = "dev/brown/thebridge"
 tiers = ["local"]
 deploy = { type = "azure", host = "local" }
+legacy_codes = ["tb"]
 
 [[projects]]
 code = "quoterepo-db"
