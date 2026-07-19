@@ -57,6 +57,21 @@ category = "b-and-b"
 icon = "🔥"
 path = "dev/brown/fireball"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
+
+[projects.monitors.vercel]
+enabled = false
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = true
+org = "brownandbrowninc"
+project = "Fireball"
 
 [[projects]]
 code = "ds"
@@ -73,6 +88,7 @@ category = "b-and-b"
 icon = "🏗️"
 path = "dev/brown/ws"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "sc"
@@ -81,6 +97,7 @@ category = "b-and-b"
 icon = "💰"
 path = "dev/brown/salescrm"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "se"
@@ -89,6 +106,7 @@ category = "b-and-b"
 icon = "📥"
 path = "dev/brown/submissionengine"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "ba"
@@ -97,6 +115,21 @@ category = "b-and-b"
 icon = "💻"
 path = "dev/brown/b3admin"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
+
+[projects.monitors.vercel]
+enabled = false
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = true
+org = "brownandbrowninc"
+project = "B3"
 
 [[projects]]
 code = "bo"
@@ -105,6 +138,21 @@ category = "b-and-b"
 icon = "🏢"
 path = "dev/brown/b3owa"
 tiers = ["remote", "local", "cloudpc"]
+deploy = { type = "azure", host = "local" }
+
+[projects.monitors.vercel]
+enabled = false
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = true
+org = "brownandbrowninc"
+project = "OfficeIndexToPIPS2.0"
 
 [[projects]]
 code = "dc"
@@ -113,6 +161,8 @@ category = "b-and-b"
 icon = "📂"
 path = "dev/dc"
 tiers = ["remote", "cloudpc"]
+devPort = 3108
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "ew"
@@ -121,6 +171,7 @@ category = "b-and-b"
 icon = "📚"
 path = "dev/ew"
 tiers = ["remote"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "ic"
@@ -129,6 +180,7 @@ category = "b-and-b"
 icon = "⚙️"
 path = "dev/ic"
 tiers = ["remote"]
+deploy = { type = "azure", host = "local" }
 
 # =============================================================================
 # Client Projects
@@ -149,6 +201,38 @@ category = "priceless"
 icon = "👘"
 path = "dev/priceless/otaku-odyssey"
 tiers = ["remote", "local"]
+devPort = 3100
+deploy = { type = "vercel", vercelProject = "otaku-odyssey", devBranch = "dev", prodBranch = "main" }
+personas = ["platform-owner", "super-admin", "attendee", "event-owner"]
+seed_command = "pnpm db:reconcile"
+prod_url = "https://otaku-odyssey.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "oo"
+
+[projects.monitors.posthog]
+enabled = false
+project_id = 220182
+superseded_by = "openreplay"
+
+[projects.monitors.better-stack]
+enabled = false
+source_token = "$BETTER_STACK_TOKEN"
+superseded_by = "grafana"
+
+[projects.monitors.azure]
+enabled = false
+
+[projects.monitors.grafana]
+enabled = true
+dashboard_uid = ""
+note = "placeholder -- no per-app Grafana dashboard provisioned yet in hl (homelab/homelab/grafana/provisioning/dashboards/); wire dashboard_uid when hl builds one"
+
+[projects.monitors.openreplay]
+enabled = true
+project_key_ref = "homelab:docs/openreplay/project-keys.md"
+project_id = 2
 
 [[projects]]
 code = "mv"
@@ -157,6 +241,34 @@ category = "priceless"
 icon = "🌐"
 path = "dev/priceless/modern-visa"
 tiers = ["remote", "local"]
+devPort = 3103
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "modern-visa", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://modernvisa.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "mv"
+
+[projects.monitors.posthog]
+enabled = false
+superseded_by = "openreplay"
+
+[projects.monitors.better-stack]
+enabled = false
+superseded_by = "grafana"
+
+[projects.monitors.azure]
+enabled = false
+
+[projects.monitors.grafana]
+enabled = true
+dashboard_uid = ""
+note = "placeholder -- no per-app Grafana dashboard provisioned yet in hl (homelab/homelab/grafana/provisioning/dashboards/); wire dashboard_uid when hl builds one"
+
+[projects.monitors.openreplay]
+enabled = true
+project_key_ref = "homelab:docs/openreplay/project-keys.md"
+project_id = 7
 
 [[projects]]
 code = "ct"
@@ -165,6 +277,35 @@ category = "priceless"
 icon = "🔥"
 path = "dev/priceless/civalent"
 tiers = ["remote", "local"]
+devPort = 3108
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "civalent", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://civalent.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "ct"
+
+[projects.monitors.posthog]
+enabled = false
+project_id = 338488
+superseded_by = "openreplay"
+
+[projects.monitors.better-stack]
+enabled = false
+superseded_by = "grafana"
+
+[projects.monitors.azure]
+enabled = false
+
+[projects.monitors.grafana]
+enabled = true
+dashboard_uid = ""
+note = "placeholder -- no per-app Grafana dashboard provisioned yet in hl (homelab/homelab/grafana/provisioning/dashboards/); wire dashboard_uid when hl builds one"
+
+[projects.monitors.openreplay]
+enabled = true
+project_key_ref = "homelab:docs/openreplay/project-keys.md"
+project_id = 5
 
 [[projects]]
 code = "tl"
@@ -173,6 +314,36 @@ category = "priceless"
 icon = "🍺"
 path = "dev/priceless/tl"
 tiers = ["remote", "local"]
+devPort = 3102
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "tavern-ledger", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://tavernledger.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "tl"
+
+[projects.monitors.posthog]
+enabled = false
+project_id = 253726
+superseded_by = "openreplay"
+
+[projects.monitors.better-stack]
+enabled = false
+source_token = "$BETTER_STACK_TOKEN"
+superseded_by = "grafana"
+
+[projects.monitors.azure]
+enabled = false
+
+[projects.monitors.grafana]
+enabled = true
+dashboard_uid = ""
+note = "placeholder -- no per-app Grafana dashboard provisioned yet in hl (homelab/homelab/grafana/provisioning/dashboards/); wire dashboard_uid when hl builds one"
+
+[projects.monitors.openreplay]
+enabled = true
+project_key_ref = "homelab:docs/openreplay/project-keys.md"
+project_id = 4
 
 [[projects]]
 code = "tc"
@@ -181,6 +352,36 @@ category = "priceless"
 icon = "⛺"
 path = "dev/priceless/tribal-cities"
 tiers = ["remote", "local"]
+devPort = 3101
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "tribal-cities", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://tribalcities.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "tc"
+
+[projects.monitors.posthog]
+enabled = false
+project_id = 214633
+superseded_by = "openreplay"
+
+[projects.monitors.better-stack]
+enabled = false
+source_token = "$BETTER_STACK_TOKEN"
+superseded_by = "grafana"
+
+[projects.monitors.azure]
+enabled = false
+
+[projects.monitors.grafana]
+enabled = true
+dashboard_uid = ""
+note = "placeholder -- no per-app Grafana dashboard provisioned yet in hl (homelab/homelab/grafana/provisioning/dashboards/); wire dashboard_uid when hl builds one"
+
+[projects.monitors.openreplay]
+enabled = true
+project_key_ref = "homelab:docs/openreplay/project-keys.md"
+project_id = 3
 
 [[projects]]
 code = "ss"
@@ -189,6 +390,7 @@ category = "priceless"
 icon = "💇🏼"
 path = "dev/priceless/styles-silas"
 tiers = ["remote", "local"]
+deploy = { type = "vercel" }
 
 # =============================================================================
 # Personal Projects
@@ -209,6 +411,9 @@ category = "personal"
 icon = "💊"
 path = "dev/personal/ap"
 tiers = ["remote"]
+devPort = 5000
+deploy = { type = "docker", domain = "ap.leonardoacosta.dev", prodBranch = "main" }
+personas = ["operator"]
 
 [[projects]]
 code = "cl"
@@ -249,6 +454,7 @@ category = "personal"
 icon = "💻"
 path = "dev/personal/homelab"
 tiers = ["remote", "local"]
+deploy = { type = "docker", host = "homelab" }
 
 [[projects]]
 code = "if"
@@ -257,6 +463,7 @@ category = "personal"
 icon = "📦"
 path = "dev/personal/installfest"
 tiers = ["remote", "local"]
+deploy = { type = "docker", host = "homelab" }
 
 [[projects]]
 code = "cs"
@@ -265,6 +472,21 @@ category = "priceless"
 icon = "🃏"
 path = "dev/priceless/card-scope"
 tiers = ["remote", "local"]
+devPort = 3107
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "cardscope", devBranch = "main", prodBranch = "main" }
+
+[projects.monitors.vercel]
+enabled = true
+project = "cs"
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = false
 
 [[projects]]
 code = "cc"
@@ -281,6 +503,22 @@ category = "personal"
 icon = "🏗️"
 path = "dev/personal/la"
 tiers = ["remote", "local"]
+devPort = 3105
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "leonardo-acosta", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://leonardoacosta.dev"
+
+[projects.monitors.vercel]
+enabled = true
+project = "la"
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = false
 
 [[projects]]
 code = "lu"
@@ -289,6 +527,21 @@ category = "personal"
 icon = "🏗️"
 path = "dev/lu"
 tiers = ["remote"]
+deploy = { type = "azure", host = "local" }
+
+[projects.monitors.vercel]
+enabled = false
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = true
+org = "brownandbrowninc"
+project = "Master Data Repository"
 
 [[projects]]
 code = "lv"
@@ -297,6 +550,22 @@ category = "priceless"
 icon = "♣️"
 path = "dev/priceless/lv"
 tiers = ["remote", "local"]
+devPort = 3111
+deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "las-vegas-to-tokyo", devBranch = "dev", prodBranch = "main" }
+prod_url = "https://vegas2tokyo.com"
+
+[projects.monitors.vercel]
+enabled = true
+project = "lv"
+
+[projects.monitors.posthog]
+enabled = false
+
+[projects.monitors.better-stack]
+enabled = false
+
+[projects.monitors.azure]
+enabled = false
 
 [[projects]]
 code = "mesh"
@@ -321,6 +590,8 @@ category = "personal"
 icon = "🌐"
 path = "dev/personal/nexus"
 tiers = ["remote", "local"]
+devPort = 3109
+deploy = { type = "systemd", host = "local" }
 
 [[projects]]
 code = "xx"
@@ -337,6 +608,8 @@ category = "personal"
 icon = "📦"
 path = "dev/personal/nova"
 tiers = ["local"]
+devPort = 3110
+deploy = { type = "systemd", host = "local" }
 
 [[projects]]
 code = "harness"
@@ -633,6 +906,7 @@ category = "b-and-b"
 icon = "📦"
 path = "dev/brown/es"
 tiers = ["local"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "mailgun"
@@ -713,6 +987,7 @@ category = "b-and-b"
 icon = "📦"
 path = "dev/brown/pp"
 tiers = ["local"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "quoterepo-infra"
