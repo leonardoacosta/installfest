@@ -14,7 +14,17 @@
  */
 export const schemaVersion = 1;
 
-/** The 13 context-surface classes a Node can belong to. */
+/**
+ * The 14 context-surface classes a Node can belong to. `reference-file` (added
+ * by `ctx-scan-refs` task [1.1]) is a shelf-only class: it is never produced
+ * by `ctx-scan-assembly`'s pipeline (`pipeline.ts`'s `scan`/`audit` Fleet
+ * assembly), so it never appears in `Fleet.global`/`Project.surfaces` and
+ * never contributes to the primary token bar — T3 (on-demand) surfaces are
+ * deliberately excluded from that bar (proposal.md's Motivation). It exists
+ * solely so `refs.ts` can build standalone `Node`-shaped objects (never
+ * inserted into a `Fleet`) to reuse `render/level3-document.ts`'s detail-view
+ * renderer unchanged for shelf entries.
+ */
 export type NodeClass =
   | "system-prompt"
   | "system-tools"
@@ -28,7 +38,8 @@ export type NodeClass =
   | "hooks-injected"
   | "memory"
   | "output-style"
-  | "plugins";
+  | "plugins"
+  | "reference-file";
 
 /** Which layer a Node's bytes originate from (global counted once, not per-project). */
 export type NodeOrigin = "global" | "project";

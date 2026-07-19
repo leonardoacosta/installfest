@@ -36,18 +36,22 @@
 import { writeFileSync } from "node:fs";
 import type { Fleet } from "./model";
 import { annotateFleetBands } from "./rubric";
+import { getGlobalLayer } from "./discovery";
 import { renderLevel0 } from "./render/level0-fleet";
 import { renderLevel1 } from "./render/level1-project";
 import { renderLevel2 } from "./render/level2-class";
 import { renderLevel3 } from "./render/level3-document";
 import { computeTrimPlan, renderTrimPlanHtml } from "./render/trim-plan";
 import { buildViewModel, escapeHtml } from "./render/view-model";
+import { renderProjectShelf } from "./refs";
 
 export interface RenderOptions {
   /** Initial view: drill directly into this project's level-1 screen. Falls back to the fleet view (with a stderr warning) if no project matches. */
   project?: string;
   /** Initial view: the fleet leaderboard. Default when neither option is given. */
   fleet?: boolean;
+  /** Scope every project's references shelf panel (ctx-scan-refs) to a single named skill/command/agent owner. */
+  skill?: string;
 }
 
 const SHARED_CSS = `
@@ -219,13 +223,23 @@ const SHARED_JS = `
     var mounts = document.querySelectorAll(".doc-content-mount");
     for (var mIdx = 0; mIdx < mounts.length; mIdx++) {
       (function (mount) {
-        var p = Number(mount.getAttribute("data-proj"));
-        var c = Number(mount.getAttribute("data-cls"));
-        var d = Number(mount.getAttribute("data-doc"));
-        var proj = DATA.projects && DATA.projects[p];
-        var cls = proj && proj.classes && proj.classes[c];
-        var doc = cls && cls.documents && cls.documents[d];
-        var entry = doc && DATA.contentByPath ? DATA.contentByPath[doc.path] : null;
+        // ctx-scan-refs shelf-entry detail sections mount their content by
+        // path directly (data-shelf-path) — they were never inserted into
+        // DATA.projects[p].classes[c].documents[d] (see refs.ts's module
+        // doc), so that index lookup can never resolve them.
+        var shelfPath = mount.getAttribute("data-shelf-path");
+        var entry = null;
+        if (shelfPath) {
+          entry = DATA.contentByPath ? DATA.contentByPath[shelfPath] : null;
+        } else {
+          var p = Number(mount.getAttribute("data-proj"));
+          var c = Number(mount.getAttribute("data-cls"));
+          var d = Number(mount.getAttribute("data-doc"));
+          var proj = DATA.projects && DATA.projects[p];
+          var cls = proj && proj.classes && proj.classes[c];
+          var doc = cls && cls.documents && cls.documents[d];
+          entry = doc && DATA.contentByPath ? DATA.contentByPath[doc.path] : null;
+        }
         mount.innerHTML = "";
         if (!entry || entry.preview === null || entry.preview === undefined) {
           var pEmpty = document.createElement("p");
@@ -279,6 +293,38 @@ export function renderFleetHtml(fleetDoc: Fleet, opts: RenderOptions = {}): stri
 
   const level0Html = renderLevel0(vm.fleet);
 
+  // Resolved once per render — cheap (a single realpath call); ctx-scan-refs's
+  // shelf panel needs the real global `~/.claude` layer path to discover
+  // skill/command/agent-owned references/rules/memory files (see refs.ts's
+  // module doc — this is a self-contained, parallel discovery pass, never
+  // threaded through `fleetDoc` itself).
+  const claudeHome = getGlobalLayer().path;
+
+  // Computed once per project, ahead of `dataB64` below, so each shelf
+  // entry's own content-preview cache can be merged into `vm.contentByPath`
+  // before the view model is serialized (the references shelf [3.1]'s
+  // detail-view "Content" section reads that SAME cache by path — see
+  // `SHARED_JS`'s `data-shelf-path` mount lookup). A discovery failure
+  // (unreadable dir, permission error) degrades to an empty shelf for that
+  // project rather than aborting the whole render.
+  const shelfByProject = vm.projects.map((project, projIdx) => {
+    try {
+      return renderProjectShelf(project.path, claudeHome, projIdx, { skill: opts.skill });
+    } catch (err) {
+      process.stderr.write(
+        `[ctx-scan render] references shelf computation failed for project "${project.name}": ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+      return { linkHtml: "", screensHtml: "", contentByPath: {} };
+    }
+  });
+  for (const shelf of shelfByProject) {
+    for (const [path, entry] of Object.entries(shelf.contentByPath)) {
+      if (!(path in vm.contentByPath)) vm.contentByPath[path] = entry;
+    }
+  }
+
   const projectSections = vm.projects
     .map((project, projIdx) => {
       const trimPlan = computeTrimPlan(project, fleetDoc);
@@ -288,11 +334,14 @@ export function renderFleetHtml(fleetDoc: Fleet, opts: RenderOptions = {}): stri
       const level3Sections = project.classes
         .flatMap((cls, clsIdx) => cls.documents.map((doc, docIdx) => renderLevel3(doc, projIdx, clsIdx, docIdx)))
         .join("\n");
-      // Attach the trim-plan panel right after the stacked bar, inside the
-      // same level-1 `.screen` element — it is a panel alongside the
-      // project view, not its own drill-down level.
-      const level1WithTrim = level1Html.replace(/<\/section>\s*$/, `${trimHtml}\n</section>`);
-      return `${level1WithTrim}\n${level2Sections}\n${level3Sections}`;
+
+      const shelf = shelfByProject[projIdx]!;
+
+      // Attach the trim-plan panel + shelf link right after the stacked bar,
+      // inside the same level-1 `.screen` element — both are panels
+      // alongside the project view, not their own drill-down level.
+      const level1WithPanels = level1Html.replace(/<\/section>\s*$/, `${trimHtml}\n${shelf.linkHtml}\n</section>`);
+      return `${level1WithPanels}\n${level2Sections}\n${level3Sections}\n${shelf.screensHtml}`;
     })
     .join("\n");
 

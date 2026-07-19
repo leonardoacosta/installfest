@@ -102,6 +102,10 @@ export const CLASS_LABELS: Record<NodeClass, string> = {
   memory: "Memory (MEMORY.md)",
   "output-style": "Output Style",
   plugins: "Plugins",
+  // Never populated by `buildClassViews` (no pipeline.ts data producer emits
+  // this class into a real Surface) — present only for Record<NodeClass,_>
+  // completeness; `refs.ts`'s shelf panel renders its own label independently.
+  "reference-file": "Reference Files",
 };
 
 /**

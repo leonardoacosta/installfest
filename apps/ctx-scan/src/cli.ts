@@ -258,6 +258,7 @@ interface RenderCliOptions {
   project?: string;
   fleet?: boolean;
   output: string;
+  skill?: string;
 }
 
 /**
@@ -265,13 +266,15 @@ interface RenderCliOptions {
  * hook probing disabled) and write a self-contained drill-down HTML report
  * to `--output` (ctx-scan-render task [3.1]). `--project`/`--fleet` only
  * pick which screen is visible on first paint — the written file always
- * embeds the full fleet (see `render.ts`'s module doc for why).
+ * embeds the full fleet (see `render.ts`'s module doc for why). `--skill`
+ * scopes every project's references shelf panel (ctx-scan-refs [3.1]) to a
+ * single named skill/command/agent owner.
  */
 async function runRender(opts: RenderCliOptions): Promise<void> {
   const root = expandHome(opts.root);
   const { fleet } = await buildFleet(root, { allowProbeHooks: false });
   const outPath = expandHome(opts.output);
-  writeRenderedFleet(fleet, outPath, { project: opts.project, fleet: opts.fleet });
+  writeRenderedFleet(fleet, outPath, { project: opts.project, fleet: opts.fleet, skill: opts.skill });
   process.stdout.write(`[ctx-scan] wrote report to ${outPath}\n`);
 }
 
@@ -320,6 +323,7 @@ program
   .option("--project <name>", "initial view: drill directly into this project's level-1 view")
   .option("--fleet", "initial view: the fleet leaderboard (default)", false)
   .option("-o, --output <path>", "output HTML file path", "./ctx-scan-report.html")
+  .option("--skill <name>", "scope every project's references shelf panel to a single named skill/command/agent owner")
   .action((opts: RenderCliOptions) => runRender(opts));
 
 // Only parse argv when this file is run directly (`bun run src/cli.ts ...` /

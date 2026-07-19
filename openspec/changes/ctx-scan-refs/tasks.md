@@ -8,26 +8,26 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Define the shelf-entry view model in `src/refs.ts`: `{path, owner, reachable: [beads:if-whij]
+- [x] [1.1] Define the shelf-entry view model in `src/refs.ts`: `{path, owner, reachable: [beads:if-whij]
   boolean, citation?: string, size, tocBand, nestingBand}`, sourced from `ctx-scan-assembly`'s
   discovery output and `ctx-scan-budgets`' A5/A6 `Node.bands` entries.
 
 ## API Batch
 
-- [ ] [2.1] Implement reachability detection: for each `references/` file, un-imported rules [beads:if-kj0w]
+- [x] [2.1] Implement reachability detection: for each `references/` file, un-imported rules [beads:if-kj0w]
   file, and memory topic file, search owning skill/command/agent bodies for a markdown-link
   citation to that path; record the citing document + line when found, else mark `orphan`.
   - depends on: 1.1
-- [ ] [2.2] Implement group-by-owner assembly: bucket shelf entries by their owning [beads:if-qeuu]
+- [x] [2.2] Implement group-by-owner assembly: bucket shelf entries by their owning [beads:if-qeuu]
   skill/command/agent.
   - depends on: 2.1
-- [ ] [2.3] Implement per-skill scoping: filter the shelf to entries owned by a single named [beads:if-48sp]
+- [x] [2.3] Implement per-skill scoping: filter the shelf to entries owned by a single named [beads:if-48sp]
   skill.
   - depends on: 2.2
 
 ## UI Batch
 
-- [ ] [3.1] Wire the shelf view into `ctx-scan render`'s output: a project-scoped shelf panel [beads:if-a4es]
+- [x] [3.1] Wire the shelf view into `ctx-scan render`'s output: a project-scoped shelf panel [beads:if-a4es]
   and a `--skill <name>` scoping flag, each entry linking to `ctx-scan-render`'s level-3 document
   detail view.
   - depends on: 2.2, 2.3
