@@ -16,14 +16,14 @@ stack: cc-meta
 
 ## API Batch
 
-- [ ] [2.1] Extend `scripts/generate-raycast.sh`: after writing all current-registry scripts, [beads:if-wre5]
+- [x] [2.1] Extend `scripts/generate-raycast.sh`: after writing all current-registry scripts, [beads:if-wre5]
   call `registry_orphan_codes()` for each of `platform/raycast-scripts/`,
   `platform/raycast-scripts/local/`, `platform/raycast-scripts/cloudpc/` (skipping `root.sh`/
   `open-project.sh` as intentional infra, matching the auditor's existing exclusion), delete
   every returned orphan, and print what was deleted. Under `--dry-run`, print the same list
   without deleting.
   - depends on: 1.1
-- [ ] [2.2] Investigate `scripts/cmux-workspaces.sh`'s actual per-project-code generated output [beads:if-g2bg]
+- [x] [2.2] Investigate `scripts/cmux-workspaces.sh`'s actual per-project-code generated output [beads:if-g2bg]
   (if any beyond what [2.1] already covers) and either wire the same prune helper against it, or
   — if nothing per-code is generated there today — document that finding in a code comment at
   the top of the script (no-op prune, nothing to do) rather than inventing new prunable output.
