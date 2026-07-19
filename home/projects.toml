@@ -8,6 +8,25 @@
 #   icon      Emoji icon for Raycast metadata
 #   path      Relative path from home dir (e.g. "dev/oo" or ".claude")
 #   tiers     Deployment tiers: "remote" (SSH homelab), "local" (Mac), "cloudpc" (SSH cloudpc)
+#
+# Optional fields (absent unless a project needs them):
+#   devPort       int    -- dev server port (T3/Next apps)
+#   port          int    -- generic service port, distinct from devPort (never both on one entry)
+#   deploy        table  -- inline table { type = "vercel"|"docker"|"azure"|"systemd", ... }
+#                             vercel:  vercelOrg (optional), vercelProject, devBranch, prodBranch
+#                             docker:  host, domain (optional), prodBranch (optional)
+#                             azure:   host, org (optional), project (optional)
+#                             systemd: host
+#   monitors      tables -- one [projects.monitors.<service>] block per service (vercel, posthog,
+#                             better-stack, azure, grafana, openreplay), each carrying at least
+#                             `enabled`; placed after the owning [[projects]] entry
+#   personas      array  -- e.g. ["attendee", "staff"]
+#   seed_command  string -- e.g. "pnpm db:reconcile"
+#   stack         string -- e.g. "t3-turbo"
+#   has_beads     bool
+#   has_openspec  bool
+#   prod_url      string
+#   legacy_codes  array  -- prior short codes (e.g. from cc's own registry) resolving to this entry
 
 [defaults]
 ssh_host = "homelab"
