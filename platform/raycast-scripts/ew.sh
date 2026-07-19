@@ -9,8 +9,8 @@
 # @raycast.icon 📚
 
 # Documentation:
-# @raycast.description Enterprise Wiki
+# @raycast.description IaC Hub
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/ew/"
+cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/brown/ew/"

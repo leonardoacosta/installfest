@@ -156,29 +156,29 @@ project = "OfficeIndexToPIPS2.0"
 
 [[projects]]
 code = "dc"
-name = "DOC"
+name = "Doc Center"
 category = "b-and-b"
 icon = "📂"
-path = "dev/dc"
+path = "dev/brown/dc"
 tiers = ["remote", "cloudpc"]
 devPort = 3108
 deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "ew"
-name = "Enterprise Wiki"
+name = "IaC Hub"
 category = "b-and-b"
 icon = "📚"
-path = "dev/ew"
+path = "dev/brown/ew"
 tiers = ["remote"]
 deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "ic"
-name = "Infrastructure as Code"
+name = "Azure Projects"
 category = "b-and-b"
 icon = "⚙️"
-path = "dev/ic"
+path = "dev/brown/ic"
 tiers = ["remote"]
 deploy = { type = "azure", host = "local" }
 
@@ -522,10 +522,10 @@ enabled = false
 
 [[projects]]
 code = "lu"
-name = "Look Up"
+name = "Lookups"
 category = "personal"
 icon = "🏗️"
-path = "dev/lu"
+path = "dev/brown/lu"
 tiers = ["remote"]
 deploy = { type = "azure", host = "local" }
 
@@ -790,7 +790,7 @@ code = "terraform-modules"
 name = "Terraform Modules"
 category = "priceless"
 icon = "📐"
-path = "dev/terraform-modules"
+path = "dev/priceless/terraform-modules"
 tiers = ["local"]
 legacy_codes = ["tm"]
 

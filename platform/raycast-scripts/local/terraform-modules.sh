@@ -13,4 +13,4 @@
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/terraform-modules/
+cursor ~/dev/priceless/terraform-modules/

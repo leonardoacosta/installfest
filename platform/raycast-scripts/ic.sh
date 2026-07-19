@@ -9,8 +9,8 @@
 # @raycast.icon ⚙️
 
 # Documentation:
-# @raycast.description Infrastructure as Code
+# @raycast.description Azure Projects
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/ic/"
+cursor --folder-uri "vscode-remote://ssh-remote+homelab/home/nyaptor/dev/brown/ic/"

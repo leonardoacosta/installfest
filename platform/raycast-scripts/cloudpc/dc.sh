@@ -9,7 +9,7 @@
 # @raycast.icon 📂
 
 # Documentation:
-# @raycast.description DOC (CloudPC)
+# @raycast.description Doc Center (CloudPC)
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
