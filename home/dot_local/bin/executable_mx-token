@@ -19,6 +19,18 @@
 
 set -uo pipefail
 
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+	cat <<'EOF'
+Usage: mx-token <resource> [identity]     # prints access token to stdout
+       mx-token graph o365
+       mx-token ado                       # identity defaults to o365
+
+Thin client for the homelab mx-broker token socket. Prints an access token
+to stdout, or nothing (exit 0) on any failure — never a stack trace.
+EOF
+	exit 0
+fi
+
 RESOURCE="${1:-}"
 IDENTITY="${2:-o365}"
 [ -n "$RESOURCE" ] || exit 0

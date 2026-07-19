@@ -57,6 +57,10 @@ mode="browser"   # browser | cmux | print
 target=""
 for arg in "$@"; do
   case "$arg" in
+    -h|--help)
+      sed -n '29,42p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
     --cmux|--split) mode="cmux" ;;
     --print)        mode="print" ;;
     --) ;;

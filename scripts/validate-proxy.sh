@@ -19,7 +19,23 @@ FIXED=()
 CHECK_RULES=false
 
 for arg in "$@"; do
-    [ "$arg" = "--rules" ] && CHECK_RULES=true
+    case "$arg" in
+        -h|--help)
+            cat <<'EOF'
+Usage: bash validate-proxy.sh [--rules]
+
+Periodic validation + remediation of the CloudPC proxy stack: checks the
+SOCKS tunnel and ProxyBridge, restarts a dead tunnel via launchctl, and
+notifies via nexus-agent (deduped with an attempt counter).
+
+  --rules   also check ProxyBridge rules (skipped automatically under
+            launchd — App Sandbox blocks reading container prefs there;
+            run manually with this flag to check rules).
+EOF
+            exit 0
+            ;;
+        --rules) CHECK_RULES=true ;;
+    esac
 done
 
 # --- State: track consecutive failures ---

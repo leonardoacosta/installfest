@@ -64,6 +64,10 @@ def main():
         print(__doc__)
         sys.exit(1)
 
+    if sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
+
     cmd = sys.argv[1]
 
     if cmd == "browser-open":

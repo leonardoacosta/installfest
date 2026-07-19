@@ -13,6 +13,18 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/mesh-heartbeat.sh   (no args; run on a timer)
+
+Probes Tailscale reachability of mac + cloudpc, mx-broker GET /health, and
+the local SOCKS tunnel. Emits one JSON record per run to the metrics
+outbox (or a local JSONL fallback) and notifies via nx_notify only on a
+state transition (up->down / down->up).
+EOF
+	exit 0
+fi
+
 STATE_DIR="$HOME/.local/state/mesh-heartbeat"
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
 

@@ -6,6 +6,18 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/youtube-transcript.sh
+
+Clones, builds (gcc/clang + make), and installs the youtube_transcript CLI
+(https://github.com/Zibri/youtube_transcript) to ~/.local/bin. Fetches
+YouTube video transcripts without an API key. Manual, optional — re-run to
+update an existing checkout.
+EOF
+	exit 0
+fi
+
 . "$DOTFILES/scripts/utils.sh"
 
 REPO_URL="https://github.com/Zibri/youtube_transcript.git"

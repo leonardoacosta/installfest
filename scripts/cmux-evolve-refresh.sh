@@ -34,6 +34,18 @@
 # caught and converted to the JSON error shape, not abort the script.
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: scripts/cmux-evolve-refresh.sh   (no args)
+
+Phase 1 data producer for .claude/commands/cmux/evolve.md: polls cmux's
+GitHub releases Atom feed, diffs against the persisted cursor, and prints
+one JSON object to stdout: {"changed", "latest_tag", "new_releases",
+"error"}. Always exits 0 (data-producer contract) except for this --help.
+EOF
+	exit 0
+fi
+
 FEED_URL="https://github.com/manaflow-ai/cmux/releases.atom"
 CURL_MAX_TIME="${CMUX_EVOLVE_CURL_MAX_TIME:-10}"
 

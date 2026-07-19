@@ -3,6 +3,17 @@
 # Creates identity directories, verifies dependencies, and runs device-code login
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/setup-az-wrapper.sh   (no args)
+
+First-time setup for the smart az CLI wrapper: creates the BBAdmin/O365
+identity config directories, verifies the real az binary + SOCKS tunnel,
+then walks both identities through an interactive device-code login.
+EOF
+	exit 0
+fi
+
 DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 source "$DOTFILES/scripts/utils.sh" 2>/dev/null || {
     info() { echo "[INFO] $*"; }

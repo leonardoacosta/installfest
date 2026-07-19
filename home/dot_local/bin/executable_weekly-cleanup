@@ -37,6 +37,22 @@
 # exactly what made scheduled runs die after the header with no trace.
 set -u
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: weekly-cleanup [--dry-run]
+
+Cross-platform weekly cache cleanup (also triggered by a LaunchAgent/
+systemd timer, Sundays 03:00 local). Reaps OS/package-manager caches plus
+age-gated build output (.turbo/.next/*.bun-build >7d) under ~/dev. Emits a
+banner+TTS notification via nexus-agent at start and finish.
+
+  --dry-run   report what would be cleaned without deleting anything.
+
+Live output: tail -f ~/.local/state/weekly-cleanup.log
+EOF
+	exit 0
+fi
+
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
 

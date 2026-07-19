@@ -18,6 +18,19 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/az-reauth-nudge.sh   (no args; run on a timer)
+
+Proactive re-auth reminder: fires (once per identity per Conditional
+Access window) from ~day 55 of the 60-day window, naming
+`az-reauth <identity>` as the command to run. Exits 0 always.
+
+Env: AZ_REAUTH_WINDOW_DAYS (default 60), AZ_REAUTH_LEAD_DAYS (default 5)
+EOF
+	exit 0
+fi
+
 WINDOW_DAYS="${AZ_REAUTH_WINDOW_DAYS:-60}"
 LEAD_DAYS="${AZ_REAUTH_LEAD_DAYS:-5}"
 STATE_DIR="$HOME/.local/state/az-reauth-nudge"

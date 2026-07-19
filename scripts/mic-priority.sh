@@ -5,6 +5,17 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/mic-priority.sh   (no args; also run by a LaunchAgent)
+
+Sets the active input device to the highest-priority available microphone
+via SwitchAudioSource. Priority: Studio Display > MacBook Pro Microphone >
+AirPods.
+EOF
+	exit 0
+fi
+
 # launchd login sessions get a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin) with no
 # Homebrew. SwitchAudioSource lives in the brew prefix, so prepend it here —
 # otherwise the LaunchAgent run exits 1 with "SwitchAudioSource not found".

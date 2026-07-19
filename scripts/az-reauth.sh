@@ -25,6 +25,21 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: az-reauth [identity...]     # bbadmin | o365 | personal, default: due identities
+
+One-tap re-auth orchestrator: drives `az login --use-device-code` per
+identity, surfaces the device code + TOTP (if a 1Password seed exists) via
+nx_notify, clipboards the code to the Mac, opens the login URL, and
+verifies success with a token probe. Account selection + MFA stay human.
+
+With no identity given, re-auths whichever identities are currently due
+(fail-fast marker or nudge fired).
+EOF
+	exit 0
+fi
+
 DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 STATE_DIR="$HOME/.local/state/az-reauth-nudge"
 MAC_HOST="${CC_BROWSER_MAC_HOST:-mac}"

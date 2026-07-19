@@ -15,6 +15,22 @@
 #
 # Usage: scripts/audit-projects.sh   -> exit 0 all pass, 1 any FAIL.
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: scripts/audit-projects.sh
+
+One-command drift audit for the project-management layer: cross-checks
+home/projects.toml against the filesystem, generated Raycast launchers,
+workspace package symlinks, the ssh mesh, the peer machine, and systemd
+user schedulers. Detector only — reports drift, never mutates.
+
+Env: AUDIT_SKIP_NET=1   skip the ssh/tailscale sections.
+
+Exit: 0 all sections pass, 1 any FAIL.
+EOF
+	exit 0
+fi
+
 set -uo pipefail
 
 # --- log helpers (reuse repo's scripts/utils.sh) ---------------------------

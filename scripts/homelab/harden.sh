@@ -32,6 +32,11 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+	exit 0
+fi
+
 DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 
 # shellcheck source=../utils.sh

@@ -18,6 +18,11 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+	exit 0
+fi
+
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT=~/dev/personal/installfest/scripts/cmux-workspaces.sh
 source ~/dev/personal/installfest/scripts/lib/registry.sh

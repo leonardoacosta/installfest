@@ -264,6 +264,10 @@ class FileHandler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
+    if any(a in ("-h", "--help") for a in sys.argv[1:]):
+        print(__doc__)
+        return
+
     port = PORT
     bind = BIND
 

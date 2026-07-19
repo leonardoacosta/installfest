@@ -254,6 +254,10 @@ def notify(results):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+
     projects = load_projects()
     if not projects:
         log("no eligible projects found -- exiting")

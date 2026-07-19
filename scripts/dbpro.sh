@@ -5,6 +5,17 @@
 
 set -uo pipefail
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: bash scripts/dbpro.sh   (macOS only)
+
+Downloads and installs the DB Pro database client (https://www.dbpro.app/)
+to /Applications, picking the arm64 or x64 build for the current arch.
+Manual, optional — not run automatically by any installer.
+EOF
+	exit 0
+fi
+
 . "$DOTFILES/scripts/utils.sh"
 
 DBPRO_VERSION="1.6.1"

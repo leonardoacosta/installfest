@@ -11,6 +11,20 @@
 #
 # Usage: scripts/check.sh   (or: npm run check)   -> exit 0 all pass, 1 any fail.
 
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+	cat <<'EOF'
+Usage: scripts/check.sh   (or: npm run check)
+
+One-command verification baseline for this dotfiles repo: zsh syntax,
+POSIX/bash syntax, chezmoi template render (+ bash -n on rendered
+*.sh.tmpl), shellcheck (error severity), and terraform validate when
+initialized. Every section runs and reports even if an earlier one fails.
+
+Exit: 0 all pass, 1 any fail.
+EOF
+	exit 0
+fi
+
 set -uo pipefail
 
 # --- log helpers (reuse repo's scripts/utils.sh, fan-in 22) -----------------
