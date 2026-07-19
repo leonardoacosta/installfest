@@ -16,7 +16,7 @@
 # no "launch everything" equivalent; pick specific codes or use the
 # "Pick Projects..." picker for individual project codes.
 
-set -euo pipefail
+set -uo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT=~/dev/personal/installfest/scripts/cmux-workspaces.sh

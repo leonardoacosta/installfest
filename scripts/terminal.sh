@@ -1,4 +1,5 @@
 #!/bin/bash
+(return 0 2>/dev/null) || set -uo pipefail  # sourced-lib guard — bare set would leak into callers
 
 # Get the absolute path of the directory where the script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

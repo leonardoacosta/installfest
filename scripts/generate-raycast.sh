@@ -18,7 +18,7 @@
 # swap `cursor ...` back to `zed ssh://...` / `zed ~/...` in the generators
 # below and re-run this script.
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

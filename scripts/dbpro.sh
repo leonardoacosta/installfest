@@ -3,7 +3,7 @@
 # https://www.dbpro.app/
 # Manual optional tool — run directly: bash scripts/dbpro.sh (macOS only)
 
-set -euo pipefail
+set -uo pipefail
 
 . "$DOTFILES/scripts/utils.sh"
 

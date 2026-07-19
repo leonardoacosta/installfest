@@ -3,7 +3,7 @@
 # Uses SwitchAudioSource to select the highest-priority available mic
 # Priority: Studio Display > MacBook Pro Microphone > AirPods
 
-set -euo pipefail
+set -uo pipefail
 
 # launchd login sessions get a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin) with no
 # Homebrew. SwitchAudioSource lives in the brew prefix, so prepend it here —

@@ -13,7 +13,7 @@
 # ~/.env is gitignored and machine-local. Populate manually after first install;
 # harden.sh and systemd units read it via _hl_env_get / EnvironmentFile.
 
-set -euo pipefail
+(return 0 2>/dev/null) || set -uo pipefail  # sourced-lib guard — bare set would leak into callers
 
 . "$DOTFILES/scripts/utils.sh"
 

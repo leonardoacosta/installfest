@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -uo pipefail
 # ropen — remote file/dir opener over Tailscale (multi-project mounts,
 # Atlas-portal-aware). Refreshes an existing Chrome/Safari tab (or opens a
 # new one) on the Mac.

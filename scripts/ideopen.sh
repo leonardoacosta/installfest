@@ -27,7 +27,7 @@
 # This box's address    $IDEOPEN_REMOTE (default: resolved from Tailscale; the
 # the Mac connects to:                   Mac must be able to ssh here — it can)
 # =============================================================================
-set -euo pipefail
+set -uo pipefail
 
 SELF="$(basename "$0")"
 MAC="${IDEOPEN_MAC:-mac}"

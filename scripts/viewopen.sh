@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -uo pipefail
 # viewopen — basename-dispatched wrapper for the four thin VIEW-family *open
 # commands over scripts/lib/open-core.sh (same pattern as ideopen.sh's
 # vopen/zopen dispatch; see docs/open-family.md):

@@ -1,7 +1,7 @@
 #!/bin/bash
 # setup-az-wrapper.sh — First-time setup for the smart az CLI wrapper
 # Creates identity directories, verifies dependencies, and runs device-code login
-set -euo pipefail
+set -uo pipefail
 
 DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 source "$DOTFILES/scripts/utils.sh" 2>/dev/null || {

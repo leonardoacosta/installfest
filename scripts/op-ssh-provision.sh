@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+(return 0 2>/dev/null) || set -uo pipefail  # sourced-lib guard — bare set would leak into callers
 # op-ssh-provision.sh — materialize the SSH mesh keypair from 1Password.
 #
 # Sourced by run_once_install-packages.sh. Replaces the manual

@@ -31,7 +31,7 @@ fi
 # ordinary registered project code pointing at its ~/dev/<org> directory, not
 # a special launch mode — see home/projects.toml.
 
-set -euo pipefail
+set -uo pipefail
 
 # mux orchestrates the cmux GUI app, which is macOS-only. Running it from a remote
 # shell (e.g. inside a cmux-ssh tab on homelab) drives cmux through the relay and

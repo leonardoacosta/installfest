@@ -4,7 +4,7 @@
 # https://github.com/Zibri/youtube_transcript
 # Manual optional tool — run directly: bash scripts/youtube-transcript.sh
 
-set -euo pipefail
+set -uo pipefail
 
 . "$DOTFILES/scripts/utils.sh"
 

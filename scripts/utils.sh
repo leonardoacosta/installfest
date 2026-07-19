@@ -1,4 +1,5 @@
 #!/bin/bash
+(return 0 2>/dev/null) || set -uo pipefail  # sourced-lib guard — bare set would leak into callers
 
 # tput exits 2 when $TERM is unset (non-interactive chezmoi/mesh deploy over
 # SSH). Under a sourcing script that has `set -e` (e.g. install-arch.sh), that
