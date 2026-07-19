@@ -31,7 +31,7 @@ stack: cc-meta
 
 ## UI Batch
 
-- [ ] [3.1] Update `scripts/generate-raycast.sh`'s own usage/header comment to document the new [beads:if-5i47]
+- [x] [3.1] Update `scripts/generate-raycast.sh`'s own usage/header comment to document the new [beads:if-5i47]
   prune behavior and `--dry-run`'s prune-preview output, so a reader sees it without diffing the
   script.
 

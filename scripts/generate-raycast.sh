@@ -3,8 +3,9 @@
 # Source of truth: ~/dev/personal/installfest/home/projects.toml
 #
 # Usage:
-#   bash scripts/generate-raycast.sh          # Generate all scripts
-#   bash scripts/generate-raycast.sh --dry-run # Show what would be generated
+#   bash scripts/generate-raycast.sh          # Generate + prune all scripts
+#   bash scripts/generate-raycast.sh --dry-run # Show what would be generated/pruned
+#   bash scripts/generate-raycast.sh --help    # Show this usage block
 #
 # Generates:
 #   raycast-scripts/{code}.sh          — Open project on homelab via Cursor SSH Remote
@@ -12,6 +13,14 @@
 #   raycast-scripts/cloudpc/{code}.sh  — Open project on CloudPC via Cursor SSH Remote
 #   raycast-scripts/open-project.sh    — Dropdown picker (remote, Cursor)
 #   raycast-scripts/local/open-project.sh — Dropdown picker (local, Cursor)
+#
+# Prunes (add-launcher-registry-prune-pass): after generating, deletes any
+# {code}.sh in the 3 output dirs above whose code is no longer a projects.toml
+# key for that dir's tier — registry.sh's registry_orphan_codes() does the
+# diff, so a removed project's stale launcher never lingers. --dry-run prints
+# "Would prune: <path>" instead of deleting. Two hand-maintained root-dir
+# scripts (img.sh, paste-image.sh) are explicitly excluded — see the
+# NON_REGISTRY_SCRIPTS block below.
 #
 # Editor migration (2026-07-08): reverted Mac/homelab editor from Zed back to
 # Cursor — the 2026-04-26 one-week Zed trial ran its course. To try Zed again,
