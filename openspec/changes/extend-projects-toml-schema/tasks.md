@@ -17,7 +17,7 @@ stack: cc-meta
   - depends on: 1.1, 1.2
 - [x] [1.5] Migrate cc's `tb` (The Bridge, `~/dev/brown/thebridge`) new-field data onto if-toml's existing `thebridge` entry (NOT its existing `tb` entry, which is a distinct, unrelated project at `dev/tb`) — do NOT add `"tb"` to `thebridge`'s `legacy_codes` per `design.md`'s collision note. [beads:if-265z]
   - depends on: 1.2
-- [ ] [1.6] Create a new `[[projects]]` entry for `ws-topo` (`~/dev/ws-topo`, no existing if-toml match by code or path) with `stack = "t3-turbo"`, `devPort = 3198`, `has_beads = false`, `has_openspec = false`, and category/icon/tiers chosen consistent with sibling personal-category entries. [beads:if-tw1x]
+- [x] [1.6] Create a new `[[projects]]` entry for `ws-topo` (`~/dev/ws-topo`, no existing if-toml match by code or path) with `stack = "t3-turbo"`, `devPort = 3198`, `has_beads = false`, `has_openspec = false`, and category/icon/tiers chosen consistent with sibling personal-category entries. [beads:if-tw1x]
   - depends on: 1.2
 
 ## E2E Batch

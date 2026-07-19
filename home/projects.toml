@@ -594,6 +594,18 @@ devPort = 3109
 deploy = { type = "systemd", host = "local" }
 
 [[projects]]
+code = "ws-topo"
+name = "Wholesale Topology Visualizer"
+category = "personal"
+icon = "🗺"
+path = "dev/ws-topo"
+tiers = ["remote", "local"]
+stack = "t3-turbo"
+devPort = 3198
+has_beads = false
+has_openspec = false
+
+[[projects]]
 code = "xx"
 name = "XX"
 category = "personal"
