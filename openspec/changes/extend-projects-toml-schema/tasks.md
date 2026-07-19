@@ -15,7 +15,7 @@ stack: cc-meta
   - depends on: 1.2
 - [x] [1.4] Migrate new-field data onto the 7 identity-matched (not code-matched) existing entries: cc's `pc`→`priceless-config`, `pa`→`priceless-app`, `sj`→`seth-jones`, `at`→`atlas`, `tm`→`terraform-modules`, `gd`→`guardian`, `hn`→`harness` (per [1.1]'s resolution) — each gets its cc-registry fields attached to the existing toml entry matched by `path` per `design.md` § Legacy code aliasing, plus `legacy_codes = ["<cc-code>"]`. [beads:if-tkio]
   - depends on: 1.1, 1.2
-- [ ] [1.5] Migrate cc's `tb` (The Bridge, `~/dev/brown/thebridge`) new-field data onto if-toml's existing `thebridge` entry (NOT its existing `tb` entry, which is a distinct, unrelated project at `dev/tb`) — do NOT add `"tb"` to `thebridge`'s `legacy_codes` per `design.md`'s collision note. [beads:if-265z]
+- [x] [1.5] Migrate cc's `tb` (The Bridge, `~/dev/brown/thebridge`) new-field data onto if-toml's existing `thebridge` entry (NOT its existing `tb` entry, which is a distinct, unrelated project at `dev/tb`) — do NOT add `"tb"` to `thebridge`'s `legacy_codes` per `design.md`'s collision note. [beads:if-265z]
   - depends on: 1.2
 - [ ] [1.6] Create a new `[[projects]]` entry for `ws-topo` (`~/dev/ws-topo`, no existing if-toml match by code or path) with `stack = "t3-turbo"`, `devPort = 3198`, `has_beads = false`, `has_openspec = false`, and category/icon/tiers chosen consistent with sibling personal-category entries. [beads:if-tw1x]
   - depends on: 1.2

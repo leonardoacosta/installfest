@@ -1041,6 +1041,7 @@ category = "b-and-b"
 icon = "📦"
 path = "dev/brown/thebridge"
 tiers = ["local"]
+deploy = { type = "azure", host = "local" }
 
 [[projects]]
 code = "quoterepo-db"
