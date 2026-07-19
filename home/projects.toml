@@ -510,3 +510,267 @@ category = "priceless"
 icon = "📦"
 path = "dev/priceless/bridging-biosciences"
 tiers = ["local"]
+
+[[projects]]
+code = "guardian"
+name = "guardian"
+category = "personal"
+icon = "📦"
+path = "dev/personal/guardian"
+tiers = ["local"]
+
+[[projects]]
+code = "atlas"
+name = "atlas"
+category = "personal"
+icon = "📦"
+path = "dev/personal/atlas"
+tiers = ["local"]
+
+[[projects]]
+code = "zsa-voyager-keymap"
+name = "zsa-voyager-keymap"
+category = "personal"
+icon = "📦"
+path = "dev/personal/installfest/apps/zsa-voyager-keymap"
+tiers = ["local"]
+
+[[projects]]
+code = "github"
+name = "github"
+category = "priceless"
+icon = "📦"
+path = "dev/priceless/otaku-odyssey/packages/infra/environments/dev/.terraform/modules/github"
+tiers = ["local"]
+
+[[projects]]
+code = "priceless-config"
+name = "priceless-config"
+category = "priceless"
+icon = "📦"
+path = "dev/priceless/priceless-config"
+tiers = ["local"]
+
+[[projects]]
+code = "priceless-app"
+name = "priceless-app"
+category = "priceless"
+icon = "📦"
+path = "dev/priceless/priceless-app"
+tiers = ["local"]
+
+[[projects]]
+code = "seth-jones"
+name = "seth-jones"
+category = "personal"
+icon = "📦"
+path = "dev/priceless/seth-jones"
+tiers = ["local"]
+
+[[projects]]
+code = "decus-aggregates"
+name = "decus-aggregates"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/decus-aggregates"
+tiers = ["local"]
+
+[[projects]]
+code = "decus-direct"
+name = "decus-direct"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/decus-direct"
+tiers = ["local"]
+
+[[projects]]
+code = "doc"
+name = "doc"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/doc"
+tiers = ["local"]
+
+[[projects]]
+code = "doc-db"
+name = "doc-db"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/doc-db"
+tiers = ["local"]
+
+[[projects]]
+code = "emailsched"
+name = "emailsched"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/emailsched"
+tiers = ["local"]
+
+[[projects]]
+code = "es"
+name = "es"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/es"
+tiers = ["local"]
+
+[[projects]]
+code = "mailgun"
+name = "mailgun"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/mailgun"
+tiers = ["local"]
+
+[[projects]]
+code = "mh"
+name = "mh"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/mh"
+tiers = ["local"]
+
+[[projects]]
+code = "pvs-infra"
+name = "pvs-infra"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pvs-infra"
+tiers = ["local"]
+
+[[projects]]
+code = "QuoteRepo"
+name = "QuoteRepo"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/qr/QuoteRepo"
+tiers = ["local"]
+
+[[projects]]
+code = "QuoteRepo.DB"
+name = "QuoteRepo.DB"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/qr/QuoteRepo.DB"
+tiers = ["local"]
+
+[[projects]]
+code = "QuoteRepo.Infra"
+name = "QuoteRepo.Infra"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/qr/QuoteRepo.Infra"
+tiers = ["local"]
+
+[[projects]]
+code = "ses"
+name = "ses"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/ses"
+tiers = ["local"]
+
+[[projects]]
+code = "pi"
+name = "pi"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pi"
+tiers = ["local"]
+
+[[projects]]
+code = "pd"
+name = "pd"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pd"
+tiers = ["local"]
+
+[[projects]]
+code = "pp"
+name = "pp"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pp"
+tiers = ["local"]
+
+[[projects]]
+code = "quoterepo-infra"
+name = "quoterepo-infra"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/quoterepo-infra"
+tiers = ["local"]
+
+[[projects]]
+code = "pipstovelocitysync"
+name = "pipstovelocitysync"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pipstovelocitysync"
+tiers = ["local"]
+
+[[projects]]
+code = "thebridge"
+name = "thebridge"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/thebridge"
+tiers = ["local"]
+
+[[projects]]
+code = "quoterepo-db"
+name = "quoterepo-db"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/quoterepo-db"
+tiers = ["local"]
+
+[[projects]]
+code = "quoterepo"
+name = "quoterepo"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/quoterepo"
+tiers = ["local"]
+
+[[projects]]
+code = "pips-unified"
+name = "pips-unified"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pips-unified"
+tiers = ["local"]
+
+[[projects]]
+code = "pips-letters"
+name = "pips-letters"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pips-letters"
+tiers = ["local"]
+
+[[projects]]
+code = "pips-reports"
+name = "pips-reports"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pips-reports"
+tiers = ["local"]
+
+[[projects]]
+code = "pips-xslt"
+name = "pips-xslt"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pips-xslt"
+tiers = ["local"]
+
+[[projects]]
+code = "pips-lettertemplates"
+name = "pips-lettertemplates"
+category = "b-and-b"
+icon = "📦"
+path = "dev/brown/pips-lettertemplates"
+tiers = ["local"]
