@@ -22,11 +22,15 @@ stack: cc-meta
 
 ## E2E Batch
 
-- [ ] [2.1] Runtime-verify: run `python3 -c "import tomllib; d=tomllib.load(open('home/projects.toml','rb')); print(len(d['projects']))"` against the fully-migrated file — confirm it succeeds with no exception and reports exactly 94 entries. Paste the stdout. [beads:if-v0ck]
+- [x] [2.1] Runtime-verify: run `python3 -c "import tomllib; d=tomllib.load(open('home/projects.toml','rb')); print(len(d['projects']))"` against the fully-migrated file — confirm it succeeds with no exception and reports exactly 94 entries. Paste the stdout. [beads:if-v0ck]
   - depends on: 1.3, 1.4, 1.5, 1.6
-- [ ] [2.2] Runtime-verify: run `scripts/generate-raycast.sh --dry-run` before and after the migration, diff the two outputs restricted to a sample of untouched if-only entries (e.g. `brown`, `ds`, `priceless`, `personal`) — confirm byte-identical output for those codes. Paste the diff (empty). [beads:if-bcrz]
+  - VERIFIED: stdout `94`, exit 0.
+- [x] [2.2] Runtime-verify: run `scripts/generate-raycast.sh --dry-run` before and after the migration, diff the two outputs restricted to a sample of untouched if-only entries (e.g. `brown`, `ds`, `priceless`, `personal`) — confirm byte-identical output for those codes. Paste the diff (empty). [beads:if-bcrz]
   - depends on: 2.1
-- [ ] [2.3] Runtime-verify: source `scripts/cmux-workspaces.sh`'s `load_projects` function (or invoke `mux --list`) before and after the migration — confirm the same sample codes from [2.2] produce identical `PROJECTS`/`CATEGORIES`/`FULL_NAMES` entries. Paste the comparison output. [beads:if-rigc]
+  - VERIFIED: ran `PROJECTS_REGISTRY=<pre-migration toml from ea90a6f> bash scripts/generate-raycast.sh --dry-run` vs the same on post-migration `home/projects.toml`; `diff` restricted to `brown|ds|priceless|personal` lines was empty (exit 0). Also confirmed the underlying dict entries for those 4 codes are byte-identical Python objects pre/post migration (the sole inputs the generator reads), since `--dry-run` prints only the output path list, not file content, and a real non-dry-run run would mutate the live `platform/raycast-scripts/` tree — out of scope for a read-only verification task.
+- [x] [2.3] Runtime-verify: source `scripts/cmux-workspaces.sh`'s `load_projects` function (or invoke `mux --list`) before and after the migration — confirm the same sample codes from [2.2] produce identical `PROJECTS`/`CATEGORIES`/`FULL_NAMES` entries. Paste the comparison output. [beads:if-rigc]
   - depends on: 2.1
-- [ ] [2.4] `bash -n` on `scripts/generate-raycast.sh`, `scripts/cmux-workspaces.sh`, and `scripts/mux-remote.sh` — confirm zero syntax errors (documents that no UI Batch edits were needed, per `design.md` § Consumer impact). [beads:if-31a9]
+  - VERIFIED: `cmux-workspaces.sh` gates on `uname -s == Darwin` (this box is Linux), so the full script can't run directly; extracted its `load_projects()` function body verbatim and eval'd it standalone against pre- and post-migration TOML files. `diff` of `PROJECTS`/`CATEGORIES`/`FULL_NAMES` for `brown`/`ds`/`priceless`/`personal` was empty (exit 0).
+- [x] [2.4] `bash -n` on `scripts/generate-raycast.sh`, `scripts/cmux-workspaces.sh`, and `scripts/mux-remote.sh` — confirm zero syntax errors (documents that no UI Batch edits were needed, per `design.md` § Consumer impact). [beads:if-31a9]
   - depends on: 2.1
+  - VERIFIED: all three `bash -n` invocations exited 0 with silent (empty) output.
