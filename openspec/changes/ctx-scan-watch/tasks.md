@@ -37,20 +37,20 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Fixture project edit under an active `watch` process; assert exactly one new [beads:if-m642]
+- [x] [4.1] Fixture project edit under an active `watch` process; assert exactly one new [beads:if-m642]
   `history.jsonl` line is appended for that project.
   - depends on: 2.2
-- [ ] [4.2] Two fixture snapshots with one seeded band transition (e.g. A4 GREEN → RED); assert [beads:if-8kfk]
+- [x] [4.2] Two fixture snapshots with one seeded band transition (e.g. A4 GREEN → RED); assert [beads:if-8kfk]
   `diff` reports exactly that transition and nothing else.
   - depends on: 2.3
-- [ ] [4.3] Real-time test: edit a real CLAUDE.md while `ctx-scan watch` is running; assert a new [beads:if-o5ot]
+- [x] [4.3] Real-time test: edit a real CLAUDE.md while `ctx-scan watch` is running; assert a new [beads:if-o5ot]
   snapshot appears in `history.jsonl` within 5 seconds.
   - depends on: 3.1
-- [ ] [4.4] Run `ctx-scan diff` on the two fixtures from `[4.2]` via the CLI command; assert the [beads:if-w2z4]
+- [x] [4.4] Run `ctx-scan diff` on the two fixtures from `[4.2]` via the CLI command; assert the [beads:if-w2z4]
   printed output matches the seeded transition exactly.
   - depends on: 3.1
-- [ ] [4.5] Multi-snapshot fixture history (3+ snapshots for one project with varying bands); [beads:if-l1ej]
+- [x] [4.5] Multi-snapshot fixture history (3+ snapshots for one project with varying bands); [beads:if-l1ej]
   assert the fleet sparkline renders without error and reflects the snapshot count.
   - depends on: 3.2
-- [ ] [4.6] `tsc --noEmit` and `bun test` both green. [beads:if-vhp0]
+- [x] [4.6] `tsc --noEmit` and `bun test` both green. [beads:if-vhp0]
   - depends on: 3.1, 3.2
