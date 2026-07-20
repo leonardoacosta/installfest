@@ -994,17 +994,21 @@ def _read_roadmap_pulse(pane_id: str) -> Tuple[str, Optional[float]]:
         return "", None
 
 
-def _active_usage() -> Tuple[str, Optional[float], Optional[float]]:
-    """``(account_label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+def _active_usage() -> Tuple[str, Optional[float], Optional[float], Optional[float]]:
+    """``(account_label, 5H util, 7D util, 5H reset epoch)`` for the active credential.
 
-    Delegates to :func:`usage.active_usage` — a short-TTL on-disk cache over
-    the ~4MB /credentials fetch, so the 1Hz session-bar tick does not re-fetch
-    and re-parse the full payload every second (plan 003). Fail-open.
+    ``('', None, None, None)`` on any failure. Delegates to
+    :func:`usage.active_usage` — a short-TTL on-disk cache over the ~4MB
+    /credentials fetch, so the 1Hz session-bar tick does not re-fetch and
+    re-parse the full payload every second (plan 003). Fail-open. The 4th
+    element (cc-tmux-usage-reset-countdown) is the fallback source
+    :func:`_resolve_session_usage` reaches for when the session-scoped
+    ``nx_agent.session_usage`` response carries no reset timestamp of its own.
     """
     try:
         return usage.active_usage()
     except Exception:
-        return "", None, None
+        return "", None, None, None
 
 
 def _extract_util_dict(value: object) -> Optional[float]:
@@ -1031,8 +1035,10 @@ def _extract_util_dict(value: object) -> Optional[float]:
     return used_f / limit_f
 
 
-def _resolve_session_usage(pane: str) -> Tuple[Optional[float], Optional[float]]:
-    """``(5H util, 7D util)`` for ``pane``'s OWN session, or the global fallback.
+def _resolve_session_usage(
+    pane: str,
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """``(5H util, 7D util, 5H reset epoch)`` for ``pane``'s OWN session, or the global fallback.
 
     Primary source: nx-agent ``GET /statusline?sessionId=`` (:func:`nx_agent.
     session_usage`), keyed by the pane's ``@cc-session-id`` option — this composes
@@ -1042,29 +1048,39 @@ def _resolve_session_usage(pane: str) -> Tuple[Optional[float], Optional[float]]
     accounts/sessions are concurrently active, since it can render a DIFFERENT
     account's usage than the one actually driving this pane (flagged as a
     cross-repo follow-up in nx's ``adaptive-usage-poll-cadence`` proposal,
-    archived 2026-07-17).
+    archived 2026-07-17). The 3rd element (cc-tmux-usage-reset-countdown) reads
+    ``fiveHour.resetsAt`` off the same session dict (nx's ``SessionStatusResponse``
+    already carries it per :func:`nx_agent.session_usage`'s docstring) via
+    :func:`usage._extract_reset_at` — reused rather than re-deriving the ISO parse.
 
-    Each of the two fields falls back to :func:`_active_usage`'s global figure
+    Each of the three fields falls back to :func:`_active_usage`'s global figure
     INDEPENDENTLY when the session-scoped value is unavailable (empty session-id,
-    nx unreachable, 404 — no session row yet — or a malformed/zero-limit field) —
-    same per-field dual-source shape :func:`_resolve_git_status` already uses for
-    branch/dirty-counts, so a session with e.g. a fresh 5H window but no 7D data
-    yet still shows what it has instead of blanking both. The global fallback call
-    is made at most once (lazily), only when at least one field actually needs it.
+    nx unreachable, 404 — no session row yet — or a malformed/zero-limit field, or
+    (for the reset epoch) a missing/null ``resetsAt``) — same per-field dual-source
+    shape :func:`_resolve_git_status` already uses for branch/dirty-counts, so a
+    session with e.g. a fresh 5H window but no 7D data yet still shows what it has
+    instead of blanking both. The global fallback call is made at most once
+    (lazily), only when at least one field actually needs it.
     """
     session_id = tmux.get_pane_option(pane, tmux.OPT_SESSION_ID)
     session = nx_agent.session_usage(session_id) if session_id else None
-    five_h = _extract_util_dict(session.get("fiveHour")) if isinstance(session, dict) else None
+    five_hour = session.get("fiveHour") if isinstance(session, dict) else None
+    five_h = _extract_util_dict(five_hour)
     seven_d = _extract_util_dict(session.get("sevenDay")) if isinstance(session, dict) else None
+    five_h_reset = (
+        usage._extract_reset_at(five_hour, "resetsAt") if isinstance(five_hour, dict) else None
+    )
 
-    if five_h is None or seven_d is None:
-        _label, fallback_five_h, fallback_seven_d = _active_usage()
+    if five_h is None or seven_d is None or five_h_reset is None:
+        _label, fallback_five_h, fallback_seven_d, fallback_five_h_reset = _active_usage()
         if five_h is None:
             five_h = fallback_five_h
         if seven_d is None:
             seven_d = fallback_seven_d
+        if five_h_reset is None:
+            five_h_reset = fallback_five_h_reset
 
-    return five_h, seven_d
+    return five_h, seven_d, five_h_reset
 
 
 def _resolve_session_pane(window: str) -> str:
@@ -1358,7 +1374,7 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # _resolve_branch_dirty plus the separate always-local @cc-ahead read).
     branch, git_status = _resolve_git_status(pane)
 
-    five_h_pct, seven_d_pct = _resolve_session_usage(pane)
+    five_h_pct, seven_d_pct, five_h_reset = _resolve_session_usage(pane)
 
     # render.render_session_bar's `git_status` kwarg (task 3.1, UI batch) now
     # consumes the six-field GitStatusCounts directly — the old `dirty` tuple
@@ -1366,12 +1382,16 @@ def _build_session_bar(window: str, pane: Optional[str] = None) -> str:
     # the context-bar's colour tier (cc-tmux-context-bar); `now` defaults to
     # time.time() inside render_session_bar when omitted. The account-identity
     # segment stays off row 2 (moved to row 3, render_beads_bar task 2.2/2.3);
-    # _resolve_session_usage above returns only the (5H, 7D) pair, not a label.
+    # _resolve_session_usage above returns the (5H, 7D, 5H-reset) triple, not
+    # a label. `five_h_reset` drives the row-2 countdown suffix
+    # (cc-tmux-usage-reset-countdown) — render_session_bar fails open to the
+    # unchanged segment when it's None or below the 80% threshold.
     return render.render_session_bar(
         model_letter, project, branch,
         ses_pct, five_h_pct, seven_d_pct,
         git_status=git_status,
         raw_tokens=ses_tokens,
+        five_h_reset=five_h_reset,
     )
 
 
@@ -1821,7 +1841,7 @@ def _build_beads_bar(window: str, pane: Optional[str] = None) -> str:
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,
     ) = _parse_roadmap_pulse_counts(content)
-    account_label, _five_h_pct, _seven_d_pct = _active_usage()
+    account_label, _five_h_pct, _seven_d_pct, _five_h_reset = _active_usage()
     return render.render_beads_bar(
         openspec_open, openspec_in_progress, openspec_ua,
         beads_open, beads_ready, beads_blocked,

@@ -1017,13 +1017,13 @@ def _test_usage_account_label() -> None:
 
 
 def _test_usage_extract_active() -> None:
-    _check(usage.extract_active({}) == ("", None, None), "empty payload -> empty triple")
-    _check(usage.extract_active({"credentials": "x"}) == ("", None, None), "non-list -> empty")
+    _check(usage.extract_active({}) == ("", None, None, None), "empty payload -> empty quad")
+    _check(usage.extract_active({"credentials": "x"}) == ("", None, None, None), "non-list -> empty")
     _check(
-        usage.extract_active({"credentials": [{"isActive": False}]}) == ("", None, None),
+        usage.extract_active({"credentials": [{"isActive": False}]}) == ("", None, None, None),
         "no active credential -> empty",
     )
-    label, u5, u7 = usage.extract_active(
+    label, u5, u7, r5 = usage.extract_active(
         {"credentials": [
             {"isActive": False, "accountName": "other"},
             {"isActive": True, "accountName": "leo",
@@ -1034,6 +1034,23 @@ def _test_usage_extract_active() -> None:
     _check(label == "leo", f"label from active credential: {label!r}")
     _check(u5 == 0.25, f"5h util extracted: {u5!r}")
     _check(u7 is None, "unpolled 7d -> None")
+    _check(r5 is None, "no usage5hResetAt field -> None")
+
+    # r5 is extracted via the same _extract_reset_at reused by the accounts
+    # popup — a present usage5hResetAt on the active credential surfaces here.
+    label_r, u5_r, u7_r, r5_r = usage.extract_active(
+        {"credentials": [
+            {"isActive": True, "accountName": "leo",
+             "usage5hUsed": 3.0, "usage5hLimit": 4.0,
+             "usage5hResetAt": "2030-01-01T00:00:00Z"},
+        ]}
+    )
+    _check(label_r == "leo", f"label unaffected by r5 presence: {label_r!r}")
+    _check(u5_r == 0.75, f"5h util unaffected by r5 presence: {u5_r!r}")
+    _check(
+        r5_r is not None and abs(r5_r - 1893456000.0) < 1,
+        f"usage5hResetAt extracted to the right epoch: {r5_r!r}",
+    )
 
     # Regression (2026-07-13, row2/accounts-popup usage mismatch, Leo's
     # report): a STALE duplicate of the active identity earlier in list order
@@ -1043,7 +1060,7 @@ def _test_usage_extract_active() -> None:
     # instead of drifting — confirmed live: row2 showed 5H:90%/7D:64% (the
     # stale first row) while the popup's starred row showed 5H:36%/7D:71%
     # (the freshest one) for the SAME account.
-    label2, u5_2, u7_2 = usage.extract_active(
+    label2, u5_2, u7_2, _r5_2 = usage.extract_active(
         {"credentials": [
             {
                 "accountEmail": "leo@x.dev", "orgUuid": "1", "isActive": True,
@@ -1072,7 +1089,7 @@ def _test_usage_extract_active() -> None:
     # list's order, not the most-recently-polled one, so a stale org's numbers
     # could silently win over the actually-current one. Same live shape: one
     # org stale since a prior day, one current.
-    label3, u5_3, u7_3 = usage.extract_active(
+    label3, u5_3, u7_3, _r5_3 = usage.extract_active(
         {"credentials": [
             {
                 "accountEmail": "leo@x.dev", "orgUuid": "stale-org-1", "isActive": True,
@@ -1787,7 +1804,8 @@ def _test_usage_active_usage_ttl() -> None:
     path = os.path.join(tmpdir, "cache.json")
     payload = {"credentials": [{"isActive": True, "accountName": "leo",
                                 "usage5hUsed": 2.0, "usage5hLimit": 4.0,
-                                "usage7dUsed": 1.0, "usage7dLimit": 10.0}]}
+                                "usage7dUsed": 1.0, "usage7dLimit": 10.0,
+                                "usage5hResetAt": "2030-01-01T00:00:00Z"}]}
     try:
         def counting_query(url=usage.CREDENTIALS_URL, timeout=usage.TIMEOUT_SECS):
             calls["n"] += 1
@@ -1795,12 +1813,16 @@ def _test_usage_active_usage_ttl() -> None:
         usage._query = counting_query  # type: ignore[assignment]
 
         first = usage.active_usage(ttl=45.0, cache_path=path)
-        _check(first == ("leo", 0.5, 0.1), f"miss fetches + extracts: {first!r}")
+        _check(first[:3] == ("leo", 0.5, 0.1), f"miss fetches + extracts: {first!r}")
+        _check(
+            first[3] is not None and abs(first[3] - 1893456000.0) < 1,
+            f"5H reset epoch extracted alongside the util figures: {first!r}",
+        )
         _check(calls["n"] == 1, "first call hit the network once")
         _check(os.path.exists(path), "cache file written")
 
         second = usage.active_usage(ttl=45.0, cache_path=path)
-        _check(second == first, "fresh cache returns same triple")
+        _check(second == first, "fresh cache returns same quad (r5 round-trips through the cache file)")
         _check(calls["n"] == 1, "fresh cache -> NO second fetch")
 
         os.utime(path, (time.time() - 3600, time.time() - 3600))
@@ -1814,18 +1836,47 @@ def _test_usage_active_usage_ttl() -> None:
         fourth = usage.active_usage(ttl=45.0, cache_path=path)
         _check(fourth == first and calls["n"] == 3, "corrupt cache -> refetch")
 
-        # Negative caching: failed fetch writes the empty triple; next call
+        # Negative caching: failed fetch writes the empty quad; next call
         # within TTL serves it without re-querying.
         os.unlink(path)
         usage._query = lambda url=None, timeout=None: None  # type: ignore[assignment]
         down = usage.active_usage(ttl=45.0, cache_path=path)
-        _check(down == ("", None, None), "fetch failure -> empty triple")
+        _check(down == ("", None, None, None), "fetch failure -> empty quad")
         usage._query = counting_query  # type: ignore[assignment]
         down2 = usage.active_usage(ttl=45.0, cache_path=path)
-        _check(down2 == ("", None, None) and calls["n"] == 3,
+        _check(down2 == ("", None, None, None) and calls["n"] == 3,
                "negative cache served without refetch")
     finally:
         usage._query = saved_query  # type: ignore[assignment]
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _test_usage_read_write_cache_r5() -> None:
+    """_read_usage_cache/_write_usage_cache (cc-tmux-usage-reset-countdown):
+    r5 round-trips through the on-disk cache file, and a cache file written
+    before r5 existed (or with an explicit null) fails open to None rather
+    than a read error — no cache-version bump needed."""
+    tmpdir = tempfile.mkdtemp(prefix="cc-tmux-usage-cache-r5-test-")
+    path = os.path.join(tmpdir, "cache.json")
+    try:
+        usage._write_usage_cache(path, "leo", 0.5, 0.1, 1893456000.0)
+        cached = usage._read_usage_cache(path, time.time(), 45.0)
+        _check(cached == ("leo", 0.5, 0.1, 1893456000.0), f"r5 round-trips through the cache: {cached!r}")
+
+        # Pre-migration cache file with no "r5" key at all.
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"label": "leo", "u5": 0.5, "u7": 0.1}))
+        cached_old = usage._read_usage_cache(path, time.time(), 45.0)
+        _check(
+            cached_old == ("leo", 0.5, 0.1, None),
+            f"cache file missing the r5 key fails open to None: {cached_old!r}",
+        )
+
+        # Explicit null r5 (a write with no active reset time) -> None too.
+        usage._write_usage_cache(path, "leo", 0.5, 0.1, None)
+        cached_null = usage._read_usage_cache(path, time.time(), 45.0)
+        _check(cached_null == ("leo", 0.5, 0.1, None), f"explicit null r5 -> None: {cached_null!r}")
+    finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
@@ -3182,6 +3233,86 @@ def _test_render_session_bar_usage_glyph_wiring() -> None:
     )
 
 
+def _test_render_row2_countdown_formatting() -> None:
+    """_format_row2_countdown (cc-tmux-usage-reset-countdown): minutes form
+    under 60 minutes, hours+minutes form at/above 60 minutes."""
+    _check(render._format_row2_countdown(47 * 60) == "47m", "under-60-min form")
+    _check(render._format_row2_countdown(1 * 60) == "1m", "single-minute form")
+    _check(render._format_row2_countdown(72 * 60) == "1h12m", "hour+minute form above 60m")
+    _check(render._format_row2_countdown(60 * 60) == "1h0m", "exactly 60m rounds into the hour form")
+    _check(render._format_row2_countdown(30) == "1m", "sub-minute remainder rounds up, never 0m")
+
+
+def _test_render_row2_countdown_gate() -> None:
+    """_row2_reset_countdown (cc-tmux-usage-reset-countdown): gated on
+    five_h_pct >= 0.80 AND a future five_h_reset — the proposal's Done Means
+    fail-open contract (below threshold or no/past reset -> "")."""
+    now = 1_000_000.0
+    future_47m = now + 47 * 60
+
+    _check(render._row2_reset_countdown(0.79, future_47m, now) == "", "79% -> no countdown")
+    _check(render._row2_reset_countdown(0.80, future_47m, now) == "47m", "80% -> countdown")
+    _check(render._row2_reset_countdown(0.94, future_47m, now) == "47m", "94% -> countdown")
+    _check(render._row2_reset_countdown(0.94, None, now) == "", "absent r5 -> no countdown")
+    _check(render._row2_reset_countdown(0.94, now - 10, now) == "", "past r5 -> no countdown")
+    _check(render._row2_reset_countdown(0.94, now, now) == "", "r5 == now -> no countdown (not strictly future)")
+    _check(render._row2_reset_countdown(None, future_47m, now) == "", "absent five_h_pct -> no countdown")
+    # now defaults to time.time() when omitted -- a far-future reset at 94%
+    # still produces SOME countdown string without an explicit now.
+    _check(
+        render._row2_reset_countdown(0.94, time.time() + 3600, None) != "",
+        "now defaults to time.time() when omitted",
+    )
+
+
+def _test_render_session_bar_row2_countdown() -> None:
+    """render_session_bar (cc-tmux-usage-reset-countdown UI batch task 1.1):
+    the 5H segment grows a DIM ``·<countdown>`` suffix when five_h_pct >= 0.80
+    and five_h_reset is a future epoch; below threshold or with no/past reset
+    data the segment is byte-identical to the pre-countdown render."""
+    now = 1_000_000.0
+    future_47m = now + 47 * 60
+    future_72m = now + 72 * 60
+
+    out = render.render_session_bar(
+        "O", "if", "main", 0.1, 0.94, 0.35,
+        five_h_reset=future_47m, now=now,
+    )
+    c5 = render.color_for(0.94)
+    _check(
+        f"#[fg={c5}]94%#[fg={render.DIM}]·47m#[default]" in out,
+        f"5H segment carries the DIM countdown suffix right after the percentage: {out!r}",
+    )
+
+    # Hour+minute form at/above 60 minutes remaining.
+    out_h = render.render_session_bar(
+        "O", "if", "main", 0.1, 0.94, 0.35,
+        five_h_reset=future_72m, now=now,
+    )
+    _check("·1h12m#[default]" in out_h, f"hour+minute countdown form wired through: {out_h!r}")
+
+    # Below the 80% threshold -> byte-identical to a call with no five_h_reset at all.
+    baseline = render.render_session_bar("O", "if", "main", 0.1, 0.79, 0.35, now=now)
+    below_threshold = render.render_session_bar(
+        "O", "if", "main", 0.1, 0.79, 0.35, five_h_reset=future_47m, now=now,
+    )
+    _check(
+        below_threshold == baseline,
+        f"below 80% -> segment byte-identical even with a future five_h_reset: {below_threshold!r}",
+    )
+    _check("·" not in below_threshold, f"no countdown separator below threshold: {below_threshold!r}")
+
+    # No five_h_reset at all (the default) -> byte-identical, existing callers unaffected.
+    no_reset = render.render_session_bar("O", "if", "main", 0.1, 0.94, 0.35, now=now)
+    _check("·" not in no_reset, f"absent five_h_reset -> no countdown suffix: {no_reset!r}")
+
+    # A past five_h_reset -> byte-identical too.
+    past = render.render_session_bar(
+        "O", "if", "main", 0.1, 0.94, 0.35, five_h_reset=now - 10, now=now,
+    )
+    _check(past == no_reset, f"past five_h_reset -> segment unchanged: {past!r}")
+
+
 def _test_conductor_attach_command() -> None:
     import shlex as _shlex
 
@@ -3891,7 +4022,10 @@ def _test_cli_resolve_session_usage() -> None:
     GET /statusline?sessionId=, falling back PER-FIELD to the global
     _active_usage() when the session-scoped value is unavailable — the fix
     for row 2 showing the wrong account's usage when multiple accounts are
-    concurrently active (nx's adaptive-usage-poll-cadence cross-repo note)."""
+    concurrently active (nx's adaptive-usage-poll-cadence cross-repo note).
+    cc-tmux-usage-reset-countdown extends this to a 3rd field, the 5H reset
+    epoch, read from the session's own fiveHour.resetsAt when present,
+    falling back to _active_usage()'s global r5 the same per-field way."""
     saved_get_pane_option = tmux.get_pane_option
     saved_session_usage = nx_agent.session_usage
     saved_active_usage = cli._active_usage
@@ -3901,29 +4035,50 @@ def _test_cli_resolve_session_usage() -> None:
         raise AssertionError("_active_usage must not be called when session data is complete")
 
     try:
-        # --- full session-scoped data present -> used verbatim, no global fallback call ---
+        # --- full session-scoped data present (incl. resetsAt) -> used verbatim, no global fallback call ---
+        nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
+            "fiveHour": {"used": 40.0, "limit": 100.0, "resetsAt": "2030-01-01T00:00:00Z"},
+            "sevenDay": {"used": 20.0, "limit": 100.0},
+        }
+        cli._active_usage = _active_usage_must_not_run  # type: ignore[assignment]
+        five_h, seven_d, five_h_reset = cli._resolve_session_usage("%1")
+        _check((five_h, seven_d) == (0.4, 0.2), f"session-scoped 5H/7D used verbatim: {(five_h, seven_d)!r}")
+        _check(
+            five_h_reset is not None and abs(five_h_reset - 1893456000.0) < 1,
+            f"session-scoped resetsAt used verbatim: {five_h_reset!r}",
+        )
+
+        # --- 7D missing from session data -> falls back to global for that field only ---
+        nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
+            "fiveHour": {"used": 40.0, "limit": 100.0, "resetsAt": "2030-01-01T00:00:00Z"},
+        }
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7, 1_999_999_999.0)  # type: ignore[assignment]
+        five_h, seven_d, five_h_reset = cli._resolve_session_usage("%1")
+        _check(five_h == 0.4, "5H still session-scoped (0.4), not overwritten by fallback's 0.9")
+        _check(seven_d == 0.7, "missing 7D falls back to the global figure (0.7)")
+        _check(
+            five_h_reset is not None and abs(five_h_reset - 1893456000.0) < 1,
+            "5H reset stays session-scoped, not overwritten by the global fallback's r5",
+        )
+
+        # --- resetsAt missing from session's fiveHour -> falls back to global for r5 only ---
         nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
             "fiveHour": {"used": 40.0, "limit": 100.0},
             "sevenDay": {"used": 20.0, "limit": 100.0},
         }
-        cli._active_usage = _active_usage_must_not_run  # type: ignore[assignment]
-        five_h, seven_d = cli._resolve_session_usage("%1")
-        _check((five_h, seven_d) == (0.4, 0.2), f"session-scoped 5H/7D used verbatim: {(five_h, seven_d)!r}")
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7, 1_999_999_999.0)  # type: ignore[assignment]
+        five_h, seven_d, five_h_reset = cli._resolve_session_usage("%1")
+        _check((five_h, seven_d) == (0.4, 0.2), "5H/7D stay session-scoped when resetsAt alone is missing")
+        _check(five_h_reset == 1_999_999_999.0, "missing resetsAt falls back to the global reset epoch")
 
-        # --- 7D missing from session data -> falls back to global for that field only ---
-        nx_agent.session_usage = lambda *a, **k: {  # type: ignore[assignment]
-            "fiveHour": {"used": 40.0, "limit": 100.0},
-        }
-        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
-        five_h, seven_d = cli._resolve_session_usage("%1")
-        _check(five_h == 0.4, "5H still session-scoped (0.4), not overwritten by fallback's 0.9")
-        _check(seven_d == 0.7, "missing 7D falls back to the global figure (0.7)")
-
-        # --- nx unreachable (session_usage -> None) -> both fields fall back to global ---
+        # --- nx unreachable (session_usage -> None) -> all three fields fall back to global ---
         nx_agent.session_usage = lambda *a, **k: None  # type: ignore[assignment]
-        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
-        five_h, seven_d = cli._resolve_session_usage("%1")
-        _check((five_h, seven_d) == (0.9, 0.7), f"nx unreachable -> both fields use global fallback: {(five_h, seven_d)!r}")
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7, 1_999_999_999.0)  # type: ignore[assignment]
+        five_h, seven_d, five_h_reset = cli._resolve_session_usage("%1")
+        _check(
+            (five_h, seven_d, five_h_reset) == (0.9, 0.7, 1_999_999_999.0),
+            f"nx unreachable -> all three fields use global fallback: {(five_h, seven_d, five_h_reset)!r}",
+        )
 
         # --- empty session_id -> session_usage never called, straight to global fallback ---
         def _session_usage_must_not_run(*a, **k):
@@ -3931,9 +4086,12 @@ def _test_cli_resolve_session_usage() -> None:
 
         tmux.get_pane_option = lambda pane, opt: ""  # type: ignore[assignment]
         nx_agent.session_usage = _session_usage_must_not_run  # type: ignore[assignment]
-        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7)  # type: ignore[assignment]
-        five_h, seven_d = cli._resolve_session_usage("%1")
-        _check((five_h, seven_d) == (0.9, 0.7), "empty session-id -> straight to global fallback, no nx call")
+        cli._active_usage = lambda: ("leo@x.dev", 0.9, 0.7, 1_999_999_999.0)  # type: ignore[assignment]
+        five_h, seven_d, five_h_reset = cli._resolve_session_usage("%1")
+        _check(
+            (five_h, seven_d, five_h_reset) == (0.9, 0.7, 1_999_999_999.0),
+            "empty session-id -> straight to global fallback, no nx call",
+        )
     finally:
         tmux.get_pane_option = saved_get_pane_option  # type: ignore[assignment]
         nx_agent.session_usage = saved_session_usage  # type: ignore[assignment]
@@ -4363,6 +4521,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("accounts_popup.click_dismiss_wiring", _test_accounts_popup_click_dismiss_wiring),
     ("accounts_popup.no_session_state", _test_cli_accounts_popup_no_session_state),
     ("usage.active_usage_ttl", _test_usage_active_usage_ttl),
+    ("usage.read_write_cache_r5", _test_usage_read_write_cache_r5),
     ("tmux.get_window_top_pane", _test_tmux_get_window_top_pane),
     ("tmux.get_window_active_pane", _test_tmux_get_window_active_pane),
     ("tmux.get_window_tabs", _test_tmux_get_window_tabs),
@@ -4385,6 +4544,9 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.session_bar_no_glyph", _test_render_session_bar_no_glyph),
     ("render.session_bar_usage_glyph_wiring", _test_render_session_bar_usage_glyph_wiring),
     ("render.session_bar_model_colors_and_format", _test_render_session_bar_model_colors_and_format),
+    ("render.row2_countdown_formatting", _test_render_row2_countdown_formatting),
+    ("render.row2_countdown_gate", _test_render_row2_countdown_gate),
+    ("render.session_bar_row2_countdown", _test_render_session_bar_row2_countdown),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),

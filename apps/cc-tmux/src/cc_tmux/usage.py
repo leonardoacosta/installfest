@@ -280,8 +280,16 @@ def _freshest_active(deduped: List[dict]) -> Optional[dict]:
     return best
 
 
-def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]]:
-    """``(label, 5H util, 7D util)`` for the active credential, or ``('', None, None)``.
+def extract_active(
+    payload: dict,
+) -> Tuple[str, Optional[float], Optional[float], Optional[float]]:
+    """``(label, 5H util, 7D util, 5H reset epoch)`` for the active credential.
+
+    ``('', None, None, None)`` when there is no active credential. The 4th
+    element (cc-tmux-usage-reset-countdown, row2's "when can I resume"
+    countdown) is the same ``usage5hResetAt`` epoch the accounts popup already
+    renders, extracted via :func:`_extract_reset_at` — reused rather than
+    re-deriving the ISO-8601 parse.
 
     Runs :func:`dedupe_credentials` first (fixed 2026-07-13, row2/popup usage
     mismatch). Before this fix, the raw ``credentials`` list was scanned
@@ -305,18 +313,19 @@ def extract_active(payload: dict) -> Tuple[str, Optional[float], Optional[float]
     recency instead of picking the first list match.
     """
     if not isinstance(payload, dict):
-        return "", None, None
+        return "", None, None, None
     credentials = payload.get("credentials")
     if not isinstance(credentials, list):
-        return "", None, None
+        return "", None, None, None
     deduped = dedupe_credentials(credentials)
     active = _freshest_active(deduped)
     if active is None:
-        return "", None, None
+        return "", None, None, None
     return (
         _account_label(active),
         _extract_util(active, "usage5hUsed", "usage5hLimit"),
         _extract_util(active, "usage7dUsed", "usage7dLimit"),
+        _extract_reset_at(active, "usage5hResetAt"),
     )
 
 
@@ -449,7 +458,14 @@ def dedupe_credentials(credentials: object) -> List[dict]:
 
 
 def _read_usage_cache(path: str, now: float, ttl: float):
-    """Cached triple if ``path`` is fresh (|now - mtime| < ttl) and well-formed, else None."""
+    """Cached quad if ``path`` is fresh (|now - mtime| < ttl) and well-formed, else None.
+
+    ``r5`` (the 5H reset epoch, cc-tmux-usage-reset-countdown) shares the same
+    numeric-or-None validation as ``u5``/``u7``. A cache file written before
+    this field existed simply has no ``"r5"`` key — ``data.get("r5")`` reads
+    that as ``None`` the same as an explicit null, so old cache files stay
+    readable with no version bump needed (fail-open).
+    """
     try:
         age = now - os.stat(path).st_mtime
         if not (-ttl < age < ttl):
@@ -462,7 +478,7 @@ def _read_usage_cache(path: str, now: float, ttl: float):
         if not isinstance(label, str):
             return None
         utils = []
-        for key in ("u5", "u7"):
+        for key in ("u5", "u7", "r5"):
             value = data.get(key)
             if value is None:
                 utils.append(None)
@@ -470,19 +486,23 @@ def _read_usage_cache(path: str, now: float, ttl: float):
                 return None
             else:
                 utils.append(float(value))
-        return label, utils[0], utils[1]
+        return label, utils[0], utils[1], utils[2]
     except Exception:  # noqa: BLE001 - fail open: unreadable cache -> live fetch
         return None
 
 
 def _write_usage_cache(
-    path: str, label: str, u5: Optional[float], u7: Optional[float]
+    path: str,
+    label: str,
+    u5: Optional[float],
+    u7: Optional[float],
+    r5: Optional[float] = None,
 ) -> None:
     """Atomic (.tmp + os.replace) best-effort cache write; never raises."""
     tmp = f"{path}.tmp.{os.getpid()}"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"label": label, "u5": u5, "u7": u7}))
+            f.write(json.dumps({"label": label, "u5": u5, "u7": u7, "r5": r5}))
         os.replace(tmp, path)
     except Exception:  # noqa: BLE001 - fail open: cache write is best-effort
         try:
@@ -495,8 +515,8 @@ def active_usage(
     ttl: float = USAGE_CACHE_TTL_SECS,
     cache_path: Optional[str] = None,
     now: Optional[float] = None,
-) -> Tuple[str, Optional[float], Optional[float]]:
-    """Cached ``(label, 5H, 7D)`` for the active credential.
+) -> Tuple[str, Optional[float], Optional[float], Optional[float]]:
+    """Cached ``(label, 5H, 7D, 5H reset epoch)`` for the active credential.
 
     Cache hit (fresh + well-formed) -> no HTTP. Miss/stale/corrupt -> live
     ``_query()`` fetch, extract, rewrite cache (INCLUDING the empty result on
@@ -509,7 +529,7 @@ def active_usage(
     if cached is not None:
         return cached
     payload = _query()
-    result = extract_active(payload) if payload else ("", None, None)
+    result = extract_active(payload) if payload else ("", None, None, None)
     _write_usage_cache(path, *result)
     return result
 

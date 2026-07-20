@@ -599,6 +599,51 @@ _MODEL_LETTER_COLORS: Dict[str, str] = {
     "F": RED,
 }
 
+# cc-tmux-usage-reset-countdown: row 2's 5H segment only grows a "when can I
+# resume" countdown once utilization is at or above this threshold — matches
+# nx's own poller hot-interval threshold, and the proposal's row-width budget
+# call (below 80% the info is in the accounts popup, not row 2).
+_ROW2_COUNTDOWN_THRESHOLD = 0.80
+
+
+def _format_row2_countdown(remaining_secs: float) -> str:
+    """``47m`` (under 60 min) or ``1h12m`` (at/above 60 min) compact countdown.
+
+    Row-2-specific compact form — distinct from the accounts popup's
+    ``HH:mm``/``dd:HH:mm`` (:func:`_format_reset_countdown`), which needs a
+    fixed-width popup column rather than an inline status-format segment.
+    Rounds to the nearest minute (never ``0m`` for a genuinely future reset)
+    since callers already gate ``remaining_secs > 0`` before calling this.
+    """
+    total_minutes = max(1, round(remaining_secs / 60))
+    if total_minutes < 60:
+        return f"{total_minutes}m"
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}h{minutes}m"
+
+
+def _row2_reset_countdown(
+    five_h_pct: Optional[float],
+    five_h_reset: Optional[float],
+    now: Optional[float],
+) -> str:
+    """Compact row-2 5H countdown suffix, or ``""`` when it should not render.
+
+    ``""`` (byte-identical to the pre-countdown segment, the proposal's Done
+    Means fail-open contract) unless ``five_h_pct`` is at/above
+    :data:`_ROW2_COUNTDOWN_THRESHOLD` AND ``five_h_reset`` is a real epoch
+    strictly in the future.
+    """
+    if five_h_pct is None or five_h_pct < _ROW2_COUNTDOWN_THRESHOLD:
+        return ""
+    if five_h_reset is None:
+        return ""
+    t = time.time() if now is None else now
+    remaining = five_h_reset - t
+    if remaining <= 0:
+        return ""
+    return _format_row2_countdown(remaining)
+
 
 def render_session_bar(
     model_letter: str,
@@ -610,6 +655,8 @@ def render_session_bar(
     *,
     git_status: Optional["tmux.GitStatusCounts"] = None,
     raw_tokens: Optional[float] = None,
+    five_h_reset: Optional[float] = None,
+    now: Optional[float] = None,
 ) -> str:
     """Row-2 status-format string: model/project/git on the left, usage on the right.
 
@@ -655,6 +702,15 @@ def render_session_bar(
     never blinks on the wall clock. five_h_pct
     / seven_d_pct are utilization ratios in 0..1 (or None when unpolled ->
     '--' in DIM for the text; also feed the glyph).
+
+    ``five_h_reset`` (cc-tmux-usage-reset-countdown) is the active
+    credential's 5H reset epoch. When ``five_h_pct >= 0.80`` AND
+    ``five_h_reset`` is a future epoch, the 5H segment grows a compact DIM
+    ``·<countdown>`` suffix (``5H:94%·47m``, or ``5H:94%·1h12m`` at/above 60
+    minutes remaining) via :func:`_row2_reset_countdown` — below the
+    threshold, or with no/past reset data, the segment renders byte-identical
+    to before this parameter existed (fail-open). ``now`` defaults to
+    ``time.time()`` when omitted; injectable for self-test determinism.
 
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
@@ -704,10 +760,18 @@ def render_session_bar(
     # (render_beads_bar). The SES label drops its trailing colon
     # (cc-tmux-row2-model-color-usage-format) -- 5H:/7D: keep theirs
     # unchanged -- and a single space now separates the 7D percentage from
-    # the usage glyph (previously concatenated with zero space).
+    # the usage glyph (previously concatenated with zero space). The 5H
+    # segment optionally grows a DIM "·<countdown>" suffix
+    # (cc-tmux-usage-reset-countdown) BEFORE its own #[default] -- fail-open
+    # to "" leaves the segment byte-identical to before this feature.
+    countdown = _row2_reset_countdown(five_h_pct, five_h_reset, now)
+    five_h_segment = f"#[fg={DIM}]5H:#[fg={c5}]{p5}"
+    if countdown:
+        five_h_segment += f"#[fg={DIM}]·{countdown}"
+    five_h_segment += "#[default]"
     right = (
         f"#[fg={ses_color}]{ses_label}#[default] "
-        f"#[fg={DIM}]5H:#[fg={c5}]{p5}#[default] "
+        f"{five_h_segment} "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default] {usage_glyph}"
     )
     return f"{left}#[align=right]{right}"
