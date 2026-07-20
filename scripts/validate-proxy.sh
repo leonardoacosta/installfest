@@ -63,24 +63,34 @@ nx_notify() {
         | socat - UNIX-CONNECT:"$NEXUS_SOCKET" 2>/dev/null || true
 }
 
-# --- 1. Check SOCKS tunnel (process + port health) ---
-TUNNEL_PID=$(pgrep -f "ssh.*-D.*1080.*cloudpc" 2>/dev/null | head -1)
-
-if [ -n "$TUNNEL_PID" ]; then
-    if ! lsof -i :1080 -P -n 2>/dev/null | grep -q LISTEN; then
+# --- 1. Check SOCKS tunnel (port health is the source of truth) ---
+# Found live 2026-07-20: with `ControlMaster auto` enabled globally
+# (ssh/config.tmpl `Host *`), a fresh `ssh -D 1080 ... cloudpc` invocation
+# registers its port-forward on the EXISTING multiplexed connection and
+# exits immediately -- by design, not a failure. `pgrep -f "ssh.*-D.*1080"`
+# then never matches even though port 1080 stays open and fully functional
+# via the control-master process. Gating "is the tunnel up" on that pgrep
+# match made this check false-positive "down" on every single run once
+# ControlMaster went global (confirmed: ~/.local/logs/validate-proxy.state
+# showed continuous false "SOCKS tunnel down — launchd restart failed"
+# entries every ~63s for 4+ hours, none of which reflected a real outage).
+# Port LISTEN state is what actually matters for "is SOCKS usable" --
+# check that FIRST; only fall back to pgrep to find a stale/zombie process
+# worth cleaning up when the port is NOT listening.
+if lsof -i :1080 -P -n 2>/dev/null | grep -q LISTEN; then
+    : # tunnel up -- port serving, nothing to do
+else
+    TUNNEL_PID=$(pgrep -f "ssh.*-D.*1080.*cloudpc" 2>/dev/null | head -1)
+    if [ -n "$TUNNEL_PID" ]; then
         kill "$TUNNEL_PID" 2>/dev/null
         pkill -f "ssh.*-D.*1080.*cloudpc" 2>/dev/null || true
         sleep 1
-        TUNNEL_PID=""
     fi
-fi
 
-if [ -z "$TUNNEL_PID" ]; then
     UID_NUM=$(id -u)
     if launchctl kickstart "gui/${UID_NUM}/com.leonardoacosta.cloudpc-tunnel" 2>/dev/null; then
         sleep 3
-        if pgrep -f "ssh.*-D.*1080.*cloudpc" >/dev/null 2>&1 && \
-           lsof -i :1080 -P -n 2>/dev/null | grep -q LISTEN; then
+        if lsof -i :1080 -P -n 2>/dev/null | grep -q LISTEN; then
             FIXED+=("SOCKS tunnel restored via launchd")
         else
             ISSUES+=("SOCKS tunnel down — launchd restart failed")
