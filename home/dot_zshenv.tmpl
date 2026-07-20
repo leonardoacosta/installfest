@@ -37,6 +37,16 @@ export VISUAL="$EDITOR"
 export BROWSER="$HOME/.local/bin/mac-open"
 {{ end -}}
 
+{{ if eq .machine "mac" -}}
+# SSH agent socket — 1Password's SSH agent, Mac-only. Needs the live 1Password
+# desktop app, which only runs on an interactive desktop; homelab is headless
+# and CloudPC has no interactive desktop for its SSH service account, so
+# neither gets this block. The on-disk ~/.ssh/id_ed25519 key (untouched by
+# this file) still works as OpenSSH's automatic fallback identity if this
+# socket isn't reachable (1Password app not running).
+export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+{{ end -}}
+
 # XDG Base Directories
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
