@@ -7,4 +7,4 @@
 #
 # Rotation: ssh-mesh/scripts/rotate-keys.sh regenerates the shared key AND
 # rewrites this file, so the two never drift. Do not hand-edit; rotate instead.
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOP7RHCSkw303hIZEewKU2r6yn4o6rdyceoEnbPCO7bd leo-mesh-20260325
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJ3oJEXvs4UiLLULyCUo4ZUIK5mT3THqvekJYpS2eoU leo-mesh-20260720
