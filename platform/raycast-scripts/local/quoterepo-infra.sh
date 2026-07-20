@@ -2,15 +2,15 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title QuoteRepol
+# @raycast.title quoterepo-infral
 # @raycast.mode silent
 
 # Optional parameters:
 # @raycast.icon 📦
 
 # Documentation:
-# @raycast.description QuoteRepo
+# @raycast.description quoterepo-infra
 # @raycast.author leonardoacosta
 # @raycast.authorURL https://raycast.com/leonardoacosta
 
-cursor ~/dev/brown/qr/QuoteRepo/
+cursor ~/dev/brown/quoterepo-infra/

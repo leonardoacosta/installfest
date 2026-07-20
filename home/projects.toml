@@ -960,22 +960,6 @@ path = "dev/brown/pvs-infra"
 tiers = ["local"]
 
 [[projects]]
-code = "QuoteRepo"
-name = "QuoteRepo"
-category = "b-and-b"
-icon = "📦"
-path = "dev/brown/qr/QuoteRepo"
-tiers = ["local"]
-
-[[projects]]
-code = "QuoteRepo.DB"
-name = "QuoteRepo.DB"
-category = "b-and-b"
-icon = "📦"
-path = "dev/brown/qr/QuoteRepo.DB"
-tiers = ["local"]
-
-[[projects]]
 code = "QuoteRepo.Infra"
 name = "QuoteRepo.Infra"
 category = "b-and-b"
