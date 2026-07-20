@@ -30,18 +30,20 @@
         <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>/Users/leonardoacosta</string>
-        <!-- nexus-agent runs on homelab, not this Mac -- reach it via the
-             AdGuard-authoritative leonardoacosta.dev name (split-DNS'd to
-             AdGuard via the tailnet resolver, hl-oz6), matching the updated
-             ~/.ssh/config.tmpl convention. Accepted tradeoff vs the open
-             AdGuard reliability bug (hl-lcw, container has detached from its
-             network on restart before): consistent naming over resilience to
-             an AdGuard outage. The old 100.91.88.16 was a stale/wrong IP that
-             never matched a live device; the MagicDNS FQDN that replaced it
-             (homelab.tail296462.ts.net) works too and is the AdGuard-outage
-             fallback if this name ever stops resolving. -->
+        <!-- nexus-agent runs on homelab, not this Mac -- reach it via Tailscale
+             MagicDNS (stable across IP re-registration/churn). REVERTED
+             2026-07-20 (if-2vm1 stopgap): the AdGuard-authoritative
+             leonardoacosta.dev name broke real tooling (paste-image.sh,
+             rotate-keys.sh) -- this Mac's live DNS config has zero
+             resolver rules for leonardoacosta.dev at all right now, so
+             nothing routes there (not an AdGuard outage -- AdGuard itself
+             answers fine when queried directly; the split-DNS push from
+             hl-oz6 just isn't reaching this client). Back to MagicDNS
+             until that's diagnosed with GUI/admin-console access. The old
+             100.91.88.16 was a stale/wrong IP that never matched a live
+             device -- this FQDN is the one that actually works. -->
         <key>NEXUS_URL</key>
-        <string>http://homelab.leonardoacosta.dev:7400</string>
+        <string>http://homelab.tail296462.ts.net:7400</string>
         <!-- Pre-bootstrap defaults — bootstrapSettings() in the listener
              overrides these with values from /notifications/settings on
              startup. Match the bash plist defaults for parity. -->

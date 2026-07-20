@@ -10,18 +10,21 @@ Include {{ joinPath .chezmoi.homeDir ".config/colima/ssh_config" }}
 
 {{ if eq .machine "mac" -}}
 # Homelab via Tailscale (always-on, no LAN probe needed)
-# HostName is the AdGuard-authoritative name (leonardoacosta.dev, split-DNS'd
-# to AdGuard via the tailnet resolver, hl-oz6) rather than the raw Tailscale
-# MagicDNS FQDN -- accepted tradeoff vs the open AdGuard reliability bug
-# (hl-lcw): consistent naming everywhere over resilience to an AdGuard outage.
+# REVERTED 2026-07-20 (if-2vm1 stopgap): AdGuard-authoritative names
+# (leonardoacosta.dev, hl-oz6 split-DNS) broke real tooling -- this Mac's
+# live DNS config (scutil --dns) has zero resolver rules for
+# leonardoacosta.dev, so nothing routes there at all (not an AdGuard
+# outage -- AdGuard itself answers fine when queried directly; the
+# split-DNS push just isn't reaching this client). Back to the Tailscale
+# MagicDNS FQDN until that's diagnosed with GUI/admin-console access.
 Host homelab
-    HostName homelab.leonardoacosta.dev
+    HostName homelab.tail296462.ts.net
     User nyaptor
     IdentityFile ~/.ssh/id_ed25519
 
 {{ else if eq .machine "homelab" -}}
 Host mac
-    HostName mac.leonardoacosta.dev
+    HostName macbook.tail296462.ts.net
     User leonardoacosta
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
@@ -31,7 +34,7 @@ Host mac
 {{ end -}}
 # CloudPC via Tailscale (all machines)
 Host cloudpc
-    HostName cpc.leonardoacosta.dev
+    HostName 100.83.148.5
     User leo
     IdentityFile ~/.ssh/id_ed25519
 
