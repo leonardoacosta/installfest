@@ -8,8 +8,11 @@ Type=simple
 ExecStart=/usr/bin/bun run %h/.local/share/nexus-listener.ts
 Restart=on-failure
 RestartSec=10
-# Mirror the macOS plist defaults so behaviour is identical across OSes.
-Environment=NEXUS_URL=http://100.91.88.16:7400
+# nexus-agent runs locally on homelab (see nx-send.sh's own default) --
+# no cross-machine hop needed here. Unlike the macOS plist, this is NOT a
+# stale Tailscale IP fix-up: it's a deliberate switch from a wrong remote
+# IP to the correct local endpoint.
+Environment=NEXUS_URL=http://localhost:7400
 Environment=TTS_ENABLED=1
 Environment=BANNER_ENABLED=1
 StandardOutput=append:%h/.local/state/nexus-listener.stdout.log

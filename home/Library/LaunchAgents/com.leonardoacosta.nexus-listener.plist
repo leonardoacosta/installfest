@@ -30,10 +30,12 @@
         <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
         <string>/Users/leonardoacosta</string>
-        <!-- Same agent endpoint the bash listener used (Tailscale IP for the
-             local nexus-agent). -->
+        <!-- nexus-agent runs on homelab, not this Mac -- reach it via Tailscale
+             MagicDNS (stable across IP re-registration/churn), matching the
+             ~/.ssh/config.tmpl convention (homelab.tail296462.ts.net). The old
+             100.91.88.16 was a stale/wrong IP that never matched a live device. -->
         <key>NEXUS_URL</key>
-        <string>http://100.91.88.16:7400</string>
+        <string>http://homelab.tail296462.ts.net:7400</string>
         <!-- Pre-bootstrap defaults — bootstrapSettings() in the listener
              overrides these with values from /notifications/settings on
              startup. Match the bash plist defaults for parity. -->
