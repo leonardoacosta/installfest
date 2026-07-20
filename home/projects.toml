@@ -577,14 +577,6 @@ path = "dev/personal/mesh"
 tiers = ["remote", "local"]
 
 [[projects]]
-code = "nv"
-name = "Nova"
-category = "personal"
-icon = "✨"
-path = "dev/personal/nv"
-tiers = ["remote", "local"]
-
-[[projects]]
 code = "nx"
 name = "Nexus"
 category = "personal"
@@ -623,6 +615,7 @@ path = "dev/personal/nova"
 tiers = ["local"]
 devPort = 3110
 deploy = { type = "systemd", host = "local" }
+legacy_codes = ["nv"]
 
 [[projects]]
 code = "harness"

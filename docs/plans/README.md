@@ -29,7 +29,7 @@ or minted as beads under `if-vit` (workspace-resilience) / `if-7cce` (unsorted):
 | doc drift bundle (CLAUDE.md dirs, undocumented tools, stale mx-broker doc status) | `if-7cce.2` |
 | entry-point sprawl (no index, missing `--help`) | `if-7cce.3` |
 | generator prune pass (raycast/cmux-workspaces orphans) | `if-vit.2` (feature-sized — run `/feature` when picked up) |
-| nexus/nova naming drift | `if-7cce.4` (`[user]` — needs Leo's live-state verification) |
+| nexus/nova naming drift | `if-7cce.4` resolved — Leo verified live: nexus (`~/dev/personal/nexus`, Claude Code session dashboard) and Nova (`~/dev/personal/nova`, Telegram ops daemon) are two distinct real systems, not one system with 3 names. Real bug found in the same pass: a stale duplicate `nv` registry code (phantom `dev/personal/nv` path) deduped into `nova` via `legacy_codes`, same pattern as the `tb` fix (`f37d940`) |
 | CloudPC bootstrap fix-or-retire | `if-7cce.5` (`[user]` — direction call) |
 | `wk open <code>` launcher verb | resolved — `wk` retired 2026-07-18, folded into `mux` (`mux doctor`/`mux ready`); `if-vit.3` closed, no separate verb added |
 | registry convergence (cc `projects.json` vs if `projects.toml`) | `if-7cce.6` (`[user]` — cross-repo decision) |
