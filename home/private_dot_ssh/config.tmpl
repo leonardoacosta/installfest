@@ -10,14 +10,18 @@ Include {{ joinPath .chezmoi.homeDir ".config/colima/ssh_config" }}
 
 {{ if eq .machine "mac" -}}
 # Homelab via Tailscale (always-on, no LAN probe needed)
+# HostName is the AdGuard-authoritative name (leonardoacosta.dev, split-DNS'd
+# to AdGuard via the tailnet resolver, hl-oz6) rather than the raw Tailscale
+# MagicDNS FQDN -- accepted tradeoff vs the open AdGuard reliability bug
+# (hl-lcw): consistent naming everywhere over resilience to an AdGuard outage.
 Host homelab
-    HostName homelab.tail296462.ts.net
+    HostName homelab.leonardoacosta.dev
     User nyaptor
     IdentityFile ~/.ssh/id_ed25519
 
 {{ else if eq .machine "homelab" -}}
 Host mac
-    HostName macbook.tail296462.ts.net
+    HostName mac.leonardoacosta.dev
     User leonardoacosta
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
@@ -27,7 +31,7 @@ Host mac
 {{ end -}}
 # CloudPC via Tailscale (all machines)
 Host cloudpc
-    HostName 100.83.148.5
+    HostName cpc.leonardoacosta.dev
     User leo
     IdentityFile ~/.ssh/id_ed25519
 

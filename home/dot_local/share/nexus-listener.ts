@@ -42,8 +42,9 @@ const FIFO = IS_MAC
 
 // Matches nx-send.sh's default (scripts/lib/nx-send.sh) -- correct when this
 // listener runs on the same box as nexus-agent. Cross-machine deployments
-// (the macOS plist) set NEXUS_URL explicitly to the Tailscale MagicDNS FQDN,
-// so this fallback only matters for local/manual invocation.
+// (the macOS plist) set NEXUS_URL explicitly to the AdGuard-authoritative
+// leonardoacosta.dev name, so this fallback only matters for local/manual
+// invocation.
 const NEXUS_URL = process.env.NEXUS_URL ?? "http://localhost:7400";
 const RECONNECT_MS = 5_000;
 const STREAM_MAX_MS = 30 * 60 * 1_000; // mirror curl --max-time 1800
