@@ -341,9 +341,170 @@ stack: t3
 
 - [ ] [4.1] Live-verify cc-tmux's dual-write: trigger a real state transition (prompt submit, permission prompt, stop) inside a cmux workspace, confirm `cmux workspace-action` fires and the workspace's `description` updates with the correct encoding [beads:if-35jf]
   - depends on: 2.1
-- [ ] [4.2] Live-verify the full left sidebar in a real cmux session: git state, project/session name, Claude-state icon animation (all three modes), openspec/beads segments, usage footer — against a real disposable test workspace, cleaned up after [beads:if-g4u2]
+
+  **BLOCKED — real bug found, dual-write never fires in genuine cmux-pane usage (cmux
+  0.64.19, live-verified 2026-07-19).** `_cmux_dual_write` (`apps/cc-tmux/src/cc_tmux/tmux.py:607-638`)
+  matches the current workspace via `w.get("ref") == os.environ.get("CMUX_WORKSPACE_ID")`. Live-verified
+  on the real Mac (`ssh mac`) that this comparison can never succeed for a real pane: created a
+  disposable local workspace (`cmux-evolve-test-if-35jf-e2e`, `workspace:2`), confirmed via
+  `cmux send "env | grep -i cmux"` that cmux actually exports `CMUX_WORKSPACE_ID` as the workspace's
+  **UUID** (`362EF01A-04BC-497C-9589-F640C7CE81A0`), while `cmux workspace list --json --id-format both`
+  shows that same workspace's `ref` as `workspace:2` and its `id` as that same UUID — `ref` and
+  `CMUX_WORKSPACE_ID` are never the same string, so `current_ws` at line 629-636 is always `None` and
+  the function returns before ever reaching the `workspace-action` subprocess call at line 649.
+
+  Confirmed by directly invoking the real production entrypoint (`apps/cc-tmux/bin/cc-tmux register
+  --state ...`, the exact command `hooks.json` wires to SessionStart/UserPromptSubmit/Notification/Stop)
+  inside the real pane with cmux's real injected environment — the same call a genuine Claude Code
+  session running in that pane would make on prompt-submit / permission-prompt / stop:
+  - `cc-tmux register --state active` → `EXIT=0`, `workspace:2` description unchanged (`CC1|-|-|-|-|...`,
+    state/wait_reason/epoch fields stayed sentinel-`-`).
+  - `cc-tmux register --state waiting --reason permission` → `EXIT=0`, same no-op, no change.
+  - `cc-tmux register --state idle` → `EXIT=0`, same no-op, no change.
+
+  All three calls exit 0 (the `try/except Exception: pass` fail-open contract holds — no crash), but
+  none of them ever call `cmux workspace-action`, so the task's actual ask ("confirm `cmux
+  workspace-action` fires") is disconfirmed, not confirmed. The description DID change once during this
+  test, but only because the unrelated [2.4] periodic launchd writer (`cmux-status-writer.py --all`,
+  120 s tick, unconditional full sweep) independently wrote a real `beads` field — proving
+  `workspace-action`/description-writing works fine as a mechanism in general, and isolating the bug to
+  `_cmux_dual_write`'s matching logic specifically.
+
+  **Same bug pattern also exists** in `scripts/cmux-status-writer.py`'s single-workspace/carrier branch
+  (`target_ref = os.environ.get("CMUX_WORKSPACE_ID")`, `[w for w in all_workspaces if w.get("ref") ==
+  target_ref]`, line ~286-289) — but it is currently unexercised in production because the deployed
+  launchd plist (`home/Library/LaunchAgents/com.leonardoacosta.cmux-status-writer.plist`) always invokes
+  with `--all`, which bypasses the ref-matching branch entirely (confirmed by reading the plist's
+  `ProgramArguments`).
+
+  **Recommended fix** (not applied here — `tmux.py` belongs to the already-closed API batch / bead
+  if-3jd4; scope explosion per `rules/CORE.md`, flagging rather than silently patching): resolve the
+  current workspace by requesting `cmux workspace list --json --id-format both` and matching
+  `w.get("id") == workspace_ref` instead of `w.get("ref")`, then use the matched `ref` (or the `id`
+  directly, if `workspace-action --workspace` accepts a UUID — not yet confirmed) for the
+  `workspace-action` call. This is a real, load-bearing gap: today, none of the state-icon
+  animation this spec ships (task 3.2/3.3, live-verified only against manually-seeded descriptions)
+  will ever actually update from genuine Claude Code session activity — the sidebar can render a
+  correct icon, but nothing currently drives it from real usage.
+
+  Cleanup verified: closed only `workspace:2` via `cmux close-workspace --workspace workspace:2`;
+  `cmux workspace list --json` before/after confirmed the one pre-existing workspace
+  (`cmux-e2e-if-35jf`, `workspace:1` — apparent debris from an earlier crashed E2E attempt at this
+  same bead, left untouched per the safety protocol since this dispatch did not create it) was
+  byte-identical throughout.
+- [x] [4.2] Live-verify the full left sidebar in a real cmux session: git state, project/session name, Claude-state icon animation (all three modes), openspec/beads segments, usage footer — against a real disposable test workspace, cleaned up after [beads:if-g4u2]
   - depends on: 3.2, 3.3, 3.4
-- [ ] [4.3] Live-verify the git-tree panel against both a local workspace and an SSH-backed workspace (homelab), confirming the SSH case renders the REMOTE repository's graph, not a stale local one [beads:if-tf9q]
+
+  **Live-verified end to end on the real Mac** (`ssh mac`, cmux 0.64.19, 2026-07-19), per the incident
+  safety rule: listed existing workspaces first (`cmux-e2e-if-35jf`, off-limits), created exactly one
+  disposable local workspace (`cmux-evolve-test-if-g4u2`, `workspace:6`, `cwd` = the Mac's real
+  installfest checkout, which happened to be genuinely dirty: `M platform/raycast-scripts/local/
+  QuoteRepo.sh`, branch `main`). Selected it and ran `cmux sidebar open claude-sessions` (`1 valid, 0
+  invalid`), then captured the real rendered sidebar via a System Events accessibility-tree
+  `entire contents of window 1` dump (same substitute technique 3.1/3.2/3.3 established — no Screen
+  Recording TCC grant over SSH).
+
+  **Real-data pass** (no seeding): ran `python3 scripts/cmux-status-writer.py --workspace workspace:6`
+  directly (bypasses the [4.1]-documented `CMUX_WORKSPACE_ID` bug by taking an explicit `--workspace`
+  ref) — `updated 1/1 workspace(s)`, and the workspace's description picked up a **real, live** beads
+  count: `CC1|-|-|-|-|22 ready, 0 blocked|-|-`. The AX-tree dump confirmed, in order: header `Claude
+  Sessions`; the pre-existing `cmux-e2e-if-35jf` row untouched; then for my row — `installfest`
+  (real cwd basename) + `cmux-evolve-test-if-g4u2` (session title); `main` (real git branch, sourced
+  from cmux's own workspace model, not the plain CLI JSON which doesn't expose `branch`/`dirty` as
+  top-level keys) + a lone orange `●` dirty dot (correctly present — the checkout really is dirty);
+  and `● 22 ready, 0 blocked` (real beads segment). No state-icon `image` element and no openspec
+  segment rendered in this real-data pass — both correctly fail-closed: state was never written (the
+  [4.1] dual-write bug — no genuine transition had occurred), and openspec was empty because
+  `~/.claude/scripts/bin/openspec-status` itself silently no-ops on this Mac (`flock: command not
+  found` → falsely interpreted as "already running, skipping" — `flock` is a Linux/util-linux tool
+  absent from stock macOS; confirmed via `which flock` → not found, reproduced twice). This is a
+  pre-existing gap in a `~/.claude`-owned (cc repo) script, outside this spec's scope — noted, not
+  fixed here.
+
+  **Full-integration pass** (seeding the fields real infra can't currently supply, to close out the
+  task's own remaining coverage — same technique 3.2/3.3 used, applied here as one combined capture
+  rather than split across separate diagnostic files): three sequential `cmux workspace-action
+  --action set-description` calls against `workspace:6`, preserving the real beads field, each
+  re-captured via a fresh AX-tree dump:
+  - `CC1|idle|-|<epoch>|-|22 ready, 0 blocked|-|-` → `image 1` present immediately before
+    `installfest` (idle indicator).
+  - `CC1|active|-|<epoch>|-|22 ready, 0 blocked|-|-` → `image 1` present, same position (active
+    indicator; pulse/opacity animation itself already live-verified via a genuinely changing
+    `clock.second` in task 3.2 — AX-tree text dumps can't capture opacity, so not re-proven pixel-wise
+    here).
+  - `CC1|waiting|permission|<epoch>|-|22 ready, 0 blocked|-|-` → `image 1` present, same position
+    (waiting/permission indicator).
+  - `CC1|idle|-|<epoch>|2 draft, 1 approved|22 ready, 0 blocked|63|38` → full combined row confirmed
+    in one dump: state `image 1`, `installfest`/`cmux-evolve-test-if-g4u2`, `main` + dirty `●`,
+    `◇ 2 draft, 1 approved` (openspec) + `● 22 ready, 0 blocked` (beads, still the real live count),
+    and a `Usage` / `5H 63%` / `7D 38%` footer — every documented sidebar element rendering together
+    in a single real workspace.
+
+  Cleanup verified: closed only `workspace:6` via `cmux close-workspace --workspace workspace:6`;
+  `cmux workspace list --json` before/after confirmed `workspace:1` (`cmux-e2e-if-35jf`)
+  byte-identical throughout. No diagnostic sidebar files were created (reused the production
+  `claude-sessions` sidebar directly), so no extra file cleanup was needed.
+- [x] [4.3] Live-verify the git-tree panel against both a local workspace and an SSH-backed workspace (homelab), confirming the SSH case renders the REMOTE repository's graph, not a stale local one [beads:if-tf9q]
   - depends on: 2.3
-- [ ] [4.4] Live-verify the usage dashboard panel against real nexus-agent data (or its unreachable-degradation path) [beads:if-kg51]
+
+  **Live-verified end to end on the real Mac + homelab** (`ssh mac`, cmux 0.64.19, 2026-07-19), per the
+  incident safety rule. Since the Mac's and homelab's `installfest` checkouts happened to already be at
+  the same commit (both `231e4fa`, synced via the deploy hooks), a commit-hash diff alone wouldn't
+  distinguish "rendered the real remote repo" from "rendered a stale local copy that happens to
+  match" — used a stronger, unambiguous marker instead: created a **throwaway git repo that exists
+  only on homelab** (`/tmp/claude-.../scratchpad/cmux-git-tree-marker-if-tf9q`, one commit,
+  subject `MARKER-COMMIT-if-tf9q-homelab-only-<epoch>`) — a path with zero presence anywhere on the
+  Mac's filesystem, so any render of its content is only possible if the script genuinely executed on
+  homelab.
+
+  - **SSH-backed case**: listed existing workspaces first (`cmux-e2e-if-35jf`, off-limits), created one
+    disposable SSH-backed workspace (`cmux-evolve-test-if-tf9q`, `workspace:3`, `cmux ssh homelab`,
+    confirmed `remote.enabled=true`/`remote.connected=true`/`dest=homelab`). Ran `cmux-git-tree.py
+    --repo <the homelab-only marker path>` inside that pane; `cmux browser snapshot` on the resulting
+    surface showed `ready_state: complete`, URL `http://100.73.182.4:8790/.cache/cmux-git-tree/
+    cmux-git-tree-marker-if-tf9q-*.html` (homelab's real Tailscale IP, HTTP-served per `find_opener`'s
+    non-Darwin path), title `git tree — cmux-git-tree-marker-if-tf9q`, and body text containing the
+    exact commit hash (`84fd509`) and the exact unique subject
+    `MARKER-COMMIT-if-tf9q-homelab-only-1784517287` — content that could only exist if the script's
+    `git log` subprocess actually ran against homelab's filesystem. Conclusively rules out the
+    "stale local render" failure mode this task exists to catch.
+  - **Local case**: created one disposable local workspace (`cmux-evolve-test-if-tf9q-local`,
+    `workspace:4`, `cwd` = the Mac's own installfest checkout). Ran the same script against
+    `/Users/leonardoacosta/dev/personal/installfest`; `cmux browser snapshot` showed a `file://
+    .../installfest-*.html` URL (Darwin path — no HTTP server, per `find_opener`), title
+    `git tree — installfest`, and body text headed by the Mac's real HEAD (`231e4fab` /
+    `chore(beads): close if-ammk...`), matching `git log -1` run directly on the Mac.
+
+  Cleanup verified: closed `workspace:3` and `workspace:4` via `cmux close-workspace`; removed the
+  generated cache HTML on both hosts (`~/.cache/cmux-git-tree/*.html` on the Mac and on homelab) and
+  the throwaway marker repo from the scratchpad. `cmux workspace list --json` before/after confirmed
+  `workspace:1` (`cmux-e2e-if-35jf`) byte-identical throughout.
+- [x] [4.4] Live-verify the usage dashboard panel against real nexus-agent data (or its unreachable-degradation path) [beads:if-kg51]
   - depends on: 2.2
+
+  **Live-verified the degradation path on the real Mac** (`ssh mac`, cmux 0.64.19, 2026-07-19), per the
+  incident safety rule. Checked real nexus-agent reachability first: `Nexus.app`'s menubar process is
+  running (`ps aux` shows `/Applications/Nexus.app/Contents/MacOS/nexus`), but its HTTP credentials API
+  is genuinely NOT listening on port 7400 right now — `curl -sv http://localhost:7400/credentials` →
+  `connect ... failed: Connection refused` on both `::1` and `127.0.0.1`. This is real, unforced,
+  live-observed state (not simulated), so per the task's own "or its unreachable-degradation path"
+  allowance, verified that path.
+
+  Listed existing workspaces first (`cmux-e2e-if-35jf`, off-limits), started a real HTTP server serving
+  `scripts/cmux-usage-dashboard/` (`python3 -m http.server 8791`, confirmed `HTTP 200` on
+  `index.html`), created one disposable workspace (`cmux-evolve-test-if-kg51`, `workspace:5`), and
+  opened `http://localhost:8791/index.html` in cmux's embedded browser panel via `cmux browser open
+  --workspace workspace:5`. `cmux browser snapshot` showed `ready_state: complete`, title `Claude Usage
+  Dashboard`, and body text `Claude Usage Dashboard\nUsage unavailable.` — the real fetch to the
+  genuinely-unreachable endpoint failed and the page correctly fell open to its degraded state, with no
+  blank page and no stuck-loading state. The real-data rendering path (per-account meters, colors,
+  countdowns) was already exhaustively proven in task 2.2 via Playwright with a real captured
+  `/credentials` payload routed through `page.route` (125 raw rows → 3 accounts, correct
+  colors/percentages/active badges) — not re-proven here since real nexus-agent data isn't available
+  in this environment right now; only the delivery mechanism (cmux browser panel actually loading and
+  rendering the page) needed independent E2E confirmation, which this pass provides.
+
+  Cleanup verified: closed `workspace:5` via `cmux close-workspace`; killed the temporary HTTP server
+  (`pkill -f "http.server 8791"`, re-confirmed via a follow-up `curl` connection-refused) and removed
+  its log file. `cmux workspace list --json` before/after confirmed `workspace:1`
+  (`cmux-e2e-if-35jf`) byte-identical throughout.
