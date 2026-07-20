@@ -64,5 +64,24 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [2.1] Targeted `git add apps/cc-tmux/src/cc_tmux/usage.py apps/cc-tmux/src/cc_tmux/render.py apps/cc-tmux/src/cc_tmux/testing.py` (no `git add -A`/`.`); commit `feat(cc-tmux): render 5H reset countdown on row 2 near session limit`; push. Paste `git log -1 --stat` output. [beads:if-w9ke]
+- [x] [2.1] Targeted `git add apps/cc-tmux/src/cc_tmux/usage.py apps/cc-tmux/src/cc_tmux/render.py apps/cc-tmux/src/cc_tmux/testing.py` (no `git add -A`/`.`); commit `feat(cc-tmux): render 5H reset countdown on row 2 near session limit`; push. Paste `git log -1 --stat` output. [beads:if-w9ke]
   - depends on: 1.1, 1.2
+
+  **Scope note**: `cli.py` was added to the targeted add per task 1.1's scope-note (option B,
+  end-to-end wiring) — the feature commit below adds 4 files, not the originally-listed 3.
+  **Push note**: per `/apply:all`'s architecture, phase agents commit only; the orchestrator is the
+  single push point per wave (not this task's literal "push" instruction) — the actual `git push`
+  happens once, after the wave's gate passes, alongside the sibling `add-cmux-sidebar-widgets`
+  work already pushed this run.
+
+  Feature commit `abf0866`:
+  ```
+  commit abf0866b60d48801a43fcfb44cef0b9551c87b39
+  Author: leonardoacosta <leo@leonardoacosta.dev>
+      feat(cc-tmux): render 5H reset countdown on row 2 near session limit
+
+   apps/cc-tmux/src/cc_tmux/cli.py     |  66 +++++++----
+   apps/cc-tmux/src/cc_tmux/render.py  |  68 +++++++++++-
+   apps/cc-tmux/src/cc_tmux/testing.py | 214 +++++++++++++++++++++++++++++++-----
+   apps/cc-tmux/src/cc_tmux/usage.py   |  46 +++++---
+  ```
