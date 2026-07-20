@@ -28,11 +28,16 @@
 # version to change -> announce completion (or a gentle nudge on
 # timeout — see the design note above the poll loop).
 #
-# UNVERIFIED — see beads if-cgf5 for the live-verification follow-up:
-#   - Exact `kontroll status` output/exit-code shape connected vs not
-#     (no Mac access / kontroll install from this session to check).
-#   - Whether $NEXUS_ATTACH_SECRET loads from ~/.env in this
-#     non-interactive shell without the explicit source below.
+# VERIFIED LIVE 2026-07-20 (if-cgf5): `kontroll status` with a connected
+# Voyager returns exit 0 and a line matching `grep -i 'firmware'` as
+# assumed below (e.g. "Firmware version:\tBr7g0/orAxmP") — no fix needed
+# there. With Keymapp not running: nonzero exit + a message that doesn't
+# match the "no keyboard\|not connected" grep, but the nonzero-exit half
+# of that OR already catches it correctly.
+#
+# STILL UNVERIFIED — see beads if-cgf5:
+#   - `kontroll status` output when Keymapp IS running but no keyboard
+#     is attached (needs the keyboard unplugged mid-session to test).
 
 set +e
 
@@ -60,7 +65,16 @@ mkdir -p "$STATE_DIR"
 {
     echo "--- zsa-firmware-check $(date -u +%FT%TZ) ---"
 
-    if ! command -v kontroll >/dev/null 2>&1; then
+    # VERIFIED LIVE 2026-07-20 (if-cgf5): `kontroll` was never on PATH in
+    # this hook's non-interactive shell -- every real invocation logged to
+    # date had silently skipped here, so the logic below had never once
+    # run for real. Fall back to the built binary before giving up.
+    KONTROLL_BIN="$(command -v kontroll 2>/dev/null)"
+    if [ -z "$KONTROLL_BIN" ]; then
+        FALLBACK="$HOME/dev/personal/installfest/apps/kontroll/target/release/kontroll"
+        [ -x "$FALLBACK" ] && KONTROLL_BIN="$FALLBACK"
+    fi
+    if [ -z "$KONTROLL_BIN" ]; then
         echo "skip: kontroll not installed (github.com/zsa/kontroll releases)"
         exit 0
     fi
@@ -103,7 +117,7 @@ mkdir -p "$STATE_DIR"
     # VERIFY LIVE (if-cgf5): assumes nonzero exit or "no keyboard"/"not
     # connected" text when nothing is attached, matching typical CLI
     # convention — adjust once kontroll's real output is in hand.
-    KB_STATUS=$(kontroll status 2>&1)
+    KB_STATUS=$("$KONTROLL_BIN" status 2>&1)
     KB_RC=$?
     if [ "$KB_RC" -ne 0 ] || printf '%s' "$KB_STATUS" | grep -qi 'no keyboard\|not connected'; then
         echo "keyboard: not connected — firmware staged, skipping notify/flash-monitor"
@@ -127,7 +141,7 @@ mkdir -p "$STATE_DIR"
     while [ "$ELAPSED" -lt "$POLL_TIMEOUT_SECS" ]; do
         sleep "$POLL_INTERVAL_SECS"
         ELAPSED=$((ELAPSED + POLL_INTERVAL_SECS))
-        CUR_STATUS=$(kontroll status 2>/dev/null)
+        CUR_STATUS=$("$KONTROLL_BIN" status 2>/dev/null)
         CUR_FW_VERSION=$(printf '%s' "$CUR_STATUS" | grep -i 'firmware' | head -1)
         if [ -n "$CUR_FW_VERSION" ] && [ "$CUR_FW_VERSION" != "$PRE_FW_VERSION" ]; then
             FLASHED=1
