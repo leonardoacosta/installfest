@@ -39,10 +39,10 @@
 {{   $inactiveFg := "#454D54" -}}
 {{   template "zjstatus-layout" (dict "accent" $accent "warn" $warn "tmuxAccent" $tmuxAccent "inactiveFg" $inactiveFg "home" .chezmoi.homeDir) -}}
 {{ else -}}
-{{   $accent := "#006efe" -}}
+{{   $accent := "#f32882" -}}
 {{   $warn := "#ffae00" -}}
-{{   $tmuxAccent := "#9440d5" -}}
-{{   $inactiveFg := "#454545" -}}
+{{   $tmuxAccent := "#006aff" -}}
+{{   $inactiveFg := "#a8a8a8" -}}
 {{   template "zjstatus-layout" (dict "accent" $accent "warn" $warn "tmuxAccent" $tmuxAccent "inactiveFg" $inactiveFg "home" .chezmoi.homeDir) -}}
 {{ end -}}
 

@@ -256,108 +256,111 @@ themes {
         }
     }
 
-    // Real Vercel Geist dark-mode design tokens (vercel.com/design.dark.md, fetched 2026-07-07) --
-    // not an "inspired by" derivative like one-hunter-vercel above. Same palette as
+    // Vercel terminal palette (user-supplied 2026-07-20 update). Same palette as
     // home/dot_config/ghostty/themes/Vercel and home/dot_config/tmux/vercel-theme.conf.
+    // No distinct purple in this palette -- magenta (#f32882, also the cursor color)
+    // fills that accent/highlight role; blue (#006aff) is the secondary accent.
+    // No distinct panel-bg shade either -- text/table/list panels use the flat
+    // background (#101010) rather than a lightened gray-300 tone.
     vercel {
         text_unselected {
-            base       237 237 237   // #ededed primary/gray-1000
-            background  41  41  41   // #292929 gray-300 (panel bg)
-            emphasis_0 255 174   0   // #ffae00 amber-700
-            emphasis_1   0 170 149   // #00aa95 teal-700
-            emphasis_2   0 172  58   // #00ac3a green-700
-            emphasis_3 148  64 213   // #9440d5 purple-700
+            base       250 250 250   // #fafafa foreground
+            background  16  16  16   // #101010 background
+            emphasis_0 255 174   0   // #ffae00 yellow
+            emphasis_1   0 172 150   // #00ac96 cyan
+            emphasis_2  41 169  72   // #29a948 green
+            emphasis_3 243  40 130   // #f32882 magenta (accent)
         }
         text_selected {
-            base       237 237 237
-            background  41  41  41
+            base       250 250 250
+            background  16  16  16
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         ribbon_selected {
             base         0   0   0   // #000000 (dark text on bright pill)
-            background   0 110 254   // #006efe blue-700 -- Vercel's signature brand blue
-            emphasis_0 241  50  66   // #f13242 red-700
-            emphasis_1 255 174   0   // #ffae00 amber-700
-            emphasis_2 148  64 213   // #9440d5 purple-700
-            emphasis_3  71 168 255   // #47a8ff blue-900 (bright)
+            background 243  40 130   // #f32882 magenta -- Vercel's brand accent (matches cursor)
+            emphasis_0 252   0  54   // #fc0036 red
+            emphasis_1 255 174   0   // #ffae00 yellow
+            emphasis_2   0 106 255   // #006aff blue (secondary accent)
+            emphasis_3  73 174 255   // #49aeff brightBlue
         }
         ribbon_unselected {
             base         0   0   0
-            background  69  69  69   // #454545 gray-500
-            emphasis_0 241  50  66
-            emphasis_1 237 237 237
-            emphasis_2  71 168 255
-            emphasis_3 148  64 213
+            background 168 168 168   // #a8a8a8 brightBlack (inactive)
+            emphasis_0 252   0  54
+            emphasis_1 250 250 250
+            emphasis_2  73 174 255
+            emphasis_3   0 106 255
         }
         table_title {
-            base         0 172  58   // green
+            base        41 169  72   // green
             background 0
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         table_cell_selected {
-            base       237 237 237
-            background  41  41  41
+            base       250 250 250
+            background  16  16  16
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         table_cell_unselected {
-            base       237 237 237
-            background  41  41  41
+            base       250 250 250
+            background  16  16  16
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         list_selected {
-            base       237 237 237
-            background  41  41  41
+            base       250 250 250
+            background  16  16  16
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         list_unselected {
-            base       237 237 237
-            background  41  41  41
+            base       250 250 250
+            background  16  16  16
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2   0 172  58
-            emphasis_3 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2  41 169  72
+            emphasis_3 243  40 130
         }
         frame_selected {
-            base         0 110 254   // blue -- active pane border
+            base       243  40 130   // magenta -- active pane border (matches tmux pane-active-border-style)
             background  0
             emphasis_0 255 174   0
-            emphasis_1   0 170 149
-            emphasis_2 148  64 213
+            emphasis_1   0 172 150
+            emphasis_2   0 106 255
             emphasis_3  0
         }
         frame_highlight {
-            base       255 174   0   // amber -- alert/highlight border
+            base       255 174   0   // amber/yellow -- alert/highlight border
             background  0
-            emphasis_0 148  64 213
+            emphasis_0 243  40 130
             emphasis_1 255 174   0
             emphasis_2 255 174   0
             emphasis_3 255 174   0
         }
         exit_code_success {
-            base         0 202  80   // #00ca50 green-900 (bright)
+            base        75 225  93   // #4be15d brightGreen
             background  0
-            emphasis_0   0 170 149
-            emphasis_1  41  41  41
-            emphasis_2 148  64 213
-            emphasis_3  71 168 255
+            emphasis_0   0 172 150
+            emphasis_1  16  16  16
+            emphasis_2 243  40 130
+            emphasis_3  73 174 255
         }
         exit_code_error {
-            base       255  86  95   // #ff565f red-900 (bright)
+            base       255 128 128   // #ff8080 brightRed
             background  0
             emphasis_0 255 174   0
             emphasis_1  0
@@ -365,13 +368,13 @@ themes {
             emphasis_3  0
         }
         multiplayer_user_colors {
-            player_1  148  64 213
-            player_2   71 168 255
+            player_1  243  40 130
+            player_2   73 174 255
             player_3   0
             player_4  255 174   0
-            player_5    0 170 149
+            player_5    0 172 150
             player_6   0
-            player_7  241  50  66
+            player_7  252   0  54
             player_8   0
             player_9   0
             player_10  0
