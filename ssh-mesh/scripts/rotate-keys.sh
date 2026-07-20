@@ -35,6 +35,33 @@ esac
 # those are guarded inline with `if $DRY_RUN`.
 run() { if $DRY_RUN; then echo "DRY: $*"; else "$@"; fi; }
 
+# run_cloudpc_ps1: execute a PowerShell script on CloudPC via a scp'd .ps1
+# file + `-File`, instead of embedding multi-line content in `-Command`.
+# if-1ydm.1: every `ssh cloudpc powershell -Command "<multi-line>"` block in
+# this script failed with "Cannot process the command because of a missing
+# parameter. A command must follow -Command." -- Windows OpenSSH re-joins the
+# remote command's argv into ONE string for CreateProcess, and multi-line/
+# quote-heavy -Command content does not survive that re-join reliably. -File
+# takes a single plain path argument -- only that short string crosses ssh's
+# argv boundary, not the script body itself, so it's immune to the same
+# class of quoting failure.
+# Reads the .ps1 body from stdin (heredoc at each call site, so bash
+# variables interpolate locally exactly as the old -Command blocks did --
+# note heredocs need only a SINGLE backslash for a literal Windows path
+# separator, unlike the doubled `\\` the old -Command double-quoted-string
+# form required). The uploaded script deletes itself as its last statement,
+# so callers never need a separate cleanup round-trip.
+run_cloudpc_ps1() {
+  local local_tmp remote_tmp
+  local_tmp=$(mktemp /tmp/rotate-keys-ps1.XXXXXX)
+  remote_tmp="C:/Windows/Temp/rotate-keys-$$.ps1"
+  cat > "$local_tmp"
+  printf '\nRemove-Item -Force -ErrorAction SilentlyContinue $MyInvocation.MyCommand.Path\n' >> "$local_tmp"
+  scp -q "$local_tmp" "${CLOUDPC_USER}@${CLOUDPC_HOST}:${remote_tmp}"
+  rm -f "$local_tmp"
+  ssh "${CLOUDPC_USER}@${CLOUDPC_HOST}" powershell -NoProfile -File "$remote_tmp"
+}
+
 echo "=== SSH Key Rotation ==="
 $DRY_RUN && echo "(dry-run: narrating steps, touching nothing)"
 echo ""
@@ -79,22 +106,22 @@ fi
 if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> append NEW_PUB to user + admin authorized_keys if absent"
 else
-  ssh "${CLOUDPC_USER}@${CLOUDPC_HOST}" powershell -Command "
-    \$userAuthKeys = 'C:\\Users\\${CLOUDPC_USER}\\.ssh\\authorized_keys'
-    New-Item -ItemType Directory -Force -Path (Split-Path \$userAuthKeys) | Out-Null
-    if (-not (Test-Path \$userAuthKeys) -or -not (Select-String -Path \$userAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
-      Add-Content -Path \$userAuthKeys -Value '${NEW_PUB}'
-    }
+  run_cloudpc_ps1 <<PS1EOF
+\$userAuthKeys = 'C:\Users\\${CLOUDPC_USER}\.ssh\authorized_keys'
+New-Item -ItemType Directory -Force -Path (Split-Path \$userAuthKeys) | Out-Null
+if (-not (Test-Path \$userAuthKeys) -or -not (Select-String -Path \$userAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
+  Add-Content -Path \$userAuthKeys -Value '${NEW_PUB}'
+}
 
-    # Admin authorized_keys (required for admin users on Windows OpenSSH)
-    \$adminAuthKeys = 'C:\\ProgramData\\ssh\\administrators_authorized_keys'
-    if (-not (Test-Path \$adminAuthKeys) -or -not (Select-String -Path \$adminAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
-      Add-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
-    }
-    icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
+# Admin authorized_keys (required for admin users on Windows OpenSSH)
+\$adminAuthKeys = 'C:\ProgramData\ssh\administrators_authorized_keys'
+if (-not (Test-Path \$adminAuthKeys) -or -not (Select-String -Path \$adminAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
+  Add-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
+}
+icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
 
-    Write-Output '  cloudpc authorized_keys appended (user + admin)'
-  "
+Write-Output '  cloudpc authorized_keys appended (user + admin)'
+PS1EOF
 fi
 echo ""
 
@@ -112,15 +139,23 @@ if $DRY_RUN; then
   HOMELAB_OK=true
   CLOUDPC_OK=true
 else
+  # if-1ydm.1: -o ControlPath=none forces a genuinely fresh, non-multiplexed
+  # connection. Without it, an already-alive ControlMaster socket to this
+  # peer (ControlPersist 10m, home/private_dot_ssh/config.tmpl) silently
+  # reuses its EXISTING authenticated session and opens a new channel over
+  # it -- no new authentication happens at all, so -i/-o IdentitiesOnly are
+  # never consulted and this can report OK without the new key having been
+  # tested. Confirmed live 2026-07-20: `ssh -o ControlPath=none` is the only
+  # form that actually forces fresh key-based auth per invocation.
   echo -n "  Homelab (new key): "
-  if ssh -i "$NEW_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=5 "${HOMELAB_USER}@${HOMELAB_HOST}" "echo OK" 2>/dev/null; then
+  if ssh -i "$NEW_KEY" -o IdentitiesOnly=yes -o ControlPath=none -o ConnectTimeout=5 "${HOMELAB_USER}@${HOMELAB_HOST}" "echo OK" 2>/dev/null; then
     HOMELAB_OK=true
   else
     echo "FAILED"
   fi
 
   echo -n "  CloudPC (new key): "
-  if ssh -i "$NEW_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=5 "${CLOUDPC_USER}@${CLOUDPC_HOST}" "echo OK" 2>/dev/null; then
+  if ssh -i "$NEW_KEY" -o IdentitiesOnly=yes -o ControlPath=none -o ConnectTimeout=5 "${CLOUDPC_USER}@${CLOUDPC_HOST}" "echo OK" 2>/dev/null; then
     CLOUDPC_OK=true
   else
     echo "FAILED"
@@ -171,15 +206,15 @@ run scp "${NEW_KEY}.pub" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/LeonardoAcost
 if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> keep id_ed25519.old, move new key into place"
 else
-  ssh "${CLOUDPC_USER}@${CLOUDPC_HOST}" powershell -Command "
-    \$sshDir = 'C:\\Users\\LeonardoAcosta\\.ssh'
-    if (Test-Path \"\$sshDir\\id_ed25519\") {
-      Copy-Item \"\$sshDir\\id_ed25519\" \"\$sshDir\\id_ed25519.old\"
-    }
-    Move-Item -Force \"\$sshDir\\id_ed25519_new\" \"\$sshDir\\id_ed25519\"
-    Move-Item -Force \"\$sshDir\\id_ed25519_new.pub\" \"\$sshDir\\id_ed25519.pub\"
-    Write-Output '  cloudpc private key rotated'
-  "
+  run_cloudpc_ps1 <<PS1EOF
+\$sshDir = 'C:\Users\LeonardoAcosta\.ssh'
+if (Test-Path "\$sshDir\id_ed25519") {
+  Copy-Item "\$sshDir\id_ed25519" "\$sshDir\id_ed25519.old"
+}
+Move-Item -Force "\$sshDir\id_ed25519_new" "\$sshDir\id_ed25519"
+Move-Item -Force "\$sshDir\id_ed25519_new.pub" "\$sshDir\id_ed25519.pub"
+Write-Output '  cloudpc private key rotated'
+PS1EOF
 fi
 
 # Local Mac
@@ -202,15 +237,19 @@ if $DRY_RUN; then
   HOMELAB_REVERIFY=true
   CLOUDPC_REVERIFY=true
 else
+  # Same ControlPath=none requirement as Phase 3 -- this re-verify exists
+  # specifically to prove the SWAPPED default identity works; a multiplexed
+  # reuse of a pre-rotation master would make it pass without ever testing
+  # the new default key.
   echo -n "  Homelab: "
-  if ssh -o ConnectTimeout=5 "${HOMELAB_USER}@${HOMELAB_HOST}" "echo OK" 2>/dev/null; then
+  if ssh -o ControlPath=none -o ConnectTimeout=5 "${HOMELAB_USER}@${HOMELAB_HOST}" "echo OK" 2>/dev/null; then
     HOMELAB_REVERIFY=true
   else
     echo "FAILED"
   fi
 
   echo -n "  CloudPC: "
-  if ssh -o ConnectTimeout=5 "${CLOUDPC_USER}@${CLOUDPC_HOST}" "echo OK" 2>/dev/null; then
+  if ssh -o ControlPath=none -o ConnectTimeout=5 "${CLOUDPC_USER}@${CLOUDPC_HOST}" "echo OK" 2>/dev/null; then
     CLOUDPC_REVERIFY=true
   else
     echo "FAILED"
@@ -285,14 +324,14 @@ if $CLOUDPC_REVERIFY; then
   if $DRY_RUN; then
     echo "DRY: ssh cloudpc -> user+admin authorized_keys := NEW_PUB only; icacls admin; rm id_ed25519.old"
   else
-    ssh "${CLOUDPC_USER}@${CLOUDPC_HOST}" powershell -Command "
-      Set-Content -Path 'C:\\Users\\${CLOUDPC_USER}\\.ssh\\authorized_keys' -Value '${NEW_PUB}'
-      \$adminAuthKeys = 'C:\\ProgramData\\ssh\\administrators_authorized_keys'
-      Set-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
-      icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
-      Remove-Item -Force -ErrorAction SilentlyContinue 'C:\\Users\\LeonardoAcosta\\.ssh\\id_ed25519.old'
-      Write-Output '  cloudpc: authorized_keys pruned to new key; old key removed'
-    "
+    run_cloudpc_ps1 <<PS1EOF
+Set-Content -Path 'C:\Users\\${CLOUDPC_USER}\.ssh\authorized_keys' -Value '${NEW_PUB}'
+\$adminAuthKeys = 'C:\ProgramData\ssh\administrators_authorized_keys'
+Set-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
+icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
+Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\LeonardoAcosta\.ssh\id_ed25519.old'
+Write-Output '  cloudpc: authorized_keys pruned to new key; old key removed'
+PS1EOF
   fi
 else
   echo "  CloudPC: SKIP prune (re-verify failed); old key retained"
