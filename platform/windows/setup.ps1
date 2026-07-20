@@ -328,6 +328,67 @@ Subsystem sftp sftp-server.exe
 
     # ── SSH Mesh: Deploy keys and configs for all users ──
 
+    # ── SSH Mesh: Provision outbound private key via 1Password CLI (op.exe) ──
+    # Materializes CloudPC's own mesh identity (mirrors scripts/op-ssh-provision.sh's
+    # idempotent / non-interactive-guarded / fail-open shape). Runs BEFORE the manual
+    # key-transfer fallback below — on any failure this falls through to that existing
+    # path untouched, never throws, never hangs.
+    $meshSshDir = "$env:USERPROFILE\.ssh"
+    $meshPrivateKey = "$meshSshDir\id_ed25519"
+    $meshPublicKeyFile = "$meshSshDir\id_ed25519.pub"
+    $opSshItem = "op://Private/mesh-ssh"
+
+    if (Test-Path $meshPrivateKey) {
+        Write-Ok "Mesh private key already present ($meshPrivateKey) - skipping 1Password fetch."
+    } elseif (-not (Get-Command op -ErrorAction SilentlyContinue)) {
+        Write-Warn "op.exe (1Password CLI) not installed - cannot fetch the mesh private key. Falling back to manual key transfer."
+    } else {
+        try {
+            $null = & op whoami 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "op.exe not signed in - skipping 1Password mesh key fetch (run 'op signin' interactively, then re-run this script). Falling back to manual key transfer."
+            } else {
+                if (-not (Test-Path $meshSshDir)) {
+                    New-Item -ItemType Directory -Path $meshSshDir -Force | Out-Null
+                }
+
+                & op read "$opSshItem/private key?ssh-format=openssh" 2>$null | Set-Content -Path $meshPrivateKey -NoNewline
+                $privOk = ($LASTEXITCODE -eq 0) -and (Test-Path $meshPrivateKey) -and ((Get-Item $meshPrivateKey).Length -gt 0)
+
+                if ($privOk) {
+                    # Restrict private key ACL to current user + SYSTEM (mirrors the authorized_keys ACL block above)
+                    $meshKeyAcl = Get-Acl $meshPrivateKey
+                    $meshKeyAcl.SetAccessRuleProtection($true, $false)
+                    $meshCurrentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                    $meshSystemRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                        "NT AUTHORITY\SYSTEM", "FullControl", "Allow"
+                    )
+                    $meshUserRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                        $meshCurrentUser, "FullControl", "Allow"
+                    )
+                    $meshKeyAcl.AddAccessRule($meshSystemRule)
+                    $meshKeyAcl.AddAccessRule($meshUserRule)
+                    Set-Acl $meshPrivateKey $meshKeyAcl
+
+                    & op read "$opSshItem/public key" 2>$null | Set-Content -Path $meshPublicKeyFile -NoNewline
+                    $pubOk = ($LASTEXITCODE -eq 0) -and (Test-Path $meshPublicKeyFile) -and ((Get-Item $meshPublicKeyFile).Length -gt 0)
+                    if (-not $pubOk) {
+                        Remove-Item $meshPublicKeyFile -ErrorAction SilentlyContinue
+                    }
+
+                    Write-Ok "Mesh private key materialized from 1Password ($opSshItem)."
+                } else {
+                    Remove-Item $meshPrivateKey -ErrorAction SilentlyContinue
+                    Write-Warn "Could not read $opSshItem from 1Password - falling back to manual key transfer."
+                }
+            }
+        } catch {
+            Remove-Item $meshPrivateKey -ErrorAction SilentlyContinue
+            Write-Warn "1Password mesh key provisioning failed ($($_.Exception.Message)) - falling back to manual key transfer."
+        }
+    }
+    # ── End 1Password mesh key provisioning ──
+
     # SSH key must be transferred securely - do not embed in scripts
     # The public key can be deployed here (it's public)
     $publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFqT0bMXcrQGgWvYoLg66dCCvhgAPx1rmrJmzGpMeFVR"
