@@ -19,6 +19,10 @@ CLOUDPC_HOST="100.83.148.5"  # Tailscale IP (no SSH alias assumed)
 KEY_COMMENT="leo-mesh-$(date +%Y%m%d)"
 NEW_KEY="$HOME/.ssh/id_ed25519_new"
 
+# 1Password item holding the mesh keypair — same variable + default
+# scripts/op-ssh-provision.sh already reads.
+: "${OP_SSH_ITEM:=op://Private/mesh-ssh}"
+
 DRY_RUN=false
 case "${1:-}" in
   --dry-run) DRY_RUN=true ;;
@@ -211,6 +215,43 @@ else
   else
     echo "FAILED"
   fi
+fi
+echo ""
+
+# ---------------------------------------------------------------------------
+# Phase 6b: Write the rotated key back to 1Password — after the re-verify
+# gate above, before Phase 7 prunes the old key below. A fresh-machine
+# `op read` (scripts/op-ssh-provision.sh) must never fetch a rotated-out key.
+# Gated on both peers having re-verified (same gate the Mac old-key removal
+# in Phase 7 uses). A write failure here is a fixable gap, not a
+# mesh-breaking condition: warn and continue, never roll back the
+# already-verified peer key swap (proposal.md Req-1 / Risks).
+# ---------------------------------------------------------------------------
+echo "Syncing rotated key back to 1Password (${OP_SSH_ITEM})..."
+if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
+  if $DRY_RUN; then
+    echo "DRY: op item edit \"$OP_SSH_ITEM\" 'private key=<new key>' 'public key=<new key>'"
+  else
+    # Command substitution below reads real key material, so this is an
+    # explicit if/else rather than routed through run() — run()'s "$@" form
+    # evaluates its arguments eagerly, which would leak the private key into
+    # a "DRY: ..." echo under --dry-run. See ssh-mesh/scripts/op-ssh-provision.sh
+    # for the matching field names ("private key", "public key") this reads
+    # back on a fresh machine.
+    if ! command -v op >/dev/null 2>&1; then
+      echo "  WARNING: op (1Password CLI) not installed — ${OP_SSH_ITEM} NOT updated."
+      echo "  Mesh is rotated and reachable; the 1Password mirror is stale until fixed manually."
+    elif op item edit "$OP_SSH_ITEM" \
+        "private key=$(cat "$HOME/.ssh/id_ed25519")" \
+        "public key=$(cat "$HOME/.ssh/id_ed25519.pub")" >/dev/null 2>&1; then
+      echo "  1Password: ${OP_SSH_ITEM} updated with the rotated key"
+    else
+      echo "  WARNING: 1Password write-back failed (op item edit exited non-zero) — ${OP_SSH_ITEM} NOT updated."
+      echo "  Mesh is rotated and reachable; the 1Password mirror is stale until fixed manually."
+    fi
+  fi
+else
+  echo "  SKIP (not all peers re-verified)"
 fi
 echo ""
 
