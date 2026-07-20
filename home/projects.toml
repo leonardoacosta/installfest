@@ -312,7 +312,7 @@ code = "tl"
 name = "Tavern Ledger"
 category = "priceless"
 icon = "🍺"
-path = "dev/priceless/tl"
+path = "dev/priceless/tavern-ledger"
 tiers = ["remote", "local"]
 devPort = 3102
 deploy = { type = "vercel", vercelOrg = "priceless-dev", vercelProject = "tavern-ledger", devBranch = "dev", prodBranch = "main" }
