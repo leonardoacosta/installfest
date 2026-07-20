@@ -339,7 +339,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] Live-verify cc-tmux's dual-write: trigger a real state transition (prompt submit, permission prompt, stop) inside a cmux workspace, confirm `cmux workspace-action` fires and the workspace's `description` updates with the correct encoding [beads:if-35jf]
+- [x] [4.1] Live-verify cc-tmux's dual-write: trigger a real state transition (prompt submit, permission prompt, stop) inside a cmux workspace, confirm `cmux workspace-action` fires and the workspace's `description` updates with the correct encoding [beads:if-35jf]
   - depends on: 2.1
 
   **BLOCKED — real bug found, dual-write never fires in genuine cmux-pane usage (cmux
@@ -392,6 +392,81 @@ stack: t3
   (`cmux-e2e-if-35jf`, `workspace:1` — apparent debris from an earlier crashed E2E attempt at this
   same bead, left untouched per the safety protocol since this dispatch did not create it) was
   byte-identical throughout.
+
+  **FIXED and re-verified (cmux 0.64.19, live-verified 2026-07-19/20).** Confirmed the exact
+  correct field via `cmux workspace list --json --id-format both` (real Mac): a workspace's `id`
+  (UUID) is a separate field from its `ref` (`workspace:N`), and a pane's real injected
+  `$CMUX_WORKSPACE_ID` (confirmed via `env` inside a live pane, e.g.
+  `EB9201DD-7F4B-46C0-8FC0-35D3FE186873`) equals that workspace's `id`, never its `ref`. Also
+  confirmed the write side needs no change: `cmux workspace-action --help` documents
+  `--workspace <id|ref|index>`, and a live call
+  (`cmux workspace-action --workspace <UUID> --action set-description ...`) exited 0 and updated
+  the description correctly — the bug was READ-side matching only, exactly as the prior dispatch
+  scoped it.
+
+  **Fix applied** (`apps/cc-tmux/src/cc_tmux/tmux.py` `_cmux_dual_write`, ~line 607-650): the
+  `cmux workspace list` call now passes `--id-format both`, and the `current_ws = next(...)`
+  lookup matches `w.get("id") == workspace_ref` instead of `w.get("ref")`. Same fix pattern
+  applied to `scripts/cmux-status-writer.py`'s `list_workspaces()` (now requests
+  `--id-format both` too) and `main()`'s `target_ref` matching (now matches `w.get("ref") ==
+  target_ref or w.get("id") == target_ref`, since that script's `target_ref` has two legitimate
+  sources — an explicit `--workspace <ref>` CLI arg, documented usage per task 4.2's
+  `--workspace workspace:6`, which is genuinely a `ref` — and the `$CMUX_WORKSPACE_ID` env-var
+  fallback, which is a UUID; matching against either keeps both call sites correct without
+  needing to track provenance separately). The `--all` full-sweep path is untouched (it never
+  filtered by ref/id in the first place). `cc-tmux self-test`: 116/116 passed, no regressions
+  (`cd apps/cc-tmux && PYTHONPATH=src python3 -m cc_tmux self-test`).
+
+  **Second, deeper finding surfaced during live re-verification**: a bare `cmux workspace create`
+  (the disposable-test-workspace mechanism every task in this file uses) gives a plain zsh pane
+  with NO tmux server running (`$TMUX`/`$TMUX_PANE` both empty, `tmux display-message` ->
+  `no server running`). `cli.cmd_register` resolves `pane = args.pane or
+  tmux.current_pane_id()` and returns 0 immediately when that's `None` — so invoking
+  `cc-tmux register --state ...` in a bare (non-tmux) cmux pane never reaches
+  `set_pane_state`/`_cmux_dual_write` at all, regardless of the ref/id fix. This is expected
+  architecture, not a new bug: cc-tmux is fundamentally a tmux plugin, and its hooks only make
+  sense running inside an actual tmux pane (the genuine deployed setup: tmux running inside a
+  cmux-launched pane, e.g. an SSH-backed workspace attaching to the homelab tmux session, or a
+  local tmux session on the Mac). Re-verified faithfully by starting a real detached tmux session
+  inside the disposable test pane (`tmux new-session -d -s if35jf-verify`, confirmed
+  `$CMUX_WORKSPACE_ID` correctly inherited into that session's pane env from the parent cmux
+  shell) and driving `cc-tmux register` from *inside* that tmux pane via `tmux send-keys`,
+  exactly matching how a real Claude Code session running under cc-tmux in a cmux workspace would
+  invoke it.
+
+  **Live re-verification, all three real state transitions** (real Mac, disposable workspace
+  `cmux-evolve-test-if-fix-4dot1` -> `workspace:7`, pre-existing `workspace:1`
+  (`cmux-e2e-if-35jf`) listed off-limits first): baseline reset to `CC1|-|-|-|-|-|-|-|` via
+  `workspace-action`, then via the patched `bin/cc-tmux register` invoked from inside the real
+  tmux pane:
+  - `register --state active` -> exit 0, description became
+    `CC1|active|-|1784518206|-|22 ready, 0 blocked|-|-` (state written, epoch stamped, the
+    pre-existing beads field from the unrelated [2.4] periodic launchd writer preserved
+    byte-for-byte).
+  - `register --state waiting --reason permission` -> exit 0, description became
+    `CC1|waiting|permission|1784518253|-|22 ready, 0 blocked|-|-` (wait_reason correctly set).
+  - `register --state idle` -> exit 0, description became
+    `CC1|idle|-|1784518259|-|-|-|-` (wait_reason correctly cleared; the beads field's own value
+    at this snapshot reflects the concurrent [2.4] writer's independent periodic re-query, not a
+    regression in this fix — the state/wait_reason/epoch fields it doesn't own were unaffected by
+    that writer's pass).
+  This directly disconfirms the prior report's inference that the description would never update
+  from genuine hook activity — with the fix, all three of the task's named transitions (prompt
+  submit / permission prompt / stop) now correctly drive `cmux workspace-action` end to end.
+
+  **`cmux-status-writer.py` fix also independently live-verified**: created a second disposable
+  workspace (`cmux-evolve-test-if-writer-fix` -> `workspace:8`), ran the patched script with only
+  `$CMUX_WORKSPACE_ID` set (no `--workspace` flag, exercising exactly the previously-broken
+  env-var path) from a scratch copy preserving the script's real relative-path module resolution
+  -> `updated 1/1 workspace(s)`, and confirmed only `workspace:8`'s description picked up real
+  live beads data (`workspace:1` untouched) — proving the `id`-or-`ref` match correctly resolved
+  the single target workspace from the UUID alone.
+
+  Cleanup verified throughout: killed the test tmux session (`tmux kill-session`, confirmed via
+  `tmux ls` -> `no server running`), closed only `workspace:7` and `workspace:8` via
+  `cmux workspace close --workspace <ref>`, removed all `/tmp` scratch copies on the Mac. Final
+  `cmux workspace list --json` showed only the pre-existing `workspace:1` (`cmux-e2e-if-35jf`),
+  untouched throughout every step.
 - [x] [4.2] Live-verify the full left sidebar in a real cmux session: git state, project/session name, Claude-state icon animation (all three modes), openspec/beads segments, usage footer — against a real disposable test workspace, cleaned up after [beads:if-g4u2]
   - depends on: 3.2, 3.3, 3.4
 

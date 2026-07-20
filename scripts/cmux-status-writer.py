@@ -109,8 +109,16 @@ def _remote_run(host: str, remote_cwd: str, args: list[str], *, timeout: int = C
 
 
 def list_workspaces(cmux: str) -> list[dict]:
-    """Every workspace in the current cmux window, or [] on any failure (fail-open)."""
-    out = _run([cmux, "workspace", "list", "--json"])
+    """Every workspace in the current cmux window, or [] on any failure (fail-open).
+
+    ``--id-format both`` is required so each workspace dict also carries an
+    ``id`` (UUID) field alongside its short ``ref`` -- live-verified
+    2026-07-19/20 on the real Mac (cmux 0.64.19): cmux injects
+    ``$CMUX_WORKSPACE_ID`` into a pane's environment as the workspace's UUID,
+    never its ``ref``, so ``main()``'s env-var-sourced ``target_ref`` needs
+    ``id`` to match against (see ``main()``'s ``target_ref`` matching below).
+    """
+    out = _run([cmux, "workspace", "list", "--json", "--id-format", "both"])
     if not out:
         return []
     try:
@@ -283,10 +291,16 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     target_ref = args.workspace
     if not target_ref and not args.all:
+        # $CMUX_WORKSPACE_ID is the workspace's UUID (`id`), never its `ref`
+        # (live-verified 2026-07-19/20, real Mac) -- match against either so
+        # both this env-var path and an explicit `--workspace <ref>` CLI arg
+        # (documented usage, e.g. task 4.2's `--workspace workspace:6`) work.
         target_ref = os.environ.get("CMUX_WORKSPACE_ID") or None
 
     if target_ref:
-        targets = [w for w in all_workspaces if w.get("ref") == target_ref]
+        targets = [
+            w for w in all_workspaces if w.get("ref") == target_ref or w.get("id") == target_ref
+        ]
         if not targets:
             print(f"cmux-status-writer: workspace {target_ref} not found", file=sys.stderr)
             return 0

@@ -594,15 +594,25 @@ def _cmux_dual_write(pane_id: str, state: str, wait_reason: str, epoch: float) -
     """Best-effort mirror of a real pane-state transition into cmux's workspace description.
 
     No-ops immediately when ``$CMUX_WORKSPACE_ID`` is unset. Otherwise: reads
-    the current workspace's ``description`` via ``cmux workspace list --json``
-    (filtering on the ``ref`` matching ``$CMUX_WORKSPACE_ID`` -- the same
-    lookup ``scripts/cmux-status-writer.py``'s ``update_workspace`` uses),
-    decodes it, overwrites only ``state``/``wait_reason``/``epoch``, and writes
-    the merged string back via
-    ``cmux workspace-action --action set-description`` (confirmed CLI shape,
-    docs/cmux-workspace-action-api.md). Every failure mode (no ``cmux`` binary,
-    workspace not found, bad JSON, non-zero exit) is swallowed -- this must
-    never raise into :func:`set_pane_state`.
+    the current workspace's ``description`` via
+    ``cmux workspace list --json --id-format both`` (filtering on the
+    workspace's ``id`` (UUID) matching ``$CMUX_WORKSPACE_ID`` -- live-verified
+    2026-07-19/20 on the real Mac (`ssh mac`, cmux 0.64.19): cmux injects
+    ``$CMUX_WORKSPACE_ID`` into a pane's environment as the workspace's UUID
+    (``id`` field), never its short ``ref`` (``workspace:N``) -- a bare
+    ``cmux workspace list --json`` doesn't even include ``id`` in its
+    payload, ``--id-format both`` is required to get it), decodes it,
+    overwrites only ``state``/``wait_reason``/``epoch``, and writes the merged
+    string back via ``cmux workspace-action --action set-description``
+    (confirmed CLI shape, docs/cmux-workspace-action-api.md). The write side
+    passes ``$CMUX_WORKSPACE_ID`` (the UUID) directly as ``--workspace``,
+    which is correct as-is -- ``workspace-action --workspace`` accepts
+    ``<id|ref|index>`` per ``cmux workspace-action --help``, and this was
+    live-confirmed to work (``cmux workspace-action --workspace <UUID>
+    --action set-description ...`` -> exit 0, description updated). Every
+    failure mode (no ``cmux`` binary, workspace not found, bad JSON,
+    non-zero exit) is swallowed -- this must never raise into
+    :func:`set_pane_state`.
     """
     workspace_ref = os.environ.get("CMUX_WORKSPACE_ID")
     if not workspace_ref:
@@ -615,7 +625,7 @@ def _cmux_dual_write(pane_id: str, state: str, wait_reason: str, epoch: float) -
         if not cmux:
             return
         listed = subprocess.run(
-            [cmux, "workspace", "list", "--json"],
+            [cmux, "workspace", "list", "--json", "--id-format", "both"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -630,7 +640,7 @@ def _cmux_dual_write(pane_id: str, state: str, wait_reason: str, epoch: float) -
             (
                 w
                 for w in workspaces
-                if isinstance(w, dict) and w.get("ref") == workspace_ref
+                if isinstance(w, dict) and w.get("id") == workspace_ref
             ),
             None,
         )
