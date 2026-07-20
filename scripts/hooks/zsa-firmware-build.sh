@@ -111,6 +111,19 @@ mkdir -p "$STATE_DIR"
     unzip -oj "$SOURCE_ZIP" '*_source/*' -d "$LAYOUT_DIR" >/dev/null 2>&1
     rm -f "$SOURCE_ZIP"
 
+    # --- 2b. Reapply the real Apple Globe/Fn key patch --------------------
+    # Oryx has no native option for this (ZSA's own blog confirms QMK has
+    # no Fn/Globe key support at all), so the fetch above just wiped it
+    # back to Oryx's own raw tap-dance/F13 output for this key. Fails
+    # loudly (not a silent skip) if the expected markers aren't found --
+    # that means the Oryx-side key config changed and needs a human look,
+    # not a firmware that silently reverts to the old F13 behavior.
+    # See zsa-voyager-keymap commit 56f780b for full rationale/history.
+    if ! python3 "$(dirname "$0")/zsa-globe-key-patch.py" "$LAYOUT_DIR"; then
+        echo "err: Globe-key patch failed to reapply -- see errors above. Not building/shipping."
+        exit 0
+    fi
+
     # --- 3. Commit fetched layout on oryx branch, merge into main --------
     (
         cd "$ZSA_DIR" || exit 1
