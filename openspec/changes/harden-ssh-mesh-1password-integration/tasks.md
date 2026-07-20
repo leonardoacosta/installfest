@@ -92,10 +92,68 @@ stack: t3
 
 - [ ] [4.1] Live-verify Req-2 on the real CloudPC machine: delete the on-disk mesh key (back it up first), run the updated `setup.ps1` provisioning step, confirm the key materializes via `op.exe` without any manual transfer step, and confirm SSH connectivity to the mesh still works with the freshly-materialized key. Restore/clean up per the mesh's existing safety conventions (never leave the machine unreachable). [beads:if-rgsw]
   - depends on: 2.1
+
+  **Not yet live-verified — blocked on the incident below.** The setup.ps1 provisioning code
+  itself (task 2.1) was never exercised live this run; CloudPC's SSH access broke as a side
+  effect of task 4.3's real rotation (a pre-existing, unrelated bug in `rotate-keys.sh`, not in
+  this proposal's code) before 4.1 could be attempted. See task 4.3's evidence for the full
+  incident. Resume: after Leo restores SSH access via RDP (root cause under investigation —
+  see `if-1ydm.1`), delete the on-disk key on CloudPC and re-attempt this task's original steps.
 - [ ] [4.2] Live-verify Req-3 on the real Mac: with the 1Password app running and the SSH agent enabled for the mesh key item (one-time manual toggle — see the User Gate task below), run an interactive `ssh homelab` (or an SSH-backed `git fetch`) and confirm a visible Touch ID/system-auth prompt fires. Then quit the 1Password app (or otherwise make the agent socket unavailable) and re-run the same command, confirming it falls back to the on-disk key with no error. [beads:if-oudo]
   - depends on: 3.1
 - [ ] [4.3] Live-verify Req-1 with a real (non-dry-run) rotation on a maintenance window: run `rotate-keys.sh` for real, confirm all peers stay reachable throughout (per the pre-existing lockout-safety guarantees from `harden-audit-remediation` Req-2, unchanged here), and confirm `op read` of `op://Private/mesh-ssh` on a scratch/test path returns the NEW key, not the rotated-out one. [beads:if-9pjw]
   - depends on: 1.1
+
+  **Incident report (2026-07-20, real rotation attempted) — task NOT complete, left unchecked.**
+
+  Location correction first: `rotate-keys.sh` must run FROM the Mac (its Phase 4/5 "local"
+  swap logic assumes the runner IS the Mac, with homelab+cloudpc as remote targets) — the
+  orchestrator's own session runs on homelab, so the code was pushed and pulled fresh onto the
+  real Mac, then run there. Dry-run from the Mac confirmed correct context (verified: local Mac
+  key rotated via `cp`/`mv`, homelab+cloudpc via `scp`/`ssh`).
+
+  Real (non-dry-run) run surfaced two bugs in the PRE-EXISTING `rotate-keys.sh` (not introduced
+  by this proposal — its CloudPC PowerShell blocks predate task 1.1's changes):
+  1. Every `ssh cloudpc powershell -Command "..."` call in the script failed with garbled
+     `Cannot process the command because of a missing parameter` errors — CloudPC's
+     authorized_keys append (Phase 2) and private-key swap (Phase 4/5) silently never happened.
+  2. The script's own Phase 3/Phase 6 re-verify safety gate (`$CLOUDPC_OK`/`$CLOUDPC_REVERIFY`)
+     reported cloudpc healthy anyway — a FALSE POSITIVE caused by an already-alive SSH
+     ControlMaster connection (`ControlPersist 10m`) being silently reused instead of testing
+     the actual current key material, defeating the verify-before-prune design.
+
+  Net effect: homelab + Mac both rotated to the new key and deleted their old key (gated on the
+  false-positive verify), while cloudpc's authorized_keys was never actually updated — cloudpc
+  became unreachable via SSH from any mesh peer (`Permission denied`). 1Password write-back also
+  failed this run (`op` sign-in never resolved cleanly, see below) — `op://Private/mesh-ssh`
+  still holds the pre-rotation key.
+
+  **Recovery performed** (partial, live): confirmed cloudpc's console/RDP access was unaffected
+  (SSH-only break). Used a still-alive PRE-rotation SSH ControlMaster session (Mac→cloudpc,
+  established before the rotation, still authenticated) to push a fix — direct writes were
+  denied (`authorized_keys`' real ACL grants only `NT AUTHORITY\SYSTEM` write access, not
+  `BUILTIN\Administrators` despite the `leo` account being a group member — inconsistent with
+  `setup.ps1`'s own ACL-hardening code, root cause not determined). Used a one-shot
+  SYSTEM-scoped scheduled task (same elevation pattern the existing
+  `cloudpc-sshd-watchdog.ps1` uses) to rewrite `authorized_keys` cleanly with both the
+  pre-rotation and new keys, each properly newline-separated (a first attempt via `Add-Content`
+  concatenated the two keys onto one line with no separator — corrupted the file; caught and
+  fixed with a `Set-Content` rewrite). Verified byte-exact: 2 lines, both keys present. A fresh
+  SSH connection from homelab (`ssh -O exit cloudpc` first, to rule out ANY stale connection)
+  still gets `Permission denied` — verbose client log confirms the correct new key IS offered
+  and IS rejected server-side, not a client-side or file-content issue. `sshd_config`'s
+  `Match Group administrators` override is confirmed commented out (the per-user file should
+  govern). Found `C:\Users\leo` (home dir) carries an `Everyone:(RX)` ACL entry — a plausible
+  Windows OpenSSH strict-mode rejection trigger, unconfirmed. Stopped short of restarting `sshd`
+  to get a debug-level log, since that risked dropping the one remaining live connection with no
+  guaranteed-working replacement. **Leo will RDP in to finish diagnosis** (Event Viewer >
+  OpenSSH > Operational, direct sshd_config/ACL inspection).
+
+  Both bugs filed as a P1 follow-up: `if-1ydm.1` (parented under this proposal's epic, NOT part
+  of this proposal's own scope — pre-existing code, discovered during E2E, not caused by Req-1's
+  changes). This task stays unchecked pending: (a) Leo restoring genuine SSH access to cloudpc,
+  (b) `if-1ydm.1`'s fix landing so a re-run of the real rotation can complete cleanly end-to-end,
+  (c) a working `op` sign-in on the Mac so the 1Password write-back can be proven live.
 - [ ] [4.4] Targeted `git add ssh-mesh/scripts/rotate-keys.sh platform/windows/setup.ps1 home/dot_zshenv.tmpl` (no `git add -A`/`.`); commit `feat(ssh-mesh): sync rotation to 1Password, provision CloudPC via op, add Mac SSH agent path`; push. Paste `git log -1 --stat` output. [beads:if-mh7g]
   - depends on: 1.1, 2.1, 3.1
 
