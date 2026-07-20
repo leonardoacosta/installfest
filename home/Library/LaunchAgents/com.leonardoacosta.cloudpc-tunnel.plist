@@ -5,12 +5,26 @@
     <key>Label</key>
     <string>com.leonardoacosta.cloudpc-tunnel</string>
 
+    <!-- ControlMaster=no + ControlPath=none override ~/.ssh/config's global
+         `Host *` ControlMaster auto / ControlPersist 10m (added for
+         paste-image.sh handshake reuse). Without this, any interactive
+         `ssh cloudpc` from a Terminal session creates a background
+         multiplexed master that THIS launchd job's ssh hands the -D 1080
+         forwarding off to, then exits 0 -- launchd sees a clean exit (not
+         a crash) so KeepAlive doesn't relaunch it, and the tunnel dies
+         silently once that interactive session's 10-minute ControlPersist
+         timer expires. Found + fixed on the homelab systemd twin of this
+         unit, 2026-07-20, diagnosing "SOCKS is down". -->
     <key>ProgramArguments</key>
     <array>
         <string>/usr/bin/ssh</string>
         <string>-D</string>
         <string>1080</string>
         <string>-N</string>
+        <string>-o</string>
+        <string>ControlMaster=no</string>
+        <string>-o</string>
+        <string>ControlPath=none</string>
         <string>-o</string>
         <string>ServerAliveInterval=30</string>
         <string>-o</string>

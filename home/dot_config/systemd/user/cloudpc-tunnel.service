@@ -6,7 +6,19 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ssh -D 1080 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes cloudpc
+# ControlMaster=no + ControlPath=none override the global ~/.ssh/config
+# `Host *` ControlMaster auto / ControlPersist 10m (added 2026-07-19 for
+# paste-image.sh handshake reuse) -- without this override, any interactive
+# `ssh cloudpc` from a normal terminal creates a background multiplexed
+# master that this service's own ssh process detects and hands the -D 1080
+# forwarding off to, then exits 0 immediately. systemd then reports the
+# unit as cleanly "inactive (dead)" while SOCKS keeps working purely by
+# riding that orphaned, session-scoped master -- which dies with its
+# 10-minute ControlPersist timer, and Restart=on-failure never fires
+# because the exit was clean, not a failure. This unit MUST own its own
+# dedicated connection, immune to being hijacked or handed off by any
+# other session. Found live 2026-07-20 diagnosing "SOCKS is down".
+ExecStart=/usr/bin/ssh -D 1080 -N -o ControlMaster=no -o ControlPath=none -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes cloudpc
 Restart=on-failure
 RestartSec=10
 
