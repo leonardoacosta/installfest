@@ -27,14 +27,18 @@
 # consistently: a firmware source change is worth a conscious look
 # before installfest's own history calls it "current."
 #
-# UNVERIFIED — see beads if-cgf5:
-#   - Never run end-to-end (no live Oryx/docker/scp pass from this
-#     session). Layout ID (Br7g0) and geometry (voyager) are confirmed
-#     from your Oryx URL; everything else mirrors the fork's own
-#     workflow YAML line-for-line but hasn't executed for real.
-#   - Assumes `git push` over https to leonardoacosta/oryx-with-custom-
-#     qmk works using gh's cached credential helper (read access via
-#     `git submodule add` already worked; write access is untested).
+# VERIFIED LIVE 2026-07-16: ran end-to-end for real (2x, per
+# ~/.local/state/if-deploy.log) -- fetched revision "orAxmP", built
+# apps/zsa-voyager-keymap/qmk_firmware/zsa_voyager_Br7g0.bin, scp'd it to
+# mac:~/Downloads/voyager_Br7g0_zsa_voyager_Br7g0.bin, handed off to
+# zsa-firmware-check.sh. That exact revision is confirmed as the Voyager's
+# currently-flashed firmware (kontroll status: "Firmware version:
+# Br7g0/orAxmP"), so the full chain -- Oryx fetch, submodule sync, docker
+# build, scp, notify, and the manual flash step -- has completed for real,
+# not just in theory. The change-gate (state file keyed on Oryx revision
+# hash) was also observed live: 10 consecutive commit/merge-triggered runs
+# on 2026-07-20 all correctly no-op'd with "skip: no new Oryx revision"
+# since nothing had changed since orAxmP.
 
 set +e
 
