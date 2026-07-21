@@ -76,6 +76,7 @@ arranged manually via splits (see below), not via a fixed layout preset.
 |---|---|---|
 | `prefix + r` | reload config in-place | 152 |
 | `Cmd+K` | clear scrollback history | 108-110 |
+| `Shift+Cmd+Click` | open the URL under the cursor in the Mac's browser | n/a (Ghostty `mouse-shift-capture = false` in `ghostty/config.tmpl`) — plain `Cmd+Click` doesn't work because tmux's `mouse on` (line 14) swallows it first; bare Cmd+Click parity (iTerm2-style) is an open Ghostty limitation with no fix (ghostty-org/ghostty#8748) |
 
 **cc-tmux (Claude pane tracker)** — bound by `apps/cc-tmux/cc-tmux.tmux` (loaded via `run-shell`),
 all overridable via `@cc-*-key` options.

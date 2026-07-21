@@ -49,6 +49,13 @@ confirm-close-surface = false
 auto-update = check
 copy-on-select = clipboard
 mouse-hide-while-typing = true
+# Default (true) forwards shift-click to tmux instead of letting Ghostty open
+# the URL under the cursor, so a plain Cmd+Click on a link inside a tmux pane
+# (mouse on, tmux.conf.tmpl) does nothing. Disabling lets Ghostty intercept
+# Shift+Cmd+Click to open the link itself -- bare Cmd+Click parity (iTerm2-style)
+# is a confirmed open Ghostty limitation, no fix available (ghostty-org/ghostty
+# discussion #8748). No existing shift+click tmux binding is lost by this.
+mouse-shift-capture = false
 
 # === macOS Specific ===
 macos-option-as-alt = true
