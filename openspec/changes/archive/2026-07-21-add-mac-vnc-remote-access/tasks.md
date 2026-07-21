@@ -23,7 +23,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] [owner:homelab-specialist] [type:test] Manually verify on real hardware: with Screen Sharing enabled on the Mac (task 1.1) and `tigervnc` installed on homelab (task 2.1), running `scripts/vnc-mac.sh` from homelab opens a live, authenticated VNC session to the Mac over Tailscale. Paste the terminal output / a screenshot as verification evidence. [beads:if-ptpz]
+- [x] [4.1] [owner:homelab-specialist] [type:test] Manually verify on real hardware: with Screen Sharing enabled on the Mac (task 1.1) and `tigervnc` installed on homelab (task 2.1), running `scripts/vnc-mac.sh` from homelab opens a live, authenticated VNC session to the Mac over Tailscale. Paste the terminal output / a screenshot as verification evidence. [beads:if-ptpz]
   - depends on: 3.1
 - [x] [4.2] [owner:homelab-specialist] Add a `vnc-mac` entry to CLAUDE.md's "Front-Door Tools" section, matching the existing `mac-open`/`view`/`copen` entries. [beads:if-kqbm]
   - depends on: 3.1
