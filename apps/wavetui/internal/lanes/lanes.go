@@ -63,3 +63,36 @@ func DetectLane(blockerType string, prior *LaneState) *LaneState {
 	}
 	return &LaneState{Type: blockerType, Since: time.Now()}
 }
+
+// IsStale reports whether this lane's spawned session should be offered for
+// manual cleanup — see design.md § Lane liveness / § Manual-cleanup prompt.
+//
+// RESOLVED (API batch, tasks.md [2.3]): design.md's sketch is
+// `IsStale(item store.Item, idleWindow time.Duration) bool`, reading
+// `item.Session != nil && item.Session.Zombie == false` inline. IsStale
+// cannot accept a store.Item (or *store.SessionLink) parameter directly for
+// the exact same reason DetectLane's own doc comment above already
+// documents avoiding it: internal/store additively holds a
+// *lanes.LaneState field on Item (tasks.md [1.1]), so a lanes function
+// taking a store type would make internal/store and internal/lanes import
+// each other — a compile-time import cycle Go's build refuses. hasLiveSession
+// is the caller-computed equivalent of design.md's inline check
+// (`item.Session != nil && !item.Session.Zombie`) — QueuePane (tasks.md
+// [3.3]) computes it from item.Session before calling IsStale, mirroring how
+// DetectLane's caller pre-unwraps item.Blocker.Type instead of passing the
+// whole item.
+//
+// item.Session == nil collapses to hasLiveSession == false at the call site
+// (the same "no live signal, counts toward staleness" treatment design.md
+// specifies for a session that never linked or whose link was lost) — this
+// function does not need to distinguish "never linked" from "zombie" itself,
+// since both produce hasLiveSession == false.
+func (ls *LaneState) IsStale(hasLiveSession bool, idleWindow time.Duration) bool {
+	if ls.SpawnedAt.IsZero() {
+		return false // never spawned -- badge shown, no session yet, not "stale"
+	}
+	if hasLiveSession {
+		return false
+	}
+	return time.Since(ls.SpawnedAt) > idleWindow
+}

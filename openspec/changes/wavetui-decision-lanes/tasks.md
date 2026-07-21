@@ -20,14 +20,14 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `apps/wavetui/internal/dispatch/spawn.go`: `Spawner` interface [beads:if-3icp]
+- [x] [2.1] Implement `apps/wavetui/internal/dispatch/spawn.go`: `Spawner` interface [beads:if-3icp]
   (`Spawn(ctx, promptText string) (paneID string, err error)`) and `TmuxSpawner` shelling
   `cc-tmux conductor dispatch --mode spawn-task` per `design.md` § Spawn gap — same package as
   `wavetui-dispatch`'s `Dispatcher`, no rename or signature change to existing types [type:api]
-- [ ] [2.2] Implement the spawn prompt template (persistence-mandate + `/apply <item.ID>` [beads:if-spm5]
+- [x] [2.2] Implement the spawn prompt template (persistence-mandate + `/apply <item.ID>` [beads:if-spm5]
   reference line) per `design.md` § Spawn prompt template, as a pure render function taking
   `store.Item` [type:api]
-- [ ] [2.3] Implement `LaneState.IsStale(item, idleWindow) bool` per `design.md` § Lane liveness / [beads:if-r849]
+- [x] [2.3] Implement `LaneState.IsStale(item, idleWindow) bool` per `design.md` § Lane liveness / [beads:if-r849]
   § Manual-cleanup prompt: reads `Item.Session.Zombie` only, no direct pane polling [type:api]
   - depends on: 1.2
 
