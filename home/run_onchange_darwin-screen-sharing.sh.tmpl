@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# run_onchange_darwin-screen-sharing.sh - enable macOS Screen Sharing (VNC/RFB server)
+#
+# Re-runs whenever this wrapper's content changes (chezmoi run_onchange). Keeps
+# the Mac's built-in Screen Sharing service enabled across every apply so config
+# drift (a manual toggle-off in System Settings) is corrected on the next run.
+#
+# Server side of scripts/vnc-mac.sh (homelab's tigervnc `vncviewer` client that
+# connects here over Tailscale). Uses Apple's plain Screen Sharing service, NOT
+# the `kickstart -activate -configure` ARD/Remote-Management flow, which is
+# MDM-restricted on macOS 12.1+; the launchctl enable/load path below is
+# unaffected by that restriction.
+#
+# Gated on .chezmoi.os == "darwin" (see home/.chezmoi.toml.tmpl). On
+# homelab/cloudpc this file expands to a no-op stub and exits immediately.
+
+{{ if ne .chezmoi.os "darwin" -}}
+# Non-macOS host ({{ .chezmoi.os }}) — nothing to do.
+exit 0
+{{- else -}}
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+# Double-check at runtime in case the OS was resolved optimistically.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "darwin-screen-sharing: not Darwin, skipping (os={{ .chezmoi.os }})" >&2
+    exit 0
+fi
+
+# Idempotency: `launchctl print system/com.apple.screensharing` succeeds only
+# when the service is already loaded — short-circuit so a re-run is a clean
+# no-op instead of a redundant (and potentially noisy) enable+load.
+if launchctl print system/com.apple.screensharing >/dev/null 2>&1; then
+    success "darwin-screen-sharing: com.apple.screensharing already loaded"
+    exit 0
+fi
+
+info "darwin-screen-sharing: enabling macOS Screen Sharing (VNC/RFB server)"
+# enable clears any disabled override; load -w flips the service on and persists
+# it. Both are idempotent; enable is safe even when the service is not loaded.
+sudo launchctl enable system/com.apple.screensharing
+sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+success "darwin-screen-sharing: Screen Sharing enabled (reachable via VNC on :5900)"
+{{- end }}
