@@ -340,6 +340,12 @@ func (r *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// for the second pane in this package that needs key input.
 			p.HandleKey(msg)
 			return r, nil
+		case *HeadlessBar:
+			// HeadlessBar (wavetui-daemon, tasks.md [3.1]) owns its own
+			// one-key resume action — same concrete-type dispatch
+			// precedent as SessionsPane above.
+			p.HandleKey(msg)
+			return r, nil
 		}
 	}
 	return r, nil
@@ -460,9 +466,22 @@ func (r *Root) View() tea.View {
 	// appended panes (r.panes is exactly [queue, detail], the state of
 	// every session before this task), extraPanes() is empty and body
 	// renders byte-for-byte as it did before this loop existed.
+	//
+	// A pane whose View() returns "" (wavetui-daemon's HeadlessBar, in its
+	// common not-paused/never-enabled case — design.md § Additive Snapshot
+	// field: "renders nothing") is skipped entirely rather than wrapped in
+	// an empty bordered box — an empty box is still a visible box, which
+	// would contradict "renders nothing." Every pre-existing appended pane
+	// (MemoryTimelinePane, SessionsPane, KPIBar) always renders at least a
+	// header/status line, so this is a no-op for all of them; HeadlessBar is
+	// the first pane that can genuinely have nothing to show.
 	for _, extra := range r.extraPanes() {
+		content := extra.View()
+		if content == "" {
+			continue
+		}
 		style := paneStyle(r.focus == indexOf(r.panes, extra))
-		body = lipgloss.JoinVertical(lipgloss.Left, body, style.Render(extra.View()))
+		body = lipgloss.JoinVertical(lipgloss.Left, body, style.Render(content))
 	}
 
 	help := lipgloss.NewStyle().Faint(true).Render("tab: switch pane  ↑/↓: select  q: quit")

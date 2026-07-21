@@ -25,9 +25,9 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Implement `internal/ui/headlessbar.go`: a new focus-ring pane (`Pane` interface — `Update(Snapshot) Pane`, `View() string`, `Focusable() bool`) rendering nothing when `Snapshot.HeadlessQueue == nil` or `!Paused`, and a banner + resume keybinding hint when `Paused`; the resume key calls `daemon.resume()` directly with no intermediate scheduling per `design.md` § Rate-limit backpressure / § Additive Snapshot field [beads:if-hpet]
+- [x] [3.1] Implement `internal/ui/headlessbar.go`: a new focus-ring pane (`Pane` interface — `Update(Snapshot) Pane`, `View() string`, `Focusable() bool`) rendering nothing when `Snapshot.HeadlessQueue == nil` or `!Paused`, and a banner + resume keybinding hint when `Paused`; the resume key calls `daemon.resume()` directly with no intermediate scheduling per `design.md` § Rate-limit backpressure / § Additive Snapshot field [beads:if-hpet]
   - depends on: 2.2
-- [ ] [3.2] Wire `cmd/wavetui/main.go`: instantiate `HeadlessDispatcher` + the daemon controller, append `headlessbar.go` to the root model's focus-ring pane slice per `wavetui-core`'s § Pane extensibility (no root-model rework), thread `Config.HeadlessConcurrencyCap` through construction [beads:if-huo2]
+- [x] [3.2] Wire `cmd/wavetui/main.go`: instantiate `HeadlessDispatcher` + the daemon controller, append `headlessbar.go` to the root model's focus-ring pane slice per `wavetui-core`'s § Pane extensibility (no root-model rework), thread `Config.HeadlessConcurrencyCap` through construction [beads:if-huo2]
   - depends on: 2.1, 2.2, 2.3, 3.1
 
 ## E2E Batch

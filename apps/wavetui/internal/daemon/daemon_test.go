@@ -1,6 +1,6 @@
-// Tests for daemonController — tasks.md [4.2]: pause/resume state
+// Tests for Controller — tasks.md [4.2]: pause/resume state
 // transitions (including a fixture asserting no code path resumes without
-// an explicit resume() call) and zombie-slot-release accounting (confirms
+// an explicit Resume() call) and zombie-slot-release accounting (confirms
 // no process kill, no claim release call — both structurally impossible
 // here, since releaseSlotIfZombie takes only an itemID and this package
 // never imports anything bd-related or process-kill-capable).
@@ -17,14 +17,14 @@ import (
 
 func TestOnSnapshotPausesOnRateLimitTransition(t *testing.T) {
 	d, _, _ := newTestDispatcher(2)
-	c := newDaemonController(d)
+	c := NewController(d)
 	ctx := context.Background()
 
 	if err := d.Dispatch(ctx, store.Item{ID: "a"}, "/apply a"); err != nil {
 		t.Fatalf("Dispatch before any rate-limit signal: %v", err)
 	}
 
-	c.onSnapshot(store.Snapshot{
+	c.OnSnapshot(store.Snapshot{
 		RateLimitBanner: &store.RateLimitSignal{Message: "rate limited"},
 	})
 
@@ -36,16 +36,16 @@ func TestOnSnapshotPausesOnRateLimitTransition(t *testing.T) {
 
 func TestOnSnapshotPauseIsIdempotent(t *testing.T) {
 	d, _, _ := newTestDispatcher(2)
-	c := newDaemonController(d)
+	c := NewController(d)
 	banner := &store.RateLimitSignal{Message: "rate limited"}
 
-	c.onSnapshot(store.Snapshot{RateLimitBanner: banner})
+	c.OnSnapshot(store.Snapshot{RateLimitBanner: banner})
 	d.mu.Lock()
 	firstPausedSince := d.pausedSince
 	d.mu.Unlock()
 
 	time.Sleep(5 * time.Millisecond)
-	c.onSnapshot(store.Snapshot{RateLimitBanner: banner})
+	c.OnSnapshot(store.Snapshot{RateLimitBanner: banner})
 	d.mu.Lock()
 	secondPausedSince := d.pausedSince
 	d.mu.Unlock()
@@ -57,10 +57,10 @@ func TestOnSnapshotPauseIsIdempotent(t *testing.T) {
 
 func TestResumeRequiresExplicitCall(t *testing.T) {
 	d, _, _ := newTestDispatcher(2)
-	c := newDaemonController(d)
+	c := NewController(d)
 	ctx := context.Background()
 
-	c.onSnapshot(store.Snapshot{RateLimitBanner: &store.RateLimitSignal{Message: "rate limited"}})
+	c.OnSnapshot(store.Snapshot{RateLimitBanner: &store.RateLimitSignal{Message: "rate limited"}})
 
 	// Simulate many Snapshots arriving over "wall-clock time" with the
 	// signal cleared (RateLimitBanner nil again) and no resume() call —
@@ -69,13 +69,13 @@ func TestResumeRequiresExplicitCall(t *testing.T) {
 	// scenario: nothing about the passage of time or snapshot churn alone
 	// may clear d.paused.
 	for range 10 {
-		c.onSnapshot(store.Snapshot{})
+		c.OnSnapshot(store.Snapshot{})
 	}
 	if err := d.Dispatch(ctx, store.Item{ID: "a"}, "/apply a"); !errors.Is(err, ErrQueuePaused) {
 		t.Fatalf("Dispatch still paused after banner cleared with no resume() = %v, want ErrQueuePaused", err)
 	}
 
-	c.resume()
+	c.Resume()
 	if err := d.Dispatch(ctx, store.Item{ID: "a"}, "/apply a"); err != nil {
 		t.Fatalf("Dispatch after explicit resume() = %v, want nil", err)
 	}
@@ -83,7 +83,7 @@ func TestResumeRequiresExplicitCall(t *testing.T) {
 
 func TestOnSnapshotReleasesZombieSlotWithoutKillingProcess(t *testing.T) {
 	d, fr, _ := newTestDispatcher(2)
-	c := newDaemonController(d)
+	c := NewController(d)
 	ctx := context.Background()
 
 	if err := d.Dispatch(ctx, store.Item{ID: "a"}, "/apply a"); err != nil {
@@ -96,7 +96,7 @@ func TestOnSnapshotReleasesZombieSlotWithoutKillingProcess(t *testing.T) {
 		t.Fatalf("Dispatch c before zombie release = %v, want ErrConcurrencyCapReached", err)
 	}
 
-	c.onSnapshot(store.Snapshot{
+	c.OnSnapshot(store.Snapshot{
 		Items: []store.Item{
 			{ID: "a", Session: &store.SessionLink{Zombie: true}},
 			{ID: "b", Session: &store.SessionLink{Zombie: false}},
@@ -124,7 +124,7 @@ func TestOnSnapshotReleasesZombieSlotWithoutKillingProcess(t *testing.T) {
 
 func TestReleaseSlotIfZombieDoesNotDoubleRelease(t *testing.T) {
 	d, fr, fb := newTestDispatcher(1)
-	c := newDaemonController(d)
+	c := NewController(d)
 	ctx := context.Background()
 
 	if err := d.Dispatch(ctx, store.Item{ID: "a"}, "/apply a"); err != nil {
@@ -136,8 +136,8 @@ func TestReleaseSlotIfZombieDoesNotDoubleRelease(t *testing.T) {
 	// call must be a no-op (releaseSlotIfZombie's ok/slotReleased guard),
 	// not a second `<-d.sem` receive on an already-drained channel (which
 	// would deadlock this goroutine forever).
-	c.onSnapshot(snap)
-	c.onSnapshot(snap)
+	c.OnSnapshot(snap)
+	c.OnSnapshot(snap)
 
 	// The slot was freed by the (single) zombie release, so a new
 	// admission succeeds despite the original child never having exited.

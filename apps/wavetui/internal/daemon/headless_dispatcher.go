@@ -270,7 +270,7 @@ func (d *HeadlessDispatcher) pause(signal *store.RateLimitSignal) {
 
 // resume is the ONLY path back to admitting new headless dispatch after a
 // rate-limit pause. Deliberately the sole mutator of d.paused back to
-// false anywhere in this package — see daemon.go's daemonController.resume
+// false anywhere in this package — see daemon.go's Controller.Resume
 // doc comment for why no timer or automatic caller may ever exist.
 func (d *HeadlessDispatcher) resume() {
 	d.mu.Lock()

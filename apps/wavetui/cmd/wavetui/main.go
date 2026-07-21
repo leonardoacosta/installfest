@@ -22,6 +22,7 @@ import (
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/config"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/daemon"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
@@ -147,6 +148,22 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	root.AppendPane(sessionsPane)
 	root.AppendPane(ui.NewKPIBar())
 
+	// wavetui-daemon (UI batch task [3.2]): HeadlessDispatcher is
+	// constructed with cfg.EffectiveHeadlessConcurrencyCap() (design.md §
+	// Concurrency cap default — 2 unless the project's .wavetui.toml
+	// overrides it) and publishes HeadlessExitEvent onto the same bus b
+	// every other source already publishes onto. daemonCtrl wraps it and is
+	// the only thing that ever calls dispatcher.pause/resume/
+	// releaseSlotIfZombie — see internal/daemon/daemon.go. HeadlessBar is
+	// appended to the focus ring the same append-only way sessionsPane/
+	// KPIBar are above; it renders nothing until something populates
+	// Snapshot.HeadlessQueue (no source in this proposal does — see
+	// design.md § Additive Snapshot field), which is the expected common
+	// case for every run today.
+	headlessDispatcher := daemon.NewHeadlessDispatcher(cfg.EffectiveHeadlessConcurrencyCap(), b)
+	daemonCtrl := daemon.NewController(headlessDispatcher)
+	root.AppendPane(ui.NewHeadlessBar(daemonCtrl))
+
 	program := tea.NewProgram(model, tea.WithContext(ctx))
 
 	// The Store is the single writer, and this is its only subscriber. Every
@@ -156,7 +173,13 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	// anything on its own, per design.md § Architecture.
 	b.Subscribe(ctx, func(ev bus.Event) {
 		st.Apply(ev)
-		program.Send(ui.SnapshotMsg{Snapshot: st.Snapshot()})
+		snap := st.Snapshot()
+		// wavetui-daemon (UI batch task [3.2]): daemonCtrl reacts to the
+		// same fresh Snapshot every pane's own Update(Snapshot) call
+		// reacts to (design.md § Rate-limit backpressure / § Zombie
+		// interaction) — no second watcher, no second transcript parse.
+		daemonCtrl.OnSnapshot(snap)
+		program.Send(ui.SnapshotMsg{Snapshot: snap})
 	})
 
 	beadsSrc := sources.NewBeadsSource(cwd, b)
