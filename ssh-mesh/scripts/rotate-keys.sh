@@ -268,8 +268,18 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "Syncing rotated key back to 1Password (${OP_SSH_ITEM})..."
 if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
+  # `op item edit` does NOT accept a full op:// URI as its item argument the
+  # way `op read` does (confirmed live 2026-07-21 — this is why the mesh-ssh
+  # 1Password item had drifted stale: this call had likely been silently
+  # failing every rotation, swallowed by the WARNING-and-continue fallback
+  # below). Parse vault + item name out of OP_SSH_ITEM instead of passing
+  # the raw URI: strip the op:// prefix, split on the first remaining '/'.
+  _op_vault_and_item="${OP_SSH_ITEM#op://}"
+  OP_SSH_VAULT="${_op_vault_and_item%%/*}"
+  OP_SSH_ITEM_NAME="${_op_vault_and_item#*/}"
+
   if $DRY_RUN; then
-    echo "DRY: op item edit \"$OP_SSH_ITEM\" 'private key=<new key>' 'public key=<new key>'"
+    echo "DRY: op item edit \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" 'private key=<new key>' 'public key=<new key>'"
   else
     # Command substitution below reads real key material, so this is an
     # explicit if/else rather than routed through run() — run()'s "$@" form
@@ -280,7 +290,7 @@ if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
     if ! command -v op >/dev/null 2>&1; then
       echo "  WARNING: op (1Password CLI) not installed — ${OP_SSH_ITEM} NOT updated."
       echo "  Mesh is rotated and reachable; the 1Password mirror is stale until fixed manually."
-    elif op item edit "$OP_SSH_ITEM" \
+    elif op item edit "$OP_SSH_ITEM_NAME" --vault "$OP_SSH_VAULT" \
         "private key=$(cat "$HOME/.ssh/id_ed25519")" \
         "public key=$(cat "$HOME/.ssh/id_ed25519.pub")" >/dev/null 2>&1; then
       echo "  1Password: ${OP_SSH_ITEM} updated with the rotated key"
