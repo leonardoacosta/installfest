@@ -23,7 +23,7 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [2.1] Add a keybinding on `HeadlessBar` (pick an unused key — check [beads:if-yw5j]
+- [x] [2.1] Add a keybinding on `HeadlessBar` (pick an unused key — check [beads:if-yw5j]
       `apps/wavetui/internal/ui/headlessbar.go`'s existing `HandleKey`, which currently only
       handles `r` for resume) that calls `Controller.ToggleAdmission()`, and render a visible
       indicator on the bar showing whether admission is currently enabled (and roughly how many

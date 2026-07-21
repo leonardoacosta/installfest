@@ -55,6 +55,18 @@ func (c *Controller) ToggleAdmission() {
 	c.mu.Unlock()
 }
 
+// AdmissionEnabled reports the current admission toggle state. Exists so a
+// caller (internal/ui/headlessbar.go's indicator render) can read the real
+// state directly rather than keeping its own mirrored copy in lockstep with
+// every ToggleAdmission() call — a mirror is only ever correct because
+// nothing else happens to call ToggleAdmission today, which is an invariant
+// worth not depending on when a direct, mutex-guarded read is this cheap.
+func (c *Controller) AdmissionEnabled() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.enabled
+}
+
 // OnSnapshot is the single reactive entry point for every signal this
 // package reacts to on a fresh Snapshot: rate-limit pause (design.md §
 // Rate-limit backpressure), zombie-slot-release (design.md § Zombie
