@@ -19,13 +19,13 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `internal/sources/beads.go`: fsnotify watch on `.beads/{*.db,*.db-wal,*.db-shm}` plus parent-dir watch for creation, 300-500ms trailing debounce, serialized in-flight `bd list --json` + `bd ready --json` shellouts with pending-request coalescing, 15s poll fallback, tolerant JSON decode (unknown fields ignored, missing optional fields -> zero value + degraded badge), non-zero exit or malformed JSON keeps the last-good snapshot and badges stale with retry backoff [beads:if-1brf]
+- [x] [2.1] Implement `internal/sources/beads.go`: fsnotify watch on `.beads/{*.db,*.db-wal,*.db-shm}` plus parent-dir watch for creation, 300-500ms trailing debounce, serialized in-flight `bd list --json` + `bd ready --json` shellouts with pending-request coalescing, 15s poll fallback, tolerant JSON decode (unknown fields ignored, missing optional fields -> zero value + degraded badge), non-zero exit or malformed JSON keeps the last-good snapshot and badges stale with retry backoff [beads:if-1brf]
   - depends on: 1.2, 1.3, 1.4
-- [ ] [2.2] Implement `internal/sources/openspec.go`: fsnotify watch on `openspec/changes/` (non-recursive walk-then-watch, dir-create re-arm) plus `plans/`/`advisor-plans/` behind the `[1.4]` config flag, parse each proposal's `proposal.md` header + `tasks.md` checkbox counts + a blocker-note line via `internal/blocker` [beads:if-6fgg]
+- [x] [2.2] Implement `internal/sources/openspec.go`: fsnotify watch on `openspec/changes/` (non-recursive walk-then-watch, dir-create re-arm) plus `plans/`/`advisor-plans/` behind the `[1.4]` config flag, parse each proposal's `proposal.md` header + `tasks.md` checkbox counts + a blocker-note line via `internal/blocker` [beads:if-6fgg]
   - depends on: 1.2, 1.3, 1.4, 1.5
-- [ ] [2.3] Wire missing-directory degradation for both sources: emit an "unavailable" event (not an error) when `.beads/` or `openspec/changes/` is absent at startup, and watch the parent directory so a later creation transitions the badge live without a restart [beads:if-0xr7]
+- [x] [2.3] Wire missing-directory degradation for both sources: emit an "unavailable" event (not an error) when `.beads/` or `openspec/changes/` is absent at startup, and watch the parent directory so a later creation transitions the badge live without a restart [beads:if-0xr7]
   - depends on: 2.1, 2.2
-- [ ] [2.4] Thread `context.Context` from `main` into both sources for graceful shutdown on SIGINT/SIGTERM; audit that no goroutine in either source runs without a cancellable context [beads:if-w4jw]
+- [x] [2.4] Thread `context.Context` from `main` into both sources for graceful shutdown on SIGINT/SIGTERM; audit that no goroutine in either source runs without a cancellable context [beads:if-w4jw]
   - depends on: 2.1, 2.2
 
 ## UI Batch
