@@ -101,6 +101,16 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	toastOverlay := flair.NewToastOverlay(os.Stderr, os.Environ())
 	model := newRootWithFlair(root, flairMgr, toastOverlay)
 
+	// wavetui-sessions (UI batch task [3.3]): SessionsPane and KPIBar are
+	// appended to Root's focus ring via the same AppendPane precedent
+	// EnableMemoryTimeline already uses (append-only — QueuePane, DetailPane,
+	// and MemoryTimelinePane are untouched). Unlike MemoryTimelinePane,
+	// neither pane needs Root-mediated selection/debounce wiring, so a plain
+	// AppendPane call is enough — no EnableSessions-style Root method needed.
+	sessionsPane := ui.NewSessionsPane(ctx)
+	root.AppendPane(sessionsPane)
+	root.AppendPane(ui.NewKPIBar())
+
 	program := tea.NewProgram(model, tea.WithContext(ctx))
 
 	// The Store is the single writer, and this is its only subscriber. Every
@@ -116,11 +126,25 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	beadsSrc := sources.NewBeadsSource(cwd, b)
 	openspecSrc := sources.NewOpenSpecSource(cwd, b, cfg)
 
-	// Both sources run on their own ctx-derived goroutine; ctx cancellation
-	// is what stops them — see task 2.4.
-	errCh := make(chan error, 2)
+	// wavetui-sessions (UI batch task [3.3]): TmuxSource and TranscriptSource
+	// are the two sources SessionsPane/KPIBar's data ultimately comes from
+	// (design.md § Architecture). TmuxSource is wired into TranscriptSource
+	// via SetPaneStateSource BEFORE either is Run, per SetPaneStateSource's
+	// own doc comment ("called from cmd/wavetui/main.go after both sources
+	// are constructed") — a nil/never-called PaneStateSource would leave
+	// every zombie check permanently fail-open instead of cross-checking
+	// real tmux pane state.
+	tmuxSrc := sources.NewTmuxSource(b)
+	transcriptSrc := sources.NewTranscriptSource(cwd, b)
+	transcriptSrc.SetPaneStateSource(tmuxSrc)
+
+	// All four sources run on their own ctx-derived goroutine; ctx
+	// cancellation is what stops them — see task 2.4.
+	errCh := make(chan error, 4)
 	go func() { errCh <- beadsSrc.Run(ctx) }()
 	go func() { errCh <- openspecSrc.Run(ctx) }()
+	go func() { errCh <- tmuxSrc.Run(ctx) }()
+	go func() { errCh <- transcriptSrc.Run(ctx) }()
 
 	_, runErr := program.Run()
 
@@ -131,7 +155,7 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	cancel()
 
 	var firstErr error
-	for range 2 {
+	for range 4 {
 		if err := <-errCh; err != nil && !isExpectedShutdown(err) && firstErr == nil {
 			firstErr = err
 		}

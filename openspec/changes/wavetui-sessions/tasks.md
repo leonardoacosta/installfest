@@ -51,15 +51,15 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Implement `internal/ui/sessionspane.go`: implements `wavetui-core`'s `Pane` interface, [beads:if-a1wq]
+- [x] [3.1] Implement `internal/ui/sessionspane.go`: implements `wavetui-core`'s `Pane` interface, [beads:if-a1wq]
   renders pane identity (when known via `TmuxSource`), context-percent gauge, and zombie badge
   with the one-key release action; attaches to the existing focus ring without root-model changes
   - depends on: 2.2, 2.5
-- [ ] [3.2] Implement `internal/ui/kpibar.go`: implements the `Pane` interface, renders [beads:if-el0s]
+- [x] [3.2] Implement `internal/ui/kpibar.go`: implements the `Pane` interface, renders [beads:if-el0s]
   continue-count proxy, rate-limit-incident counter (increments on each `RateLimitSignal`), and
   stale-claim minutes (elapsed time since the oldest currently-zombie-badged claim went stale)
   - depends on: 2.3, 2.4
-- [ ] [3.3] Wire both panes into `cmd/wavetui/main.go`'s existing pane slice (append-only — no [beads:if-hnxc]
+- [x] [3.3] Wire both panes into `cmd/wavetui/main.go`'s existing pane slice (append-only — no [beads:if-hnxc]
   reordering or removal of `QueuePane`/`DetailPane`) and confirm the focus ring cycles through all
   four panes; capture runtime evidence rendering against this repo's own live transcript + tmux
   state (paste rendered pty output)

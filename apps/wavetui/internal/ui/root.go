@@ -328,10 +328,18 @@ func (r *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if r.focus >= 0 && r.focus < len(r.panes) {
-		if q, ok := r.panes[r.focus].(*QueuePane); ok {
-			q.HandleKey(msg)
-			item, sel := q.SelectedItem()
+		switch p := r.panes[r.focus].(type) {
+		case *QueuePane:
+			p.HandleKey(msg)
+			item, sel := p.SelectedItem()
 			return r, r.notifySelection(item, sel)
+		case *SessionsPane:
+			// SessionsPane (wavetui-sessions, tasks.md [3.1]) owns its own
+			// row navigation and one-key zombie-release action — same
+			// concrete-type dispatch precedent as QueuePane above, added
+			// for the second pane in this package that needs key input.
+			p.HandleKey(msg)
+			return r, nil
 		}
 	}
 	return r, nil
