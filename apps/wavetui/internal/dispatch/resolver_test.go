@@ -10,6 +10,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
@@ -56,7 +57,7 @@ func TestResolverSuccessNeverFallsBack(t *testing.T) {
 	clipboard := &fakeDispatcher{}
 	r := &Resolver{Tmux: tmux, Clipboard: clipboard}
 
-	if err := r.Dispatch(context.Background(), store.Item{}, "prompt"); err != nil {
+	if err := r.Dispatch(context.Background(), store.Item{ID: "if-p1ru"}, "prompt"); err != nil {
 		t.Fatalf("Dispatch error: %v", err)
 	}
 	if clipboard.called != 0 {
@@ -70,7 +71,7 @@ func TestResolverAmbiguousErrorPropagatesWithoutFallback(t *testing.T) {
 	clipboard := &fakeDispatcher{}
 	r := &Resolver{Tmux: tmux, Clipboard: clipboard}
 
-	err := r.Dispatch(context.Background(), store.Item{}, "prompt")
+	err := r.Dispatch(context.Background(), store.Item{ID: "if-p1ru"}, "prompt")
 	var got *AmbiguousTargetError
 	if !errors.As(err, &got) {
 		t.Fatalf("want *AmbiguousTargetError propagated unchanged, got %v", err)
@@ -86,7 +87,7 @@ func TestResolverRefusalErrorsPropagateWithoutFallback(t *testing.T) {
 		clipboard := &fakeDispatcher{}
 		r := &Resolver{Tmux: tmux, Clipboard: clipboard}
 
-		err := r.Dispatch(context.Background(), store.Item{}, "prompt")
+		err := r.Dispatch(context.Background(), store.Item{ID: "if-p1ru"}, "prompt")
 		if !errors.Is(err, refusal) {
 			t.Fatalf("want %v propagated unchanged, got %v", refusal, err)
 		}
@@ -102,7 +103,7 @@ func TestResolverGenuineTmuxFailurePropagatesWithoutFallback(t *testing.T) {
 	clipboard := &fakeDispatcher{}
 	r := &Resolver{Tmux: tmux, Clipboard: clipboard}
 
-	err := r.Dispatch(context.Background(), store.Item{}, "prompt")
+	err := r.Dispatch(context.Background(), store.Item{ID: "if-p1ru"}, "prompt")
 	if !errors.Is(err, genuine) {
 		t.Fatalf("want the genuine tmux failure propagated unchanged, got %v", err)
 	}
@@ -117,9 +118,42 @@ func TestResolverPropagatesClipboardFailureAfterFallback(t *testing.T) {
 	clipboard := &fakeDispatcher{err: clipboardErr}
 	r := &Resolver{Tmux: tmux, Clipboard: clipboard}
 
-	err := r.Dispatch(context.Background(), store.Item{}, "prompt")
+	err := r.Dispatch(context.Background(), store.Item{ID: "if-p1ru"}, "prompt")
 	if !errors.Is(err, clipboardErr) {
 		t.Fatalf("want the Clipboard fallback's own failure surfaced, got %v", err)
+	}
+}
+
+// TestResolverRefusesNonIDShapedItemBeforeAnyDispatch is the regression test
+// for the post-wave gate finding: validateDispatchTarget existed and was
+// unit-tested (dispatch_test.go) but had no real caller anywhere in the
+// dispatch path, so a non-id-shaped item.ID would have sailed straight
+// through Resolver into a real TmuxDispatcher/ClipboardDispatcher call.
+// "plans:foo" is not a hypothetical shape — it is exactly what
+// internal/sources/openspec.go's parseFlatMarkdownDir mints for every
+// plans/ and advisor-plans/ item ("plan:" + filename), confirmed live
+// against that file's ID: idPrefix+":"+name construction. tmux/clipboard
+// are real fakeDispatcher spies (not stubs that happen to succeed) so this
+// test fails loudly if Resolver.Dispatch ever again forgets to validate
+// item.ID before calling either one.
+func TestResolverRefusesNonIDShapedItemBeforeAnyDispatch(t *testing.T) {
+	tmux := &fakeDispatcher{}
+	clipboard := &fakeDispatcher{}
+	r := &Resolver{Tmux: tmux, Clipboard: clipboard}
+
+	item := store.Item{ID: "plan:foo"}
+	err := r.Dispatch(context.Background(), item, "/apply plan:foo")
+	if err == nil {
+		t.Fatal("want a refusal error for a colon-containing item.ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "not id-shaped") {
+		t.Fatalf("want the validateDispatchTarget refusal message, got %v", err)
+	}
+	if tmux.called != 0 {
+		t.Fatalf("want Tmux never invoked for a non-id-shaped item.ID, got called=%d", tmux.called)
+	}
+	if clipboard.called != 0 {
+		t.Fatalf("want Clipboard never invoked for a non-id-shaped item.ID, got called=%d", clipboard.called)
 	}
 }
 

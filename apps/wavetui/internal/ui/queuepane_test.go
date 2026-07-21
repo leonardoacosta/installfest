@@ -340,6 +340,63 @@ func TestQueuePaneStartSuccessClearsPriorFailureBadge(t *testing.T) {
 	}
 }
 
+// explodingDispatcher is a dispatch.Dispatcher stand-in that fails the test
+// immediately if Dispatch is ever called on it — a spy, not a stub that
+// happens to succeed. Used below to prove a non-id-shaped item.ID never
+// reaches a real tmux/clipboard call.
+type explodingDispatcher struct {
+	t *testing.T
+}
+
+func (e explodingDispatcher) Dispatch(context.Context, store.Item, string) error {
+	e.t.Fatal("dispatcher invoked: a non-id-shaped item.ID must be refused before any tmux/clipboard dispatch call")
+	return nil
+}
+
+// TestQueuePaneStartRefusesNonIDShapedItemBeforeAnyDispatchAttempt is the
+// regression test for the post-wave gate finding that validateDispatchTarget
+// (dispatch.go) was fully implemented and unit-tested but had no real
+// caller anywhere in the dispatch path — a non-id-shaped item.ID (e.g.
+// "plan:foo", the exact shape internal/sources/openspec.go's
+// parseFlatMarkdownDir mints for every plans/ and advisor-plans/ item via
+// idPrefix+":"+name) would have sailed straight through QueuePane's Start
+// action into a real TmuxDispatcher/ClipboardDispatcher call, pasting an
+// unvalidated string into a real tmux pane.
+//
+// This exercises the REAL production chain, not a stand-in for it: a real
+// *dispatch.Resolver (the exact type cmd/wavetui/main.go wires via
+// SetDispatcher — see resolver.go's NewResolver doc comment), wired with
+// explodingDispatcher spies in place of Tmux/Clipboard, driven through
+// QueuePane's actual "enter" HandleKey path (startSelected -> Resolver.
+// Dispatch). Calling validateDispatchTarget directly (dispatch_test.go)
+// would prove nothing about whether the real dispatch path ever invokes it
+// — this test fails loudly (via explodingDispatcher.t.Fatal) if
+// Resolver.Dispatch ever again forgets to validate item.ID before either
+// concrete Dispatcher runs.
+func TestQueuePaneStartRefusesNonIDShapedItemBeforeAnyDispatchAttempt(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "plan:foo", Title: "A plans/ item", SecondClass: true},
+	}})
+
+	resolver := &dispatch.Resolver{
+		Tmux:      explodingDispatcher{t: t},
+		Clipboard: explodingDispatcher{t: t},
+	}
+	q.SetDispatcher(context.Background(), resolver)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	// The Blocker column is a fixed 24-wide table cell (queueColumns), so the
+	// full validateDispatchTarget message ("...is not id-shaped, refusing to
+	// cross the dispatch boundary") renders truncated with an ellipsis —
+	// asserting on the message's own leading text ("dispatch target"), not
+	// the tail that the column width cuts off.
+	if got := firstDataRow(q.View()); !strings.Contains(got, "failed:") || !strings.Contains(got, "dispatch target") {
+		t.Fatalf("want a refusal badge naming the id-shape failure, got:\n%s", got)
+	}
+}
+
 // --- wavetui-dispatch (tasks.md [3.2]) select mode -----------------------
 
 func TestQueuePaneToggleSelectedOrdersByFanOutScoreDescending(t *testing.T) {

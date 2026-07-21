@@ -20,11 +20,14 @@ import (
 // signature is deliberately narrow and carries no separate target
 // parameter). Every pane ID TmuxDispatcher resolves is validated via
 // validateTmuxPaneID immediately inside its own Dispatch, before crossing
-// into any tmux invocation — see tmux.go's Dispatch — which is where
+// into any tmux invocation — see tmux.go's Dispatch. The OTHER half of
 // design.md's "calling validateDispatchTarget on every resolved pane/item
-// ID before any dispatch call" invariant is actually enforced; Resolver
-// does not need a second, redundant validation pass on a pane ID it never
-// itself extracts.
+// ID before any dispatch call" invariant — item.ID itself — is enforced
+// here in Dispatch (below), once, before either concrete Dispatcher runs;
+// Resolver does not need a second, redundant validation pass on a pane ID
+// it never itself extracts, but it IS the right (and only) place to
+// validate item.ID, since it is the single object every real dispatch call
+// funnels through.
 //
 // Tmux always runs first. Resolver intervenes only when Tmux reports
 // ErrNoDispatchTarget (design.md § Target resolution point 3: zero
@@ -55,7 +58,30 @@ func NewResolver(tmux *TmuxDispatcher, clipboard *ClipboardDispatcher) *Resolver
 // Dispatch implements Dispatcher, so Resolver itself is the single object
 // a later batch's QueuePane needs to hold. See the type doc comment for the
 // exact fallback contract.
+//
+// validateDispatchTarget(item.ID) runs FIRST, before either Dispatcher is
+// ever invoked. This is the choke point design.md § Dispatch-boundary
+// validation actually requires: Resolver is the one object every real
+// dispatch path funnels through (QueuePane's Start action never holds a
+// concrete *TmuxDispatcher/*ClipboardDispatcher directly — cmd/wavetui/
+// main.go always wires a *Resolver via SetDispatcher), so validating here
+// once covers both the Tmux and the Clipboard branch without duplicating
+// the check at each concrete Dispatcher. This was previously a gap:
+// idShapeRe/validateDispatchTarget existed and was unit-tested but had no
+// real caller, so a non-id-shaped item.ID (e.g. "plans:foo" — the shape
+// internal/sources/openspec.go's parseFlatMarkdownDir mints for plans/
+// advisor-plans items, colon and all) would have sailed straight into
+// TmuxDispatcher/ClipboardDispatcher untouched. Neither concrete Dispatcher
+// happens to splice item.ID into a shell argv today (TmuxDispatcher keys off
+// item.Session.PaneID/scored candidate IDs, validated separately by
+// validateTmuxPaneID; ClipboardDispatcher never reads item at all) — but the
+// boundary contract in design.md is unconditional ("Applied to item.ID...
+// refusing to cross the dispatch boundary"), not contingent on today's call
+// graph never needing it, so it is enforced here regardless.
 func (r *Resolver) Dispatch(ctx context.Context, item store.Item, promptText string) error {
+	if err := validateDispatchTarget(item.ID); err != nil {
+		return err
+	}
 	err := r.Tmux.Dispatch(ctx, item, promptText)
 	if errors.Is(err, ErrNoDispatchTarget) {
 		return r.Clipboard.Dispatch(ctx, item, promptText)
