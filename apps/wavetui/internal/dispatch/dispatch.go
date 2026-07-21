@@ -29,6 +29,27 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, item store.Item, promptText string) error
 }
 
+// TargetOverrideDispatcher is an OPTIONAL capability a Dispatcher may
+// additionally implement: dispatch item to an explicitly chosen tmux pane,
+// bypassing Resolver's own scoring entirely. It exists for exactly one
+// caller — QueuePane's inline *AmbiguousTargetError picker (if-7mq2.1, see
+// tmux.go's AmbiguousTargetError doc comment and design.md § Target
+// resolution point 2's "AskUserQuestion-shaped inline pane list" framing):
+// once the operator has arrow-keyed to the candidate they actually want,
+// re-invoking the plain Dispatcher.Dispatch would re-run the identical
+// same-window/same-session/other scoring against the identical candidate
+// set and reproduce the exact same tie — there is no way to "just pick
+// one" through the narrow Dispatcher interface alone. Resolver implements
+// this (see resolver.go); a Dispatcher that doesn't (e.g. a bare test
+// fake, or any future Dispatcher that never grows tmux-pane targeting)
+// simply cannot resolve a tie through the picker — QueuePane type-asserts
+// for this interface and renders a "no override support" failure badge in
+// that case rather than silently no-op'ing or panicking.
+type TargetOverrideDispatcher interface {
+	Dispatcher
+	DispatchToPane(ctx context.Context, item store.Item, promptText, paneID string) error
+}
+
 // ErrPaneInCopyMode is returned when a TmuxDispatcher's target pane is in
 // copy-mode ("#{pane_in_mode}" == "1") — a paste into that pane would be
 // silently eaten, so the dispatch is refused rather than attempted. See

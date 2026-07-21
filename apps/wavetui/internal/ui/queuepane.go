@@ -38,6 +38,21 @@ var queueColumns = []table.Column{
 	{Title: "Fan-out", Width: 8},
 }
 
+// ambiguousPicker is QueuePane.ambiguousPicker's payload (if-7mq2.1): the
+// item/prompt the operator originally tried to dispatch, the tied
+// candidates a *dispatch.AmbiguousTargetError reported, and the picker's
+// own cursor into that slice — independent of q.table's own single-row
+// cursor, since the two navigate different lists. cursor's zero value (0)
+// is exactly "the first tied candidate" — an arbitrary but deterministic
+// starting point, since scoreCandidates (tmux.go) makes no ordering
+// promise beyond "all tied."
+type ambiguousPicker struct {
+	item       store.Item
+	promptText string
+	candidates []dispatch.Candidate
+	cursor     int
+}
+
 // QueuePane is a bubbles table implementing the Pane interface — see
 // design.md § Architecture and tasks.md [3.2].
 type QueuePane struct {
@@ -84,6 +99,23 @@ type QueuePane struct {
 	// rather than leaving a prior failure visible after a later success.
 	// Never populated by Update/a Snapshot — only startSelected touches it.
 	dispatchBadges map[string]string
+
+	// ambiguousPicker holds a pending target-disambiguation prompt
+	// (if-7mq2.1): populated when a Start dispatch's Dispatcher call
+	// returns *dispatch.AmbiguousTargetError (a same-window/same-session/
+	// other scoring tie among tmux panes — design.md § Target resolution
+	// point 2's own "never a silent pick" invariant), so the operator can
+	// resolve the tie with an inline, arrow-key-navigable candidate list —
+	// the "AskUserQuestion-shaped inline pane list" design.md's own prose
+	// names — instead of stepping outside wavetui to manually disambiguate
+	// (e.g. closing a duplicate tmux pane) before retrying. nil is the
+	// default (no tie pending) and the whole state whenever no dispatch has
+	// ever hit this error, or the operator already confirmed/cancelled a
+	// prior one — every pre-existing test in this package never triggers
+	// this and must keep rendering exactly as before. See
+	// handleAmbiguousPickerKey, which intercepts ALL keys ahead of HandleKey's
+	// normal switch whenever this is non-nil.
+	ambiguousPicker *ambiguousPicker
 
 	// selected is the wave-builder's multi-select accumulator (task [3.2]),
 	// keyed by item ID — toggled by "space" on the currently highlighted
@@ -341,13 +373,19 @@ func (q *QueuePane) rebuildLanes() {
 }
 
 // View implements Pane. Beyond the underlying table, it appends the
-// wave-builder's transient status lines (selection summary, ConflictsFor
-// warnings, last finalize outcome) when there is anything to show — see
-// waveStatusLines. A QueuePane with no selection and no wave activity yet
-// renders byte-for-byte identically to before this task (waveStatusLines
-// returns "" in that case, and the "\n"+"" append is skipped entirely).
+// ambiguous-target picker (if-7mq2.1, see renderAmbiguousPicker) when a Start
+// dispatch is currently tied on a candidate pane, then the wave-builder's
+// transient status lines (selection summary, ConflictsFor warnings, last
+// finalize outcome) when there is anything to show — see waveStatusLines. A
+// QueuePane with no picker open, no selection, and no wave activity yet
+// renders byte-for-byte identically to before either feature existed
+// (renderAmbiguousPicker/waveStatusLines both return "" in that case, and
+// each "\n"+"" append is skipped entirely).
 func (q *QueuePane) View() string {
 	view := q.table.View()
+	if picker := q.renderAmbiguousPicker(); picker != "" {
+		view += "\n" + picker
+	}
 	if extra := q.waveStatusLines(); extra != "" {
 		view += "\n" + extra
 	}
@@ -437,7 +475,20 @@ func (q *QueuePane) SetSize(width, height int) {
 // bubbles' table has no built-in binding for any of them, so this ordering
 // changes nothing about existing navigation, but keeps this pane the single
 // place that decides what each of its own keys means.
+//
+// When q.ambiguousPicker is non-nil (if-7mq2.1: a Start dispatch is
+// currently tied on a candidate pane), EVERY key is instead routed to
+// handleAmbiguousPickerKey, ahead of this switch and ahead of q.table.Update
+// — none of the six actions above, and none of the table's own row
+// navigation, may fire while a tie is still unresolved. This mirrors the
+// "intercepted before reaching the table" ordering the six keys above
+// already establish, just at the whole-method level rather than per-key.
 func (q *QueuePane) HandleKey(msg tea.KeyPressMsg) {
+	if q.ambiguousPicker != nil {
+		q.handleAmbiguousPickerKey(msg)
+		return
+	}
+
 	switch msg.String() {
 	case "enter":
 		q.startSelected()
@@ -464,6 +515,32 @@ func (q *QueuePane) HandleKey(msg tea.KeyPressMsg) {
 	_ = cmd // the table's own Update never returns a Cmd wavetui needs to run
 }
 
+// handleAmbiguousPickerKey handles every key while q.ambiguousPicker is
+// active (if-7mq2.1): "up"/"k" and "down"/"j" move the candidate cursor —
+// the same up/down+k/j convention sessionspane.go's own HandleKey already
+// establishes for a different pane's row cursor — clamped to the candidate
+// slice's bounds (never wrapping); "enter" confirms the highlighted
+// candidate (confirmAmbiguousPicker); "esc" cancels back to a plain failure
+// badge (cancelAmbiguousPicker). Any other key is a silent no-op: the
+// picker owns the keyboard entirely until the operator confirms or cancels,
+// per HandleKey's own doc comment above.
+func (q *QueuePane) handleAmbiguousPickerKey(msg tea.KeyPressMsg) {
+	switch msg.String() {
+	case "up", "k":
+		if q.ambiguousPicker.cursor > 0 {
+			q.ambiguousPicker.cursor--
+		}
+	case "down", "j":
+		if q.ambiguousPicker.cursor < len(q.ambiguousPicker.candidates)-1 {
+			q.ambiguousPicker.cursor++
+		}
+	case "enter":
+		q.confirmAmbiguousPicker()
+	case "esc":
+		q.cancelAmbiguousPicker()
+	}
+}
+
 // startSelected implements tasks.md [3.1]: dispatch the highlighted item via
 // the wired Dispatcher (Resolver in production) in one action, recording the
 // outcome as a transient per-item badge (see setDispatchBadge) rather than
@@ -472,6 +549,11 @@ func (q *QueuePane) HandleKey(msg tea.KeyPressMsg) {
 // or once whatever caused a failure is fixed. A nil dispatcher (SetDispatcher
 // never called — every pre-existing test, and any run before task [3.4]'s
 // wiring lands) or no current selection is a silent no-op, never a panic.
+//
+// A *dispatch.AmbiguousTargetError (if-7mq2.1) is the one Dispatch outcome
+// that does NOT fall through to the plain failure badge: openAmbiguousPicker
+// installs the inline candidate-disambiguation prompt instead, so the
+// operator can resolve the tie in-app rather than stepping outside wavetui.
 func (q *QueuePane) startSelected() {
 	item, ok := q.SelectedItem()
 	if !ok || q.dispatcher == nil {
@@ -481,8 +563,152 @@ func (q *QueuePane) startSelected() {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	err := q.dispatcher.Dispatch(ctx, item, renderPromptText(item))
+	prompt := renderPromptText(item)
+	err := q.dispatcher.Dispatch(ctx, item, prompt)
+
+	var ambigErr *dispatch.AmbiguousTargetError
+	if errors.As(err, &ambigErr) {
+		q.openAmbiguousPicker(item, prompt, ambigErr.Candidates)
+		return
+	}
 	q.setDispatchBadge(item.ID, err)
+}
+
+// openAmbiguousPicker installs the inline candidate-disambiguation prompt
+// (if-7mq2.1) startSelected opens on a *dispatch.AmbiguousTargetError,
+// replacing the plain "failed: ..." badge that error would otherwise render
+// via setDispatchBadge's default branch with a compact "ambiguous — pick
+// below" row badge (renderBlockerCell's existing dispatchBadges precedence
+// already applies unchanged) plus the full candidate list rendered by
+// renderAmbiguousPicker in View(). cursor starts at 0 (the first tied
+// candidate) — see ambiguousPicker's own doc comment for why any starting
+// index is equally arbitrary.
+func (q *QueuePane) openAmbiguousPicker(item store.Item, promptText string, candidates []dispatch.Candidate) {
+	q.ambiguousPicker = &ambiguousPicker{
+		item:       item,
+		promptText: promptText,
+		candidates: candidates,
+	}
+	if q.dispatchBadges == nil {
+		q.dispatchBadges = make(map[string]string)
+	}
+	q.dispatchBadges[item.ID] = "ambiguous — pick below"
+	q.rebuildRows()
+}
+
+// confirmAmbiguousPicker implements the picker's "enter" action
+// (if-7mq2.1): re-dispatch the item to the candidate currently highlighted
+// by q.ambiguousPicker.cursor. Requires q.dispatcher to implement
+// dispatch.TargetOverrideDispatcher (Resolver does, in production) — a
+// dispatcher that doesn't (e.g. a bare test fake wired directly) renders a
+// "no override support" failure badge instead of silently no-op'ing or
+// panicking, the same "never a silent pick" invariant this whole feature
+// exists to uphold, now applied to a caller that can't act on the
+// operator's actual choice either. Always dismisses the picker first
+// (single-shot: confirming re-dispatches exactly once, never loops), then
+// records the override dispatch's own outcome via the existing
+// setDispatchBadge, so a failed override still renders its own error text
+// rather than silently leaving the stale "ambiguous — pick below" badge.
+func (q *QueuePane) confirmAmbiguousPicker() {
+	p := q.ambiguousPicker
+	q.ambiguousPicker = nil
+	if p == nil || len(p.candidates) == 0 {
+		q.rebuildRows()
+		return
+	}
+	chosen := p.candidates[p.cursor]
+
+	overrider, ok := q.dispatcher.(dispatch.TargetOverrideDispatcher)
+	if !ok {
+		q.setDispatchBadge(p.item.ID, errors.New(
+			"dispatch target picked, but the wired dispatcher does not support an explicit target override",
+		))
+		return
+	}
+
+	ctx := q.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := overrider.DispatchToPane(ctx, p.item, p.promptText, chosen.PaneID)
+	q.setDispatchBadge(p.item.ID, err)
+}
+
+// cancelAmbiguousPicker implements the picker's "esc" action (if-7mq2.1):
+// dismiss the inline candidate list and fall back to the plain generic
+// failure badge the original *dispatch.AmbiguousTargetError's own Error()
+// text would have rendered had this picker never existed (setDispatchBadge's
+// default branch) — "cancel back to the failure-badge state," not a silent
+// dismiss that leaves the row looking unblocked.
+func (q *QueuePane) cancelAmbiguousPicker() {
+	p := q.ambiguousPicker
+	q.ambiguousPicker = nil
+	if p == nil {
+		return
+	}
+	q.setDispatchBadge(p.item.ID, &dispatch.AmbiguousTargetError{Candidates: p.candidates})
+}
+
+// renderAmbiguousPicker renders q.ambiguousPicker's inline candidate list
+// (if-7mq2.1) for View() — a header line naming the tied item and the
+// keybinding hints, then one line per candidate (renderAmbiguousCandidate)
+// with a "> " cursor marker on the currently highlighted one, the same
+// marker convention sessionspane.go's own renderRow already establishes for
+// a different pane's row cursor. Returns "" when no picker is open, so
+// View()'s "\n"+"" append is skipped entirely — the same "render nothing
+// extra when there's nothing to show" contract waveStatusLines already
+// follows.
+func (q *QueuePane) renderAmbiguousPicker() string {
+	p := q.ambiguousPicker
+	if p == nil {
+		return ""
+	}
+
+	lines := make([]string, 0, len(p.candidates)+1)
+	lines = append(lines, ambiguousPickerHeaderStyle.Render(fmt.Sprintf(
+		"dispatch target ambiguous for %s — %d candidates tied (up/down: select, enter: confirm, esc: cancel)",
+		p.item.ID, len(p.candidates),
+	)))
+	for i, c := range p.candidates {
+		lines = append(lines, renderAmbiguousCandidate(i == p.cursor, c))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ambiguousPickerHeaderStyle bolds the picker's header line (if-7mq2.1) —
+// plain Bold(true), matching this file's existing convention of reserving
+// color for error/significant-weight state (conflictWarningStyle) and
+// keeping merely-informational emphasis to weight alone.
+var ambiguousPickerHeaderStyle = lipgloss.NewStyle().Bold(true)
+
+// ambiguousCandidateCursorStyle highlights the picker's currently selected
+// candidate line (if-7mq2.1). Reuses color "212" — root.go's paneStyle uses
+// the exact same color for a focused pane's border — rather than
+// introducing a new arbitrary color for the same "this is the current
+// focus" semantic.
+var ambiguousCandidateCursorStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+
+// renderAmbiguousCandidate renders one candidate line of the picker
+// (if-7mq2.1): a "> "/"  " cursor marker, the candidate's pane ID, and its
+// session/window locality plus project/branch affinity (candidateScore's
+// own ranking inputs, tmux.go) so the operator can see WHY each candidate
+// tied, not just that it did.
+func renderAmbiguousCandidate(selected bool, c dispatch.Candidate) string {
+	marker := "  "
+	if selected {
+		marker = "> "
+	}
+	line := fmt.Sprintf("%s%s  session=%s window=%s", marker, c.PaneID, c.Session, c.Window)
+	if c.Project != "" {
+		line += "  project=" + c.Project
+	}
+	if c.Branch != "" {
+		line += " branch=" + c.Branch
+	}
+	if selected {
+		return ambiguousCandidateCursorStyle.Render(line)
+	}
+	return line
 }
 
 // renderPromptText renders the prompt text startSelected dispatches for

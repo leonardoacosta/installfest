@@ -457,6 +457,225 @@ func TestQueuePaneStartRefusesNonIDShapedItemBeforeAnyDispatchAttempt(t *testing
 	}
 }
 
+// --- if-7mq2.1: inline AmbiguousTargetError candidate picker -------------
+
+// fakeOverrideDispatcher is a dispatch.TargetOverrideDispatcher stand-in
+// (dispatch.go) recording both Dispatch and DispatchToPane calls — the
+// picker's confirm action (confirmAmbiguousPicker) needs a dispatcher that
+// implements the override capability, which the plain fakeDispatcher above
+// deliberately does not, so this is a separate fake rather than an
+// extension of that one.
+type fakeOverrideDispatcher struct {
+	dispatchErr error
+	overrideErr error
+
+	dispatchCalls int
+	overrideCalls int
+
+	lastOverrideItem   store.Item
+	lastOverridePane   string
+	lastOverridePrompt string
+}
+
+func (f *fakeOverrideDispatcher) Dispatch(_ context.Context, _ store.Item, _ string) error {
+	f.dispatchCalls++
+	return f.dispatchErr
+}
+
+func (f *fakeOverrideDispatcher) DispatchToPane(_ context.Context, item store.Item, promptText, paneID string) error {
+	f.overrideCalls++
+	f.lastOverrideItem = item
+	f.lastOverridePane = paneID
+	f.lastOverridePrompt = promptText
+	return f.overrideErr
+}
+
+// ambiguousErr is a small fixture shared by the picker tests below: two
+// tied candidates, mirroring resolver_test.go's own
+// TestResolverAmbiguousErrorPropagatesWithoutFallback fixture shape.
+func ambiguousErr() *dispatch.AmbiguousTargetError {
+	return &dispatch.AmbiguousTargetError{Candidates: []dispatch.Candidate{
+		{PaneID: "%1", Session: "main", Window: "1", Project: "installfest"},
+		{PaneID: "%2", Session: "main", Window: "2", Project: "installfest"},
+	}}
+}
+
+// TestQueuePaneStartAmbiguousErrorOpensInlinePicker asserts a tied dispatch
+// installs q.ambiguousPicker (rather than falling through to the plain
+// failure badge), renders a compact row badge, AND renders every tied
+// candidate's pane ID inline via View().
+func TestQueuePaneStartAmbiguousErrorOpensInlinePicker(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	fake := &fakeOverrideDispatcher{dispatchErr: ambiguousErr()}
+	q.SetDispatcher(context.Background(), fake)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if q.ambiguousPicker == nil {
+		t.Fatal("want an ambiguous picker opened after a tied dispatch")
+	}
+	if len(q.ambiguousPicker.candidates) != 2 {
+		t.Fatalf("want 2 candidates carried into the picker, got %d", len(q.ambiguousPicker.candidates))
+	}
+	if q.ambiguousPicker.cursor != 0 {
+		t.Fatalf("want the picker cursor to start at 0, got %d", q.ambiguousPicker.cursor)
+	}
+
+	view := q.View()
+	if !strings.Contains(view, "%1") || !strings.Contains(view, "%2") {
+		t.Fatalf("want both candidate pane IDs rendered inline, got:\n%s", view)
+	}
+	if !strings.Contains(firstDataRow(view), "ambiguous") {
+		t.Fatalf("want a compact ambiguous badge on the row, got:\n%s", firstDataRow(view))
+	}
+}
+
+// TestQueuePaneAmbiguousPickerNavigatesAndClampsCursor asserts up/down and
+// k/j both move the picker's own cursor (independent of q.table's row
+// cursor), clamped at both ends rather than wrapping.
+func TestQueuePaneAmbiguousPickerNavigatesAndClampsCursor(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	err := &dispatch.AmbiguousTargetError{Candidates: []dispatch.Candidate{
+		{PaneID: "%1"}, {PaneID: "%2"}, {PaneID: "%3"},
+	}}
+	q.SetDispatcher(context.Background(), &fakeOverrideDispatcher{dispatchErr: err})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // open the picker
+
+	// Cannot go above the top.
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyUp})
+	if q.ambiguousPicker.cursor != 0 {
+		t.Fatalf("want cursor clamped at 0, got %d", q.ambiguousPicker.cursor)
+	}
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if q.ambiguousPicker.cursor != 1 {
+		t.Fatalf("want cursor at 1 after down, got %d", q.ambiguousPicker.cursor)
+	}
+	q.HandleKey(tea.KeyPressMsg{Text: "j"})
+	if q.ambiguousPicker.cursor != 2 {
+		t.Fatalf("want cursor at 2 after j, got %d", q.ambiguousPicker.cursor)
+	}
+	// Cannot go past the last candidate.
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	if q.ambiguousPicker.cursor != 2 {
+		t.Fatalf("want cursor clamped at 2, got %d", q.ambiguousPicker.cursor)
+	}
+	q.HandleKey(tea.KeyPressMsg{Text: "k"})
+	if q.ambiguousPicker.cursor != 1 {
+		t.Fatalf("want cursor at 1 after k, got %d", q.ambiguousPicker.cursor)
+	}
+}
+
+// TestQueuePaneAmbiguousPickerConfirmDispatchesToChosenCandidate asserts
+// "enter" re-dispatches via DispatchToPane (not the plain Dispatch) with
+// the candidate under the picker's cursor at confirm time, the original
+// item and prompt text unchanged, and dismisses the picker + clears the
+// row badge on success.
+func TestQueuePaneAmbiguousPickerConfirmDispatchesToChosenCandidate(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	fake := &fakeOverrideDispatcher{dispatchErr: ambiguousErr()}
+	q.SetDispatcher(context.Background(), fake)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // open the picker
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})  // move onto "%2"
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // confirm
+
+	if fake.overrideCalls != 1 {
+		t.Fatalf("want DispatchToPane called exactly once, got %d", fake.overrideCalls)
+	}
+	if fake.lastOverridePane != "%2" {
+		t.Fatalf("want the operator-chosen pane %q dispatched to, got %q", "%2", fake.lastOverridePane)
+	}
+	if fake.lastOverrideItem.ID != "if-1234" {
+		t.Fatalf("want the original item re-dispatched, got %q", fake.lastOverrideItem.ID)
+	}
+	if fake.lastOverridePrompt != "/apply if-1234" {
+		t.Fatalf("want the original prompt text reused unchanged, got %q", fake.lastOverridePrompt)
+	}
+	if q.ambiguousPicker != nil {
+		t.Fatal("want the picker dismissed after a confirm")
+	}
+	if strings.Contains(firstDataRow(q.View()), "ambiguous") {
+		t.Fatalf("want the ambiguous badge cleared after a successful override dispatch, got:\n%s", firstDataRow(q.View()))
+	}
+}
+
+// TestQueuePaneAmbiguousPickerEscapeCancelsToFailureBadge asserts "esc"
+// dismisses the picker WITHOUT ever calling DispatchToPane, falling back to
+// the plain generic failure badge the original AmbiguousTargetError would
+// have rendered had the picker never existed.
+func TestQueuePaneAmbiguousPickerEscapeCancelsToFailureBadge(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	fake := &fakeOverrideDispatcher{dispatchErr: ambiguousErr()}
+	q.SetDispatcher(context.Background(), fake)
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if q.ambiguousPicker != nil {
+		t.Fatal("want the picker dismissed after esc")
+	}
+	if fake.overrideCalls != 0 {
+		t.Fatalf("want DispatchToPane never called on cancel, got %d", fake.overrideCalls)
+	}
+	// The Blocker column is a fixed 24-wide table cell (queueColumns), so the
+	// full AmbiguousTargetError message ("...ambiguous: 2 candidates tied for
+	// the top score") renders truncated with an ellipsis — the same
+	// leading-text-only assertion
+	// TestQueuePaneStartRefusesNonIDShapedItemBeforeAnyDispatchAttempt already
+	// uses for an equally long refusal message in this same column.
+	row := firstDataRow(q.View())
+	if !strings.Contains(row, "failed:") || !strings.Contains(row, "dispatch target") {
+		t.Fatalf("want a plain ambiguous failure badge after cancel, got:\n%s", row)
+	}
+}
+
+// TestQueuePaneAmbiguousPickerConfirmWithoutOverrideSupportRendersFailure
+// asserts confirming against a Dispatcher that does NOT implement
+// dispatch.TargetOverrideDispatcher (the plain fakeDispatcher, same as
+// production code would see from a hypothetical future Dispatcher that
+// never grows tmux-pane targeting) dismisses the picker and renders a
+// failure badge rather than panicking or silently no-op'ing.
+func TestQueuePaneAmbiguousPickerConfirmWithoutOverrideSupportRendersFailure(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	fake := &fakeDispatcher{err: ambiguousErr()}
+	q.SetDispatcher(context.Background(), fake)
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter}) // confirm attempt
+
+	if q.ambiguousPicker != nil {
+		t.Fatal("want the picker dismissed even without override support")
+	}
+	if !strings.Contains(firstDataRow(q.View()), "failed:") {
+		t.Fatalf("want a failure badge when the wired dispatcher can't act on the operator's pick, got:\n%s", firstDataRow(q.View()))
+	}
+}
+
+// TestQueuePaneAmbiguousPickerSuppressesOtherKeysWhileOpen asserts the
+// picker owns the keyboard entirely: "space" (wave-builder select) must not
+// fire while a tie is unresolved, and the picker must remain open.
+func TestQueuePaneAmbiguousPickerSuppressesOtherKeysWhileOpen(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "if-1234", Title: "Alpha"}}})
+	q.SetDispatcher(context.Background(), &fakeOverrideDispatcher{dispatchErr: ambiguousErr()})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+
+	if len(q.SelectedForWave()) != 0 {
+		t.Fatal("want space suppressed while the ambiguous picker is active")
+	}
+	if q.ambiguousPicker == nil {
+		t.Fatal("want the picker to remain open")
+	}
+}
+
 // --- wavetui-dispatch (tasks.md [3.2]) select mode -----------------------
 
 func TestQueuePaneToggleSelectedOrdersByFanOutScoreDescending(t *testing.T) {

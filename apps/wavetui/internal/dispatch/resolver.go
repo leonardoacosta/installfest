@@ -88,3 +88,32 @@ func (r *Resolver) Dispatch(ctx context.Context, item store.Item, promptText str
 	}
 	return err
 }
+
+// DispatchToPane implements TargetOverrideDispatcher (dispatch.go) — the
+// confirm action of QueuePane's inline *AmbiguousTargetError picker
+// (if-7mq2.1). It bypasses TmuxDispatcher.resolveTarget's own scoring
+// entirely: the caller already knows exactly which pane the operator
+// picked from a prior tie's Candidates, so re-running the plain Dispatch
+// unchanged would re-score the identical candidate set and reproduce the
+// same tie rather than act on the operator's choice.
+//
+// item.ID is still validated via validateDispatchTarget first — the same
+// choke point Dispatch itself runs before either concrete Dispatcher is
+// ever invoked — so an explicit-target confirm can't become a second,
+// unvalidated path across the dispatch boundary. paneID's own shape is
+// validated by TmuxDispatcher.Dispatch itself (via validateTmuxPaneID),
+// exactly as it already does for a linked-session PaneID: setting
+// targeted.Session.PaneID here makes TmuxDispatcher.resolveTarget take its
+// existing "already resolved" branch (tmux.go's point 1) rather than a new
+// code path, so no additional validation call is needed here. Clipboard is
+// deliberately never consulted — an explicit pane pick is, by definition,
+// not the "no tmux target at all" case ErrNoDispatchTarget names, so
+// Resolver.Dispatch's own fallback rule does not apply.
+func (r *Resolver) DispatchToPane(ctx context.Context, item store.Item, promptText, paneID string) error {
+	if err := validateDispatchTarget(item.ID); err != nil {
+		return err
+	}
+	targeted := item
+	targeted.Session = &store.SessionLink{PaneID: paneID}
+	return r.Tmux.Dispatch(ctx, targeted, promptText)
+}
