@@ -33,7 +33,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [3.1] Verify end-to-end: with a real (or realistically stubbed) `Snapshot` containing a mix [beads:if-adpc]
+- [x] [3.1] Verify end-to-end: with a real (or realistically stubbed) `Snapshot` containing a mix [beads:if-adpc]
       of blocked, claimed, and eligible items, toggle admission on via the keybinding and confirm
       `Dispatch` is called for eligible items in `FanOutScore` order, stops at the concurrency
       cap, and that toggling admission back off stops further admission on the next snapshot
