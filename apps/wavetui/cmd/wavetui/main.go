@@ -40,6 +40,14 @@ import (
 // wave is ever a live artifact a downstream dispatcher would read.
 const waveFileName = ".wavetui-wave.json"
 
+// headlessPIDFileName is where HeadlessDispatcher persists its live
+// children's PIDs (daemon.HeadlessPIDEntry) so an operator can discover and
+// reap them after a crash — see if-ugxa.1 and
+// daemon.HeadlessDispatcherOption's WithPIDFile doc comment. Same
+// project-root-relative, single-fixed-path convention as waveFileName
+// above and config.FileName (".wavetui.toml" sits beside it too).
+const headlessPIDFileName = ".wavetui-headless-pids.json"
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -165,9 +173,29 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	// Snapshot.HeadlessQueue (no source in this proposal does — see
 	// design.md § Additive Snapshot field), which is the expected common
 	// case for every run today.
-	headlessDispatcher := daemon.NewHeadlessDispatcher(cfg.EffectiveHeadlessConcurrencyCap(), b)
+	headlessPIDPath := filepath.Join(cwd, headlessPIDFileName)
+	headlessDispatcher := daemon.NewHeadlessDispatcher(
+		cfg.EffectiveHeadlessConcurrencyCap(), b,
+		daemon.WithPIDFile(headlessPIDPath),
+	)
 	daemonCtrl := daemon.NewController(headlessDispatcher)
 	root.AppendPane(ui.NewHeadlessBar(daemonCtrl))
+
+	// if-ugxa.1: surface (never silently swallow) any headless-child PIDs
+	// this dispatcher found already recorded in headlessPIDPath at
+	// startup — evidence of a prior wavetui process that crashed or was
+	// killed with in-flight children, which may still be running
+	// unsupervised. Printed here (before tea.NewProgram takes over the
+	// terminal below) rather than routed through the bus/UI: this is a
+	// one-shot preflight diagnostic, not ongoing Store state, and matches
+	// this same function's existing "wavetui: ..." stderr convention (see
+	// isExpectedShutdown/main's own error path). Deciding whether/how to
+	// let an operator act on these (a dedicated UI banner, a
+	// `--cleanup-orphans` flag) is left to a follow-up — see
+	// daemon.HeadlessDispatcher.StalePIDsAtStartup's doc comment.
+	if stale := headlessDispatcher.StalePIDsAtStartup(); len(stale) > 0 {
+		fmt.Fprintf(os.Stderr, "wavetui: found %d headless child PID(s) recorded from a prior run in %s — they may still be running unsupervised after a crash; verify with `ps` and clean up manually if stale\n", len(stale), headlessPIDPath)
+	}
 
 	program := tea.NewProgram(model, tea.WithContext(ctx))
 

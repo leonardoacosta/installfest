@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -196,11 +197,134 @@ func TestE2ERealProcessFailureSurfacesImmediatelyNoAutoRetry(t *testing.T) {
 	t.Logf("EVIDENCE: 500ms after the failure event (shortened from tasks.md's 'multi-minute' window, see doc comment), real os/exec start count is still %d — no auto re-dispatch", rr.startCount())
 }
 
+// TestE2EHeadlessPIDFilePersistsAndClearsOnNormalExit is the real-process
+// verification for if-ugxa.1's core lifecycle: a headless-dispatched child
+// backed by a real OS process (not a fakeWaiter double) must gain a
+// HeadlessPIDEntry in the on-disk PID file the moment it starts — with its
+// actual PID, not a placeholder — and that entry must be removed once the
+// child exits normally through awaitExit's own completion path, with no
+// separate cleanup step and no operator action required for the happy
+// path.
+func TestE2EHeadlessPIDFilePersistsAndClearsOnNormalExit(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "headless-pids.json")
+
+	fb := &fakeBus{}
+	d := NewHeadlessDispatcher(1, fb, WithPIDFile(pidPath))
+	rr := &realProcRunner{}
+	d.runner = rr
+	ctx := context.Background()
+
+	if err := d.Dispatch(ctx, store.Item{ID: "pid-a"}, "sleep 0.3"); err != nil {
+		t.Fatalf("Dispatch (real process): %v", err)
+	}
+
+	d.mu.Lock()
+	hp := d.running["pid-a"]
+	d.mu.Unlock()
+	childPID := hp.proc.(*exec.Cmd).Process.Pid
+	if !alive(t, childPID) {
+		t.Fatalf("real child pid=%d not alive right after dispatch", childPID)
+	}
+
+	var entries []HeadlessPIDEntry
+	waitFor(t, 2*time.Second, func() bool {
+		var err error
+		entries, err = LoadHeadlessPIDFile(pidPath)
+		return err == nil && len(entries) == 1
+	})
+	if len(entries) != 1 || entries[0].ItemID != "pid-a" || entries[0].PID != childPID {
+		t.Fatalf("pid file after real dispatch = %+v, want one entry {ItemID:pid-a PID:%d}", entries, childPID)
+	}
+	t.Logf("EVIDENCE: pid file %s gained a real entry the moment the child started: %+v", pidPath, entries)
+
+	// Let the real child exit on its own (a genuine `sleep 0.3` completion,
+	// not a signal) and confirm the on-disk entry is removed via
+	// awaitExit's own unregisterPID call — no test-side cleanup involved.
+	waitFor(t, 2*time.Second, func() bool {
+		entries, err := LoadHeadlessPIDFile(pidPath)
+		return err == nil && len(entries) == 0
+	})
+	entries, err := LoadHeadlessPIDFile(pidPath)
+	if err != nil {
+		t.Fatalf("LoadHeadlessPIDFile after normal exit: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("pid file after real child's normal exit = %+v, want empty", entries)
+	}
+	t.Logf("EVIDENCE: pid file empty after the real child's normal exit — entry correctly removed by awaitExit")
+}
+
+// TestE2EHeadlessPIDFileClearsOnKilledChild verifies the on-disk PID entry
+// is removed via the SAME path (awaitExit's Wait() completion ->
+// unregisterPID) whether a real child exits gracefully or is forcibly
+// killed out from under it via cmd.Process.Kill() — a killed child still
+// makes cmd.Wait() return (with a signal-killed *exec.ExitError instead of
+// a clean exit), so awaitExit still fires and the entry is still cleared.
+//
+// DOCUMENTED REASON this is expected, not a gap: the failure mode if-ugxa.1
+// actually guards against is the DAEMON process dying before awaitExit ever
+// gets to run — see TestE2EChildProcessSurvivesWhenDaemonKilled below,
+// which is where the real "entry must survive" assertion lives. Killing
+// only the child while the daemon (this test process) stays alive to
+// observe the Wait() return is a different, benign case; this test exists
+// to confirm it really is benign rather than assuming it.
+func TestE2EHeadlessPIDFileClearsOnKilledChild(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "headless-pids.json")
+
+	fb := &fakeBus{}
+	d := NewHeadlessDispatcher(1, fb, WithPIDFile(pidPath))
+	rr := &realProcRunner{}
+	d.runner = rr
+	ctx := context.Background()
+
+	if err := d.Dispatch(ctx, store.Item{ID: "pid-killed"}, "sleep 30"); err != nil {
+		t.Fatalf("Dispatch (real process): %v", err)
+	}
+
+	d.mu.Lock()
+	hp := d.running["pid-killed"]
+	d.mu.Unlock()
+	childPID := hp.proc.(*exec.Cmd).Process.Pid
+
+	// Confirm the entry is durably on disk — "known before this test's own
+	// kill runs" — before the forced kill happens.
+	entriesBefore, err := LoadHeadlessPIDFile(pidPath)
+	if err != nil || len(entriesBefore) != 1 || entriesBefore[0].PID != childPID {
+		t.Fatalf("pid file before kill = %+v (err=%v), want one entry for pid=%d", entriesBefore, err, childPID)
+	}
+	t.Logf("EVIDENCE: pid file confirms real child pid=%d tracked before the forced kill: %+v", childPID, entriesBefore)
+
+	if err := hp.proc.(*exec.Cmd).Process.Kill(); err != nil {
+		t.Fatalf("kill real child pid=%d: %v", childPID, err)
+	}
+
+	waitFor(t, 2*time.Second, func() bool {
+		entries, err := LoadHeadlessPIDFile(pidPath)
+		return err == nil && len(entries) == 0
+	})
+	entriesAfter, err := LoadHeadlessPIDFile(pidPath)
+	if err != nil {
+		t.Fatalf("LoadHeadlessPIDFile after kill: %v", err)
+	}
+	if len(entriesAfter) != 0 {
+		t.Fatalf("pid file after forced kill = %+v, want empty (awaitExit must still clear it)", entriesAfter)
+	}
+	t.Logf("EVIDENCE: pid file empty after forcibly killing the real child — awaitExit's Wait() return still fired and cleared the entry")
+}
+
 // e2eHarnessEnv gates TestE2EDaemonHarnessProcess's real body — set only by
 // TestE2EChildProcessSurvivesWhenDaemonKilled on the re-exec'd child
 // process it spawns. Unset (the normal `go test` case, including the full
 // `go test -race ./...` run), the harness test is a fast no-op skip.
 const e2eHarnessEnv = "WAVETUI_E2E_HARNESS_CHILD"
+
+// e2eHarnessPIDFileEnv, when set on the re-exec'd harness process, is the
+// path TestE2EDaemonHarnessProcess passes to daemon.WithPIDFile — letting
+// TestE2EChildProcessSurvivesWhenDaemonKilled prove the on-disk PID entry
+// survives the "daemon" being SIGKILLed out from under it (if-ugxa.1's core
+// claim), by reading the file itself, from a process that stays alive
+// after the kill.
+const e2eHarnessPIDFileEnv = "WAVETUI_E2E_HARNESS_PIDFILE"
 
 // harnessRunner is a headlessRunner used ONLY by TestE2EDaemonHarnessProcess.
 // Unlike realProcRunner above, it captures the spawned child's stdout —
@@ -240,7 +364,11 @@ func TestE2EDaemonHarnessProcess(t *testing.T) {
 	}
 
 	fb := &fakeBus{}
-	d := NewHeadlessDispatcher(1, fb)
+	var opts []HeadlessDispatcherOption
+	if pidPath := os.Getenv(e2eHarnessPIDFileEnv); pidPath != "" {
+		opts = append(opts, WithPIDFile(pidPath))
+	}
+	d := NewHeadlessDispatcher(1, fb, opts...)
 	hr := &harnessRunner{line: make(chan string, 8)}
 	d.runner = hr
 
@@ -286,8 +414,10 @@ func TestE2EDaemonHarnessProcess(t *testing.T) {
 // way — this test does not assert a particular survival outcome, only that
 // real evidence was captured and that this test cleans up after itself.
 func TestE2EChildProcessSurvivesWhenDaemonKilled(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "headless-pids.json")
+
 	cmd := exec.Command(os.Args[0], "-test.run=^TestE2EDaemonHarnessProcess$")
-	cmd.Env = append(os.Environ(), e2eHarnessEnv+"=1")
+	cmd.Env = append(os.Environ(), e2eHarnessEnv+"=1", e2eHarnessPIDFileEnv+"="+pidPath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatalf("harness stdout pipe: %v", err)
@@ -357,6 +487,29 @@ func TestE2EChildProcessSurvivesWhenDaemonKilled(t *testing.T) {
 		"  child pid=%d alive=%v\n%s\n"+
 		"  grandchild pid=%d alive=%v\n%s",
 		daemonPID, childPID, childAlive, string(childPS), grandchildPID, grandAlive, string(grandPS))
+
+	// if-ugxa.1's actual claim under test: the PID-file entry for the
+	// headless child must survive the daemon process's own violent death —
+	// this is read from OUTSIDE, by this still-alive test process, exactly
+	// as an operator restarting wavetui (or just `cat`-ing the file) would
+	// after a real crash. The write happened synchronously inside the
+	// harness's Dispatch call, before it ever printed CHILD_PID/
+	// HARNESS_READY, so it is already durable on disk regardless of what
+	// happened to the harness process afterward.
+	pidEntries, err := LoadHeadlessPIDFile(pidPath)
+	if err != nil {
+		t.Fatalf("LoadHeadlessPIDFile(%s) after SIGKILLing the daemon: %v", pidPath, err)
+	}
+	found := false
+	for _, e := range pidEntries {
+		if e.ItemID == "harness-child" && e.PID == childPID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pid-file entry for the (possibly still-running) child pid=%d was lost after the daemon was SIGKILLed — want it to survive so an operator can discover/reap it later; got %+v", childPID, pidEntries)
+	}
+	t.Logf("EVIDENCE: pid-file entry for child pid=%d survived the daemon's SIGKILL (%+v) — an operator restarting wavetui, or reading %s directly, can discover and reap it; this is exactly the orphan-discovery gap if-ugxa.1 closes", childPID, pidEntries, pidPath)
 
 	// Cleanup — never leave the real sleep-20 grandchild or its sh parent
 	// running past this test, regardless of what the evidence above shows.

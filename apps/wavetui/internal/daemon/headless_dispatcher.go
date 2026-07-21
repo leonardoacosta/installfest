@@ -10,13 +10,17 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/config"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
@@ -102,6 +106,69 @@ func (execHeadlessRunner) Start(ctx context.Context, promptText string) (waiter,
 	return cmd, nil
 }
 
+// HeadlessPIDEntry is one persisted record of a live (or believed-live)
+// headless child — enough for an operator to identify and reap it from the
+// process table after wavetui itself has crashed and is no longer around to
+// do that automatically (if-ugxa.1: "an operator has no way to discover or
+// clean them up short of manually scanning the process table for stray
+// claude -p invocations"). PID alone is not enough context to act on
+// safely — a bare number is meaningless once you're staring at `ps aux` — so
+// ItemID and StartedAt travel with it.
+type HeadlessPIDEntry struct {
+	ItemID    string    `json:"item_id"`
+	PID       int       `json:"pid"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// HeadlessDispatcherOption configures optional HeadlessDispatcher behavior
+// at construction time. The only option today is WithPIDFile; the variadic
+// signature on NewHeadlessDispatcher exists so adding a second option later
+// never breaks an existing two-argument call site.
+type HeadlessDispatcherOption func(*HeadlessDispatcher)
+
+// WithPIDFile enables on-disk PID-file persistence at path: every headless
+// child gains a HeadlessPIDEntry there the moment it starts, and loses it
+// the moment awaitExit observes its real exit (see registerPID/
+// unregisterPID). Omitting this option (the default for every existing
+// test in this package) disables persistence entirely — no file is ever
+// read or written, which is exactly why the many hermetic
+// fakeRunner/fakeWaiter-based tests elsewhere in this package needed no
+// changes to keep working. cmd/wavetui/main.go is the one production call
+// site, passing a project-root-relative path beside .wavetui.toml — the
+// same convention waveFileName already established for
+// .wavetui-wave.json.
+func WithPIDFile(path string) HeadlessDispatcherOption {
+	return func(d *HeadlessDispatcher) { d.pidFilePath = path }
+}
+
+// LoadHeadlessPIDFile reads path (as written by writePIDFileLocked) and
+// returns its entries. A missing file is not an error — it is the expected
+// case on a fresh project or after a clean shutdown that left nothing
+// behind — and returns (nil, nil), the same tolerant-missing-file
+// convention config.Load already uses for .wavetui.toml. Exported so a
+// future standalone cleanup path (e.g. a `wavetui --cleanup-orphans` flag,
+// out of scope for this bead — see NewHeadlessDispatcher's doc comment on
+// StalePIDsAtStartup) can read the file independently of ever constructing
+// a HeadlessDispatcher, and so this package's own tests can assert on
+// exactly what landed on disk.
+func LoadHeadlessPIDFile(path string) ([]HeadlessPIDEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var entries []HeadlessPIDEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
 // headlessProc is one child HeadlessDispatcher is tracking for slot
 // accounting — never a handle used to kill or signal it. See
 // releaseSlotIfZombie's doc comment for why this proposal never kills a
@@ -136,6 +203,27 @@ type HeadlessDispatcher struct {
 	paused      bool
 	pausedSince time.Time
 	pauseSignal *store.RateLimitSignal
+
+	// pidFilePath, pidEntries, and stalePIDs back the WithPIDFile option
+	// (if-ugxa.1). pidFilePath == "" (the default, unless WithPIDFile was
+	// passed to NewHeadlessDispatcher) disables all of it — registerPID/
+	// unregisterPID become no-ops and no file is ever touched.
+	pidFilePath string
+	// pidEntries mirrors `running` but is deliberately a SEPARATE map with
+	// its own lifecycle: entries are added in Dispatch (same moment as
+	// `running`) but removed ONLY by awaitExit's real Wait() completion —
+	// never by releaseSlotIfZombie, which stops counting an item toward
+	// ActiveCount/the semaphore without any claim the underlying OS process
+	// has actually exited (see releaseSlotIfZombie's own doc comment: "the
+	// underlying process may still be alive"). Deriving the PID file from
+	// `running` directly would silently drop a genuinely-still-running
+	// zombie-released child from the very file this bead exists to keep
+	// accurate — exactly the discoverability gap being closed.
+	pidEntries map[string]HeadlessPIDEntry
+	// stalePIDs is populated once, at construction, from whatever
+	// pidFilePath already contained (e.g. a prior crashed run) — see
+	// StalePIDsAtStartup.
+	stalePIDs []HeadlessPIDEntry
 }
 
 // NewHeadlessDispatcher constructs a HeadlessDispatcher bounded to cap
@@ -145,16 +233,62 @@ type HeadlessDispatcher struct {
 // override) happens one layer up, in config.Config's own
 // EffectiveHeadlessConcurrencyCap; by the time cap reaches this
 // constructor it is expected to already be that resolved, positive value.
-func NewHeadlessDispatcher(cap int, b EventBus) *HeadlessDispatcher {
+//
+// If a WithPIDFile option is passed and the named file already contains
+// entries (a prior process's children that were never cleanly reaped —
+// if-ugxa.1's whole reason for existing), they are loaded into
+// StalePIDsAtStartup for the caller to surface, NOT merged into this
+// instance's own live bookkeeping — this fresh dispatcher never dispatched
+// them, so it has no basis to track or release them. The file is left
+// on disk untouched until this instance's own first Dispatch/awaitExit
+// rewrites it with its own (accurate, from-scratch) state.
+func NewHeadlessDispatcher(cap int, b EventBus, opts ...HeadlessDispatcherOption) *HeadlessDispatcher {
 	if cap <= 0 {
 		cap = 1
 	}
-	return &HeadlessDispatcher{
-		sem:     make(chan struct{}, cap),
-		bus:     b,
-		runner:  execHeadlessRunner{},
-		running: make(map[string]*headlessProc),
+	d := &HeadlessDispatcher{
+		sem:        make(chan struct{}, cap),
+		bus:        b,
+		runner:     execHeadlessRunner{},
+		running:    make(map[string]*headlessProc),
+		pidEntries: make(map[string]HeadlessPIDEntry),
 	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	if d.pidFilePath != "" {
+		if stale, err := LoadHeadlessPIDFile(d.pidFilePath); err == nil {
+			d.stalePIDs = stale
+		}
+		// A read error here (malformed JSON, permission denied) is not
+		// fatal to constructing a working dispatcher — it just means no
+		// stale-PID note can be surfaced this run, same
+		// tolerant-toward-a-bad-file posture config.Load already takes
+		// toward a malformed .wavetui.toml line.
+	}
+	return d
+}
+
+// StalePIDsAtStartup returns any headless-child PID entries this
+// dispatcher found already recorded in its PID file at construction time —
+// evidence of a prior process's children that were never cleanly reaped
+// (most likely because the daemon itself crashed or was killed before
+// awaitExit could run). Empty whenever WithPIDFile was not used, the file
+// was absent, or it was empty.
+//
+// Scope decision for if-ugxa.1: this accessor plus a construction-time
+// read is as far as this bead goes. cmd/wavetui/main.go uses it to print a
+// one-line stderr note (matching main.go's existing "wavetui: ..."
+// diagnostic convention) so a stale entry is never silently invisible.
+// Actually killing/reaping those PIDs, or surfacing them as a dedicated UI
+// banner/pane, is deliberately left to a future follow-up (the bead's own
+// "not required now" `wavetui --cleanup-orphans` flag) — deciding whether
+// a found-but-possibly-still-running process is safe to kill is an
+// operator judgment call this package should not make unilaterally, the
+// same caution releaseSlotIfZombie's doc comment already applies to a
+// live-but-zombied item.
+func (d *HeadlessDispatcher) StalePIDsAtStartup() []HeadlessPIDEntry {
+	return d.stalePIDs
 }
 
 // composePrompt builds the `claude -p` prompt for item: a plain
@@ -210,10 +344,94 @@ func (d *HeadlessDispatcher) Dispatch(ctx context.Context, item store.Item, prom
 	d.mu.Lock()
 	d.running[item.ID] = hp
 	d.mu.Unlock()
+	d.registerPID(item.ID, extractPID(proc), hp.startedAt)
 	d.publishState()
 
 	go d.awaitExit(item.ID, hp)
 	return nil
+}
+
+// extractPID best-effort recovers the OS PID of a just-started child for
+// the PID-file entry. proc is a waiter — deliberately the narrowest
+// interface Dispatch needs (just Wait() error) so hermetic tests can inject
+// a fakeWaiter instead of a real process — so this cannot be a method on
+// the interface itself; it type-switches on the one concrete type real
+// runners actually produce (execHeadlessRunner and this package's own
+// e2e-test realProcRunner/harnessRunner all return a bare *exec.Cmd as
+// waiter). A fakeWaiter (every hermetic test in headless_dispatcher_test.go
+// and daemon_test.go) falls through to 0 — there is no real OS process to
+// record a PID for, and none of those tests pass WithPIDFile anyway, so the
+// 0 is never written anywhere.
+func extractPID(proc waiter) int {
+	if cmd, ok := proc.(*exec.Cmd); ok && cmd.Process != nil {
+		return cmd.Process.Pid
+	}
+	return 0
+}
+
+// registerPID adds itemID's PID-file entry and persists it — see
+// pidEntries' doc comment for why this is a separate map from `running`,
+// and WithPIDFile's doc comment for why pidFilePath == "" makes this a
+// no-op (the overwhelming majority of this package's own tests).
+func (d *HeadlessDispatcher) registerPID(itemID string, pid int, startedAt time.Time) {
+	if d.pidFilePath == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.pidEntries[itemID] = HeadlessPIDEntry{ItemID: itemID, PID: pid, StartedAt: startedAt}
+	d.writePIDFileLocked()
+}
+
+// unregisterPID removes itemID's PID-file entry and persists it. Called
+// ONLY from awaitExit's real Wait() completion — never from
+// releaseSlotIfZombie, which does not (and must not) imply the underlying
+// process has actually exited. See pidEntries' doc comment.
+func (d *HeadlessDispatcher) unregisterPID(itemID string) {
+	if d.pidFilePath == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.pidEntries, itemID)
+	d.writePIDFileLocked()
+}
+
+// writePIDFileLocked snapshots d.pidEntries and atomically rewrites
+// d.pidFilePath via config.AtomicWriteFile — the same temp-file+rename
+// helper the codebase already uses, not a bespoke write (per the reader/
+// reuse gate). Caller MUST hold d.mu. Unlike publishState (which
+// deliberately releases d.mu before its bus.Publish call, so a slow
+// subscriber can never block on this dispatcher's own mutex — see
+// publishState's doc comment), holding the lock across this write is safe
+// and intentional: AtomicWriteFile is a local, fast, no-callback file
+// write, and holding the lock is the simplest way to keep two concurrent
+// register/unregister calls from racing each other into an out-of-order
+// (older-overwrites-newer) file write.
+//
+// A marshal or write failure is logged to stderr rather than returned —
+// Dispatch/awaitExit's own contracts (admission decision / exit
+// notification) must never fail or block because a best-effort operator
+// convenience file couldn't be written (e.g. a full disk or a read-only
+// project directory); the child itself is unaffected either way. This
+// mirrors cmd/wavetui/main.go's own top-level "wavetui: <err>" stderr
+// convention for surfacing a non-fatal problem instead of swallowing it
+// silently.
+func (d *HeadlessDispatcher) writePIDFileLocked() {
+	entries := make([]HeadlessPIDEntry, 0, len(d.pidEntries))
+	for _, e := range d.pidEntries {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].ItemID < entries[j].ItemID })
+
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wavetui: headless pid-file marshal failed: %v\n", err)
+		return
+	}
+	if err := config.AtomicWriteFile(d.pidFilePath, data, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "wavetui: headless pid-file persist failed (%s): %v\n", d.pidFilePath, err)
+	}
 }
 
 // awaitExit blocks for the child's exit and publishes HeadlessExitEvent
@@ -228,6 +446,14 @@ func (d *HeadlessDispatcher) awaitExit(itemID string, hp *headlessProc) {
 	hp.slotReleased = true
 	delete(d.running, itemID)
 	d.mu.Unlock()
+
+	// This is the ONLY place the PID-file entry is ever removed (if-ugxa.1)
+	// — a real Wait() return is the one honest signal the OS process is
+	// actually gone. Deliberately unconditional (unlike the semaphore
+	// release below): even if releaseSlotIfZombie already stopped counting
+	// this item toward ActiveCount, its PID-file entry stays until this
+	// point proves the process itself is done.
+	d.unregisterPID(itemID)
 
 	// releaseSlotIfZombie may have already freed this slot early (design.md
 	// § Zombie interaction) — only release it here if that hasn't already
@@ -332,6 +558,12 @@ func (d *HeadlessDispatcher) resume() {
 // or its slot was already released by a prior call / its own natural
 // exit) — safe to call on every Snapshot for every zombie-flagged item
 // without first checking whether this dispatcher even knows about it.
+//
+// Deliberately never calls unregisterPID (if-ugxa.1): this method's whole
+// contract is "the process may still be alive," so clearing its PID-file
+// entry here would recreate the exact orphan-discoverability gap that
+// mechanism exists to close. The entry is removed only by awaitExit's own
+// real Wait() completion, whenever (if ever) that happens.
 func (d *HeadlessDispatcher) releaseSlotIfZombie(itemID string) {
 	d.mu.Lock()
 	hp, ok := d.running[itemID]
