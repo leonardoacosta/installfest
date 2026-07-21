@@ -21,7 +21,7 @@
 
 # 1Password secret reference for the SSH Key item. The ?ssh-format=openssh query
 # makes `op read` emit a valid OpenSSH private key (not the raw PEM/JWK).
-: "${OP_SSH_ITEM:=op://Private/mesh-ssh}"
+: "${OP_SSH_ITEM:=op://Personal/mesh-ssh}"
 
 provision_ssh_keys_from_op() {
     local priv="$HOME/.ssh/id_ed25519"

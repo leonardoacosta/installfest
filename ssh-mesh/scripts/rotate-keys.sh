@@ -21,7 +21,7 @@ NEW_KEY="$HOME/.ssh/id_ed25519_new"
 
 # 1Password item holding the mesh keypair — same variable + default
 # scripts/op-ssh-provision.sh already reads.
-: "${OP_SSH_ITEM:=op://Private/mesh-ssh}"
+: "${OP_SSH_ITEM:=op://Personal/mesh-ssh}"
 
 DRY_RUN=false
 case "${1:-}" in

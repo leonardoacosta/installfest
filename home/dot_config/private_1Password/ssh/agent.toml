@@ -30,16 +30,13 @@
 #  https://www.1password.dev/ssh/agent/config
 
 # ssh-mesh's mesh-ssh item (openspec/changes/harden-ssh-mesh-1password-integration,
-# task 5.1 / bead if-tla9) — referenced elsewhere as op://Private/mesh-ssh, hence
-# vault "Private" here. UNCONFIRMED against the account: the entry below this one
-# only lists vault "Personal", so "Private" may be a distinct vault that has never
-# had an ssh-keys entry before now, or the op:// URI's "Private" segment and this
-# file's "Personal" vault name may refer to the same vault under different labels
-# in different 1Password surfaces. Verify `ssh-add -l` actually lists mesh-ssh
-# after this change — if it doesn't, the vault name here needs correcting.
-[[ssh-keys]]
-item = "mesh-ssh"
-vault = "Private"
-
+# task 5.1 / bead if-tla9) lives in the "Personal" vault — CONFIRMED live
+# 2026-07-21 via `op vault list`: this account has no vault named "Private"
+# at all (real vaults: Personal, B&B, Priceless, Shared). scripts/
+# op-ssh-provision.sh and ssh-mesh/scripts/rotate-keys.sh's OP_SSH_ITEM
+# default was wrong for the same reason and has been corrected to
+# op://Personal/mesh-ssh. No dedicated [[ssh-keys]] entry is needed for
+# mesh-ssh specifically — the blanket "Personal" vault entry below already
+# covers it once the item exists there.
 [[ssh-keys]]
 vault = "Personal"
