@@ -184,6 +184,12 @@ func extractSection(markdown, heading string) string {
 // A missing/unreadable directory contributes zero items (tolerated, not an
 // error) — that path is only ever reached because the caller already
 // gated it behind the corresponding config flag.
+//
+// Every Item this function produces carries SecondClass: true — spec.md's
+// visibility-gate Requirement says plans/ and advisor-plans/ content SHALL
+// render "visually second-class when enabled", not identically to a real
+// openspec/changes/ proposal. parseProposals (the openspec/changes/ path)
+// never sets this field, so it defaults false there.
 func parseFlatMarkdownDir(dir, idPrefix string) []store.Item {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -197,9 +203,10 @@ func parseFlatMarkdownDir(dir, idPrefix string) []store.Item {
 		}
 		name := strings.TrimSuffix(e.Name(), ".md")
 		item := store.Item{
-			ID:    idPrefix + ":" + name,
-			Kind:  store.KindProposal,
-			Title: name,
+			ID:          idPrefix + ":" + name,
+			Kind:        store.KindProposal,
+			Title:       name,
+			SecondClass: true,
 		}
 		if info, err := e.Info(); err == nil {
 			item.CreatedAt = info.ModTime()

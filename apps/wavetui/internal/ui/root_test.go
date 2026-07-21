@@ -172,6 +172,31 @@ func TestUnavailableBadgeRendersFromSnapshotErrors(t *testing.T) {
 	}
 }
 
+// TestUnavailableBadgeDistinguishesMissingDirFromTransientFailure is the
+// post-wave gate finding's regression test: a genuinely-missing source
+// directory (sources/*.go's publishUnavailable, "unavailable: ..." message)
+// must render as "<source> unavailable", while a transient CLI/parse
+// failure (markStale, an arbitrary error message with no such prefix) must
+// render distinctly and surface the real SourceError.Message instead of
+// claiming the directory is gone.
+func TestUnavailableBadgeDistinguishesMissingDirFromTransientFailure(t *testing.T) {
+	missing := badgeText(store.SourceError{Source: "beads", Message: "unavailable: .beads/ not found"})
+	if missing != "beads unavailable" {
+		t.Fatalf("want %q for a genuinely-missing directory, got %q", "beads unavailable", missing)
+	}
+
+	transient := badgeText(store.SourceError{Source: "beads", Message: "bd list: connection refused"})
+	if transient == missing {
+		t.Fatalf("a transient CLI failure rendered identically to the missing-directory badge: %q", transient)
+	}
+	if strings.Contains(transient, "beads unavailable") {
+		t.Fatalf("a transient CLI failure must not claim the directory is unavailable, got %q", transient)
+	}
+	if !strings.Contains(transient, "beads") || !strings.Contains(transient, "connection refused") {
+		t.Fatalf("want the real failure message surfaced, got %q", transient)
+	}
+}
+
 // TestQuitKeySendsTeaQuit asserts the documented "q"/"ctrl+c" keybinding
 // actually produces a tea.Quit command, since that's what main.go depends
 // on to unwind the sources via cancel() once Program.Run() returns.

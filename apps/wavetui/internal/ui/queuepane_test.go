@@ -118,6 +118,46 @@ func TestFormatCreatedAt(t *testing.T) {
 	}
 }
 
+// TestQueuePaneSecondClassItemRendersDistinctFromProposal is the post-wave
+// gate finding's regression test: spec.md's OpenSpecSource Requirement says
+// a plans/advisor-plans item ("SecondClass") SHALL render "visually
+// second-class" — not identically to a real openspec/changes/ proposal.
+// Renders two otherwise-identical items (same Kind, same Title) that differ
+// ONLY in SecondClass, and asserts their rendered queue rows differ — not
+// just the underlying field, the actual output QueuePane.View() produces.
+func TestQueuePaneSecondClassItemRendersDistinctFromProposal(t *testing.T) {
+	proposal := NewQueuePane()
+	proposal.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindProposal, Title: "Same Title"},
+	}})
+	proposalRow := firstDataRow(proposal.View())
+
+	plansItem := NewQueuePane()
+	plansItem.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindProposal, Title: "Same Title", SecondClass: true},
+	}})
+	plansRow := firstDataRow(plansItem.View())
+
+	// Both rows must still show the title text — this proves the difference
+	// below is styling, not a content/data difference.
+	if !strings.Contains(proposalRow, "Same Title") || !strings.Contains(plansRow, "Same Title") {
+		t.Fatalf("both rows must render the title text; proposal=%q plans=%q", proposalRow, plansRow)
+	}
+	if proposalRow == plansRow {
+		t.Fatalf("a SecondClass (plans/advisor-plans) item rendered IDENTICALLY to a real proposal row — want distinct styling:\n%q", proposalRow)
+	}
+}
+
+// firstDataRow returns the first row of a QueuePane.View() rendering below
+// the header line.
+func firstDataRow(view string) string {
+	lines := strings.Split(view, "\n")
+	if len(lines) < 2 {
+		return ""
+	}
+	return lines[1]
+}
+
 func TestBlockerBadge(t *testing.T) {
 	cases := []struct {
 		name string

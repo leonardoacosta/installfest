@@ -58,6 +58,7 @@ type Item struct {
     FanOutScore  int          // count of transitive dependents this item unblocks
     TaskProgress *TaskProgress // nil when not applicable (e.g. a bead with no sub-tasks)
     Stale        bool         // true when the backing CLI call failed and this is last-good data
+    SecondClass  bool         // true for a plans/advisor-plans item — rendered visually second-class (see below)
 }
 
 type Snapshot struct {
@@ -69,7 +70,15 @@ type Snapshot struct {
 
 `Snapshot` is passed by value at the point it leaves the Store (copy-on-write) — the UI holds its
 own copy and the Store's next mutation cannot retroactively change a snapshot the UI already
-rendered.
+rendered. `Store.Snapshot()` deep-copies each `Item`'s pointer fields (`Blocker`, `TaskProgress`)
+as well, not just its primitive fields, so this guarantee also holds if some future caller ever
+mutates through those pointers.
+
+`Item.SecondClass` is set by `sources/openspec.go`'s `parseFlatMarkdownDir` for every item sourced
+from `plans/`/`advisor-plans/` (never for an `openspec/changes/` proposal or a bead) — the field
+that backs the OpenSpecSource Requirement's "rendered as visually second-class when enabled"
+clause below. `internal/ui/queuepane.go` dims a `SecondClass` row's title rather than rendering it
+identically to a real proposal.
 
 ## Blocker-note grammar (formalized here — did not exist anywhere in the codebase before this proposal)
 

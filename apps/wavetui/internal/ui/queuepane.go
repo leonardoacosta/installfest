@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
@@ -69,7 +70,7 @@ func (q *QueuePane) Update(snap store.Snapshot) Pane {
 	rows := make([]table.Row, 0, len(items))
 	for _, it := range items {
 		rows = append(rows, table.Row{
-			it.Title,
+			renderItemTitle(it),
 			string(it.Kind),
 			formatCreatedAt(it.CreatedAt),
 			blockerBadge(it),
@@ -158,6 +159,26 @@ func formatCreatedAt(t time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02")
+}
+
+// secondClassStyle dims an Item.SecondClass row's title — spec.md's
+// visibility-gate Requirement: a plans/advisor-plans-sourced item "SHALL...
+// be rendered as visually second-class when enabled", never identically to
+// a real openspec/changes/ proposal. Faint(true) mirrors the muted-text
+// convention this package already uses for de-emphasized content (root.go's
+// help line, detailpane.go's stale caveat) — there is no pre-existing
+// "dim row" style in this file to reuse, since QueuePane's Stale handling
+// today is text-only (blockerBadge's "stale" cell), not a row-level style.
+var secondClassStyle = lipgloss.NewStyle().Faint(true)
+
+// renderItemTitle renders the queue's Item column: the plain title for a
+// real bead/proposal, or a dimmed rendering for a SecondClass item (see
+// secondClassStyle).
+func renderItemTitle(it store.Item) string {
+	if it.SecondClass {
+		return secondClassStyle.Render(it.Title)
+	}
+	return it.Title
 }
 
 // blockerBadge renders the queue's blocker-badge column: a short type tag

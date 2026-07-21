@@ -298,20 +298,56 @@ func (r *Root) View() tea.View {
 	return v
 }
 
-// unavailableBadges renders one "<source> unavailable" badge per active
-// Snapshot.Errors entry — spec.md's "A missing .beads/ or openspec/
-// directory degrades to an unavailable badge, never a crash" Requirement.
-// Returns "" when there are no active source errors, so callers can decide
-// whether to add a separator without an empty-string special case.
+// unavailableBadges renders one status badge per active Snapshot.Errors
+// entry — spec.md's "A missing .beads/ or openspec/ directory degrades to
+// an unavailable badge, never a crash" Requirement. Returns "" when there
+// are no active source errors, so callers can decide whether to add a
+// separator without an empty-string special case.
 func (r *Root) unavailableBadges() string {
 	if len(r.errors) == 0 {
 		return ""
 	}
 	parts := make([]string, 0, len(r.errors))
 	for _, e := range r.errors {
-		parts = append(parts, e.Source+" unavailable")
+		parts = append(parts, badgeText(e))
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("203")).Render(strings.Join(parts, "  "))
+}
+
+// unavailablePrefix is the exact prefix sources/beads.go's and
+// sources/openspec.go's publishUnavailable use — the ONLY case that means
+// "the directory itself is genuinely missing." Every other SourceError
+// (published by markStale, both sources) means the directory/source is
+// still there and a re-query attempt failed — an operator seeing "beads
+// unavailable" for that case would go looking for a missing .beads/ that
+// was never actually gone.
+const unavailablePrefix = "unavailable: "
+
+// badgeMessageMaxLen caps how much of a transient failure's own
+// error message is surfaced in the status line, so one long shell/parse
+// error can't blow out the whole line.
+const badgeMessageMaxLen = 40
+
+// badgeText renders one SourceError as a status-line badge, distinguishing
+// a genuinely-missing source directory from a transient CLI/parse failure
+// (see unavailablePrefix) rather than collapsing both into the same generic
+// "<source> unavailable" text and discarding the real SourceError.Message.
+func badgeText(e store.SourceError) string {
+	if strings.HasPrefix(e.Message, unavailablePrefix) {
+		return e.Source + " unavailable"
+	}
+	return e.Source + " stale (retrying): " + truncateBadgeMessage(e.Message)
+}
+
+// truncateBadgeMessage rune-truncates msg to badgeMessageMaxLen, appending
+// "…" when truncated, so a long error message can't be cut mid multi-byte
+// rune.
+func truncateBadgeMessage(msg string) string {
+	r := []rune(msg)
+	if len(r) <= badgeMessageMaxLen {
+		return msg
+	}
+	return string(r[:badgeMessageMaxLen-1]) + "…"
 }
 
 func indexOf(panes []Pane, p Pane) int {
