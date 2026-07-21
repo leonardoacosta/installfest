@@ -127,6 +127,94 @@ func TestShakeRedPulseEffectSettles(t *testing.T) {
 	}
 }
 
+// TestSlideInEffectSettles confirms SlideInEffect's harmonica spring
+// actually decays from slideStartOffset back to its resting position (0)
+// rather than oscillating forever — the same settling contract
+// TestRowFlashEffectSettles/TestShakeRedPulseEffectSettles already check
+// for their own effect types, applied here to the one harmonica-driven row
+// effect (EventItemAppeared/KindBead's EffectRowSlideIn) that previously had
+// no direct settle test of its own (only exercised indirectly via
+// EffectRowFlash paths in highlight_test.go).
+func TestSlideInEffectSettles(t *testing.T) {
+	e := NewSlideInEffect()
+	if e.Done() {
+		t.Fatal("want a freshly constructed SlideInEffect to start un-settled (at slideStartOffset)")
+	}
+
+	settled := false
+	for i := 0; i < 1000; i++ {
+		e.Advance()
+		if e.Done() {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("want SlideInEffect to settle within 1000 frames")
+	}
+}
+
+// TestGlyphPulseEffectSettles confirms GlyphPulseEffect's time-driven
+// go-colorful lerp (no harmonica spring — design.md's primitive column for
+// EventBlockerResolved is explicitly lerp-only) reaches Done() once
+// glyphPulseDuration has elapsed, and that its Advance output actually
+// morphs from `from` toward `to` rather than staying fixed.
+func TestGlyphPulseEffectSettles(t *testing.T) {
+	from := colorful.Color{R: 1, G: 0, B: 0}
+	to := colorful.Color{R: 0, G: 0, B: 1}
+	e := NewGlyphPulseEffect(from, to)
+
+	frameDuration := time.Second / time.Duration(frameRate)
+	first := e.Advance(frameDuration)
+	if first == from {
+		t.Fatalf("want the first Advance to have moved off `from`, got unchanged %+v", first)
+	}
+	if e.Done() {
+		t.Fatal("want GlyphPulseEffect to still be in flight after one frame of a 500ms morph")
+	}
+
+	settled := false
+	for i := 0; i < 1000; i++ {
+		e.Advance(frameDuration)
+		if e.Done() {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("want GlyphPulseEffect to settle (Done()) once glyphPulseDuration elapses")
+	}
+}
+
+// TestParticleBurstEffectSettles confirms the harmonica-Projectile-driven
+// particle burst reports Done() once its fixed particleTTL lifetime has
+// elapsed, and that Advance returns one Point per particle requested.
+func TestParticleBurstEffectSettles(t *testing.T) {
+	const n = 6
+	e := NewParticleBurstEffect(n)
+	if e.Done() {
+		t.Fatal("want a freshly constructed ParticleBurstEffect to start un-settled")
+	}
+
+	frameDuration := time.Second / time.Duration(frameRate)
+	pts := e.Advance(frameDuration)
+	if len(pts) != n {
+		t.Fatalf("want Advance to return %d points (one per particle), got %d", n, len(pts))
+	}
+
+	settled := false
+	for i := 0; i < 1000; i++ {
+		e.Advance(frameDuration)
+		if e.Done() {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("want ParticleBurstEffect to settle (Done()) once particleTTL elapses")
+	}
+}
+
 // TestToastSpringEffectAutoDismisses confirms the auto-dismiss timer
 // actually flips the spring's target back off-screen and eventually
 // reports Done() — the "auto-dismiss" half of task [2.3].

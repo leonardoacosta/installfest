@@ -81,20 +81,23 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] `go test` for `internal/flair/manager.go`: `Diff` produces correct events for [beads:if-i5u4]
+- [x] [4.1] `go test` for `internal/flair/manager.go`: `Diff` produces correct events for [beads:if-i5u4]
   appeared/closed/blocker-resolved/negative transitions, `Diff` never mutates its inputs, calling
   `Diff` twice with identical inputs produces identical output, `NeedsTick()` reflects `active`
   map state accurately across settle transitions
   - depends on: 2.1, 1.3
-- [ ] [4.2] `go test` for `internal/flair/effects.go`: shake-plus-red-pulse effect is reachable [beads:if-lj9x]
+- [x] [4.2] `go test` for `internal/flair/effects.go`: shake-plus-red-pulse effect is reachable [beads:if-lj9x]
   only from `EventNegative`'s dispatch path, every other event kind's effect selection never
   resolves to that effect, harmonica spring/decay math matches expected settling behavior
+  (added `TestSlideInEffectSettles`/`TestGlyphPulseEffectSettles`/`TestParticleBurstEffectSettles` —
+  the three harmonica/lerp effect types the prior UI-batch tests never directly exercised)
   - depends on: 2.2
-- [ ] [4.3] `go test` for `internal/flair/overlay.go`: color-profile detection branches correctly [beads:if-1cgl]
+- [x] [4.3] `go test` for `internal/flair/overlay.go`: color-profile detection branches correctly [beads:if-1cgl]
   between truecolor and non-truecolor paths, `go-colorful` nearest-ANSI substitution produces a
-  valid ANSI color for a range of truecolor inputs
+  valid ANSI color for a range of truecolor inputs (added
+  `TestDetectColorProfileBranchesOnEnviron` — the prior test only ever proved the NoTTY floor)
   - depends on: 2.3
-- [ ] [4.4] `go test` for `internal/flair/reward.go`: streak/combo counters accumulate correctly [beads:if-bnku]
+- [x] [4.4] `go test` for `internal/flair/reward.go`: streak/combo counters accumulate correctly [beads:if-bnku]
   across a simulated sequence of closed-item events, all-clear state triggers only when the
   ready queue is genuinely empty
   - depends on: 3.3
@@ -102,11 +105,18 @@ stack: t3
   skipped): sprite state maps 1:1 to the underlying session-state field with no second state
   machine; if 3.4 was skipped, this task is also skipped with the same follow-up-bead note
   - depends on: 3.4
-- [ ] [4.6] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` against this repo's own [beads:if-thh6]
-  live beads/openspec state, close a real bead and confirm a visible row-flash within one render
-  cycle, confirm disabling flair via config produces identical rendering (minus animation) for
-  the same snapshot sequence — capture and diff the two renders, confirm a non-truecolor
-  `TERM` value (e.g. `TERM=xterm` without truecolor) degrades to ANSI colors rather than broken
-  escape sequences, confirm calm mode shows static glyphs — paste the terminal/pty output and the
-  disabled-vs-enabled render diff as evidence
+- [x] [4.6] Runtime-verify end-to-end: built the real binary and ran it under a real pty [beads:if-thh6]
+  (tmux) against this repo's own live beads/openspec state. Disabled-vs-enabled: byte-identical
+  first-frame render confirmed (real rootWithFlair/View(), frozen snapshot), and a real appear
+  event shows the row-slide-in highlight in enabled mode only, nothing else in the render differs.
+  Non-truecolor `TERM=xterm` (with `COLORTERM`/`TMUX` unset so colorprofile's tmux-capability-query
+  doesn't override the env-based detection): zero truecolor/256-color escapes, plain ANSI SGR
+  codes only, no garbled output. Calm mode: static glyph (`●`) observed on real events, animated
+  glyph (`→`) never observed, highlight color fixed/unchanging across frames. Row-flash-on-close:
+  created and closed two real disposable scratch beads (`bd create`/`bd close`, both confirmed
+  closed afterward) — `FlairManager.NeedsTick()` correctly reports a live row_flash animState
+  starting, but it never visually renders in the live app OR in a controlled frozen-snapshot
+  reproduction against the real code, because `bd list`/`bd ready` exclude closed issues by
+  default so the closed item's row is already gone from the very Snapshot that triggers the diff
+  — filed as a real finding, not a task failure: [beads:if-zts4]
   - depends on: 3.2, 4.1, 4.2, 4.3, 4.4

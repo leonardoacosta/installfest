@@ -24,6 +24,58 @@ type discardWriter struct{}
 
 func (discardWriter) Write(p []byte) (int, error) { return len(p), nil }
 
+// TestDetectColorProfileBranchesOnEnviron confirms DetectColorProfile's
+// resolution genuinely branches on the environment it's handed — not just
+// the NoTTY floor TestDetectColorProfileNoTTY already checks — by forcing
+// isatty via TTY_FORCE=1 (colorprofile's own env.go isTTYForced hook, the
+// one way to exercise its truecolor/256-color paths against a plain
+// non-terminal io.Writer like the discardWriter used throughout this file).
+// This is "color-profile detection branches correctly" from task [4.3]'s
+// text: TestDetectColorProfileNoTTY alone only ever proved the NoTTY floor,
+// never that a differently-configured environment actually resolves
+// differently.
+func TestDetectColorProfileBranchesOnEnviron(t *testing.T) {
+	var buf discardWriter
+
+	cases := []struct {
+		name    string
+		environ []string
+		want    colorprofile.Profile
+	}{
+		{
+			name:    "truecolor",
+			environ: []string{"TTY_FORCE=1", "TERM=xterm-256color", "COLORTERM=truecolor"},
+			want:    colorprofile.TrueColor,
+		},
+		{
+			name:    "ansi256",
+			environ: []string{"TTY_FORCE=1", "TERM=xterm-256color"},
+			want:    colorprofile.ANSI256,
+		},
+		{
+			name:    "ansi16",
+			environ: []string{"TTY_FORCE=1", "TERM=xterm-color"},
+			want:    colorprofile.ANSI,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := DetectColorProfile(buf, c.environ)
+			if got != c.want {
+				t.Fatalf("environ %v: want profile %v, got %v", c.environ, c.want, got)
+			}
+		})
+	}
+
+	// And the NoTTY floor still holds with none of the forcing vars set —
+	// same assertion as TestDetectColorProfileNoTTY, restated here so this
+	// test's own table reads as a complete branch/no-branch pair rather than
+	// only ever exercising the forced side.
+	if got := DetectColorProfile(buf, []string{"TERM=xterm-256color", "COLORTERM=truecolor"}); got != colorprofile.NoTTY {
+		t.Fatalf("want NoTTY for a non-terminal writer with no TTY_FORCE, got %v", got)
+	}
+}
+
 // TestResolveColorTrueColorPassthrough confirms TrueColor never downsamples.
 func TestResolveColorTrueColorPassthrough(t *testing.T) {
 	c := colorful.Color{R: 0.2, G: 0.4, B: 0.9}
