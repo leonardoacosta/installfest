@@ -330,11 +330,15 @@ type TranscriptSource struct {
 	// synchronization between them. Same "guarded by mu" rationale
 	// TmuxSource's own mu documents for its byPaneID/bySessionID maps
 	// (StateForSession vs scanOnce racing across goroutines); here the
-	// critical section is coarser (the whole tailAll/reevaluateZombies
-	// body, not just a final map swap) because a sessionAgg's fields are
-	// mutated incrementally across many nested calls (handleUserLine,
-	// handleAssistantLine, resolveLink, updateZombie, ...), not written
-	// once and swapped in.
+	// critical section is coarser than a final map swap (it spans the whole
+	// tailOne/processLine call chain, not just a final assignment) because a
+	// sessionAgg's fields are mutated incrementally across many nested calls
+	// (handleUserLine, handleAssistantLine, resolveLink, updateZombie, ...),
+	// not written once and swapped in. It is NOT held across tailAll's own
+	// fetchClaims shellout (exec.CommandContext to `bd`) — that call never
+	// reads or writes files/sessions, so holding mu across it would only
+	// delay reevaluateZombies's lock acquisition for however long the
+	// shellout takes, for no correctness benefit (if-yufp.1).
 	mu       sync.Mutex
 	files    map[string]*transcriptFile
 	sessions map[string]*sessionAgg
@@ -505,11 +509,6 @@ func (s *TranscriptSource) tailAll(ctx context.Context) {
 		defer s.afterQuery()
 	}
 
-	// Locked for the whole cycle — see the mu field's doc comment on why
-	// this can't be narrowed to just the map accesses.
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	dir := s.transcriptDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -519,7 +518,18 @@ func (s *TranscriptSource) tailAll(ctx context.Context) {
 		return
 	}
 
+	// Deliberately unlocked: fetchClaims only shells out to `bd` and builds
+	// a plain []ClaimedItem slice — it never touches s.files/s.sessions, so
+	// running it before acquiring mu keeps reevaluateZombies (competing for
+	// the same mu on Run's own goroutine) from waiting on this shellout's
+	// duration for no reason (if-yufp.1, see the mu field's doc comment).
 	claims := s.fetchClaims(ctx)
+
+	// Locked for the map-access span below — see the mu field's doc comment
+	// on why this can't be narrowed further than "the whole
+	// tailOne/processLine call chain."
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
