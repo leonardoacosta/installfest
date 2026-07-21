@@ -164,9 +164,19 @@ open_reverse_tunnel() {
 }
 
 open_on_mac() {
-  if [ -n "$DRYRUN" ]; then echo "[dryrun] ssh ${MAC_HOST} open $(shq "$open_url")"; return 0; fi
+  # Localhost opens from the brown workspace route to a dedicated Edge profile so
+  # dev/OAuth callbacks land in the right B&B identity, not the default browser.
+  local remote_cmd="open $(shq "$open_url")"
+  if [ -n "$callback_port" ]; then
+    case "$PWD" in
+      "$HOME/dev/brown"*)
+        remote_cmd="open -a 'Microsoft Edge' --args --profile-directory='Profile 4' $(shq "$open_url")"
+        ;;
+    esac
+  fi
+  if [ -n "$DRYRUN" ]; then echo "[dryrun] ssh ${MAC_HOST} ${remote_cmd}"; return 0; fi
   # fire-and-forget: detach so we return immediately (ropen parity)
-  ( ssh -o BatchMode=yes -o ConnectTimeout=5 "$MAC_HOST" "open $(shq "$open_url")" >/dev/null 2>&1 & ) 2>/dev/null
+  ( ssh -o BatchMode=yes -o ConnectTimeout=5 "$MAC_HOST" "$remote_cmd" >/dev/null 2>&1 & ) 2>/dev/null
 }
 
 open_in_cmux() {
