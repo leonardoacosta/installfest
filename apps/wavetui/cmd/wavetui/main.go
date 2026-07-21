@@ -14,18 +14,30 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/config"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/timeline"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/ui"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/wave"
 )
+
+// waveFileName is where QueuePane's finalize action (task [3.3]'s writer,
+// bound in via SetWaveWriter below) persists a finalized wave — a single
+// fixed file per project root, mirroring config.FileName's own
+// project-root-relative convention (".wavetui.toml" sits beside it) rather
+// than a timestamped/per-run path, since only the MOST RECENTLY finalized
+// wave is ever a live artifact a downstream dispatcher would read.
+const waveFileName = ".wavetui-wave.json"
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -73,6 +85,30 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	queue := ui.NewQueuePane()
 	detail := ui.NewDetailPane()
 	root := ui.NewRoot(queue, detail)
+
+	// wavetui-dispatch (UI batch task [3.4]): Resolver is the single
+	// Dispatcher QueuePane's Start action ("enter") ever calls — it picks
+	// TmuxDispatcher first, falling back to ClipboardDispatcher only on
+	// ErrNoDispatchTarget (design.md § Target resolution). ctx is the same
+	// run-scoped context every source below is threaded from, so an
+	// in-flight dispatch's ClipboardDispatcher shell-out is cancelled the
+	// same way the sources are on quit/signal.
+	resolver := dispatch.NewResolver(
+		dispatch.NewTmuxDispatcher(),
+		dispatch.NewClipboardDispatcher(cfg.ForceOSC52),
+	)
+	queue.SetDispatcher(ctx, resolver)
+
+	// wavetui-dispatch (UI batch task [3.4]): the finalize action ("w")
+	// persists QueuePane's current wave-builder selection via task [3.3]'s
+	// JSON writer (internal/wave/writer.go) to a single fixed path beside
+	// the project's .wavetui.toml — see waveFileName's doc comment. Bound
+	// as a plain closure so QueuePane itself never imports os/time/
+	// filepath for this one call.
+	wavePath := filepath.Join(cwd, waveFileName)
+	queue.SetWaveWriter(func(items []store.Item) error {
+		return wave.WriteFile(wavePath, wave.BuildFile(items, time.Now()))
+	})
 
 	// wavetui-memory-timeline (UI batch task [3.4]): MemoryTimelinePane is
 	// appended to Root's own pane slice (AppendPane, append-only — queue and

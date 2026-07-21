@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -8,9 +10,28 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/lucasb-eyer/go-colorful"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
+
+// fakeDispatcher is a test-only dispatch.Dispatcher recording every call and
+// returning a caller-configured error — the same fake-injection rationale
+// resolver.go's own doc comment cites for typing Resolver.Tmux/Clipboard as
+// the Dispatcher interface rather than a concrete type.
+type fakeDispatcher struct {
+	err        error
+	calls      int
+	lastItem   store.Item
+	lastPrompt string
+}
+
+func (f *fakeDispatcher) Dispatch(_ context.Context, item store.Item, promptText string) error {
+	f.calls++
+	f.lastItem = item
+	f.lastPrompt = promptText
+	return f.err
+}
 
 func TestQueuePaneFocusable(t *testing.T) {
 	q := NewQueuePane()
@@ -236,5 +257,280 @@ func TestBlockerBadge(t *testing.T) {
 				t.Fatalf("want %q, got %q", c.want, got)
 			}
 		})
+	}
+}
+
+// --- wavetui-dispatch (tasks.md [3.1]) Start action ---------------------
+
+func TestQueuePaneStartDispatchesHighlightedItemViaResolver(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "if-1234", Title: "Alpha"},
+	}})
+
+	fake := &fakeDispatcher{}
+	q.SetDispatcher(context.Background(), fake)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if fake.calls != 1 {
+		t.Fatalf("want Dispatch called exactly once, got %d", fake.calls)
+	}
+	if fake.lastItem.ID != "if-1234" {
+		t.Fatalf("want the highlighted item dispatched, got %q", fake.lastItem.ID)
+	}
+	if fake.lastPrompt != "/apply if-1234" {
+		t.Fatalf("want promptText %q, got %q", "/apply if-1234", fake.lastPrompt)
+	}
+}
+
+func TestQueuePaneStartNoDispatcherIsNoop(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+
+	// SetDispatcher never called — must not panic.
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if strings.Contains(q.View(), "failed") {
+		t.Fatalf("want no badge rendered when no dispatcher is wired, got:\n%s", q.View())
+	}
+}
+
+func TestQueuePaneStartRendersFailureBadgeOnDispatchError(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	fake := &fakeDispatcher{err: errors.New("tmux: boom")}
+	q.SetDispatcher(context.Background(), fake)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if got := firstDataRow(q.View()); !strings.Contains(got, "failed: tmux: boom") {
+		t.Fatalf("want failure badge in row, got:\n%s", got)
+	}
+}
+
+func TestQueuePaneStartRendersQueuedBadgeOnSessionStreamingRefusal(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	fake := &fakeDispatcher{err: dispatch.ErrSessionStreaming}
+	q.SetDispatcher(context.Background(), fake)
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if got := firstDataRow(q.View()); !strings.Contains(got, "queued — session busy") {
+		t.Fatalf("want queued-busy badge in row, got:\n%s", got)
+	}
+}
+
+func TestQueuePaneStartSuccessClearsPriorFailureBadge(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	fake := &fakeDispatcher{err: errors.New("boom")}
+	q.SetDispatcher(context.Background(), fake)
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !strings.Contains(firstDataRow(q.View()), "failed") {
+		t.Fatalf("setup: want a failure badge present before the retry")
+	}
+
+	fake.err = nil
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	if strings.Contains(firstDataRow(q.View()), "failed") {
+		t.Fatalf("want the stale failure badge cleared after a successful retry, got:\n%s", firstDataRow(q.View()))
+	}
+}
+
+// --- wavetui-dispatch (tasks.md [3.2]) select mode -----------------------
+
+func TestQueuePaneToggleSelectedOrdersByFanOutScoreDescending(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Title: "Alpha", FanOutScore: 1},
+		{ID: "b", Title: "Beta", FanOutScore: 5},
+		{ID: "c", Title: "Gamma", FanOutScore: 3},
+	}})
+
+	// Select all three in table order (a, b, c) — SelectedForWave must
+	// still return them fan-out-descending (b, c, a), not selection order.
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace}) // select "a"
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace}) // select "b"
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace}) // select "c"
+
+	got := q.SelectedForWave()
+	if len(got) != 3 {
+		t.Fatalf("want 3 selected items, got %d: %+v", len(got), got)
+	}
+	wantOrder := []string{"b", "c", "a"}
+	for i, want := range wantOrder {
+		if got[i].ID != want {
+			t.Fatalf("want order %v, got %v", wantOrder, idsOf(got))
+		}
+	}
+}
+
+func idsOf(items []store.Item) []string {
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	return ids
+}
+
+func TestQueuePaneToggleSelectedTwiceDeselects(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := q.SelectedForWave(); len(got) != 1 {
+		t.Fatalf("want 1 selected after first toggle, got %d", len(got))
+	}
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	if got := q.SelectedForWave(); len(got) != 0 {
+		t.Fatalf("want 0 selected after second toggle (deselect), got %d", len(got))
+	}
+}
+
+func TestQueuePaneSelectMarkerRendersOnSelectedRow(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha item"}}})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+
+	if got := firstDataRow(q.View()); !strings.Contains(got, waveSelectMarker+"Alpha item") {
+		t.Fatalf("want select marker prefixing the title, got:\n%s", got)
+	}
+}
+
+func TestQueuePaneSelectModeRendersConflictWarningNamingBothIDs(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Title: "Alpha", TouchedFiles: []string{"shared.go"}},
+		{ID: "b", Title: "Beta", TouchedFiles: []string{"shared.go"}},
+	}})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace}) // select "a"
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace}) // select "b"
+
+	view := q.View()
+	if !strings.Contains(view, "conflict: shared.go") || !strings.Contains(view, "a") || !strings.Contains(view, "b") {
+		t.Fatalf("want a conflict warning naming both item IDs, got:\n%s", view)
+	}
+}
+
+func TestQueuePaneNoConflictWarningWithoutOverlap(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Title: "Alpha", TouchedFiles: []string{"one.go"}},
+		{ID: "b", Title: "Beta", TouchedFiles: []string{"two.go"}},
+	}})
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+
+	if strings.Contains(q.View(), "conflict:") {
+		t.Fatalf("want no conflict warning for non-overlapping files, got:\n%s", q.View())
+	}
+}
+
+func TestQueuePaneEscClearsSelection(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	if len(q.SelectedForWave()) != 1 {
+		t.Fatalf("setup: want 1 selected")
+	}
+
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	if got := q.SelectedForWave(); len(got) != 0 {
+		t.Fatalf("want selection cleared after esc, got %d", len(got))
+	}
+}
+
+// --- wavetui-dispatch (tasks.md [3.3]) wave finalization -----------------
+
+func TestQueuePaneFinalizeWaveCallsWriterAndClearsSelection(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Title: "Alpha", FanOutScore: 2},
+		{ID: "b", Title: "Beta", FanOutScore: 5},
+	}})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+
+	var gotItems []store.Item
+	q.SetWaveWriter(func(items []store.Item) error {
+		gotItems = items
+		return nil
+	})
+
+	q.HandleKey(tea.KeyPressMsg{Text: "w"})
+
+	if len(gotItems) != 2 || gotItems[0].ID != "b" || gotItems[1].ID != "a" {
+		t.Fatalf("want writer called with FanOutScore-descending items, got %+v", gotItems)
+	}
+	if got := q.SelectedForWave(); len(got) != 0 {
+		t.Fatalf("want selection cleared after a successful finalize, got %d", len(got))
+	}
+	if !strings.Contains(q.View(), "wave finalized: 2 item(s)") {
+		t.Fatalf("want a success status line, got:\n%s", q.View())
+	}
+}
+
+func TestQueuePaneFinalizeWaveNoSelectionReportsStatus(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	called := false
+	q.SetWaveWriter(func(items []store.Item) error {
+		called = true
+		return nil
+	})
+
+	q.HandleKey(tea.KeyPressMsg{Text: "w"})
+
+	if called {
+		t.Fatalf("want writer never called with an empty selection")
+	}
+	if !strings.Contains(q.View(), "no items selected") {
+		t.Fatalf("want a status line explaining nothing was selected, got:\n%s", q.View())
+	}
+}
+
+func TestQueuePaneFinalizeWaveNoWriterConfiguredIsSafe(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+
+	// SetWaveWriter never called — must not panic.
+	q.HandleKey(tea.KeyPressMsg{Text: "w"})
+
+	if !strings.Contains(q.View(), "no wave writer configured") {
+		t.Fatalf("want a status line explaining no writer is wired, got:\n%s", q.View())
+	}
+}
+
+func TestQueuePaneFinalizeWaveSurfacesWriterError(t *testing.T) {
+	q := NewQueuePane()
+	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha"}}})
+	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	q.SetWaveWriter(func(items []store.Item) error {
+		return errors.New("disk full")
+	})
+
+	q.HandleKey(tea.KeyPressMsg{Text: "w"})
+
+	if !strings.Contains(q.View(), "finalize failed: disk full") {
+		t.Fatalf("want the writer's error surfaced, got:\n%s", q.View())
+	}
+	// A failed finalize must not silently clear the selection the operator
+	// would otherwise need to retry.
+	if got := q.SelectedForWave(); len(got) != 1 {
+		t.Fatalf("want selection preserved after a failed finalize, got %d", len(got))
 	}
 }

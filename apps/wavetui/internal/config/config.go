@@ -34,6 +34,13 @@ type Config struct {
 	// openspec/changes/wavetui-flair/design.md § Config + calm-mode +
 	// truecolor gating.
 	Flair FlairConfig
+	// ForceOSC52 overrides ClipboardDispatcher's own OSC52-capability
+	// detection for a terminal that supports the escape sequence but does
+	// not advertise it via $TERM_PROGRAM/terminfo. See
+	// internal/dispatch/clipboard.go's ForceOSC52 field, whose doc comment
+	// already named this config file as its intended source before this
+	// field existed. Default false (trust detection).
+	ForceOSC52 bool
 }
 
 // FlairConfig is wavetui-flair's additive settings block — see
@@ -81,6 +88,7 @@ func Load(dir string) (Config, error) {
 			Enabled:  values["flair_enabled"],
 			CalmMode: values["flair_calm_mode"],
 		},
+		ForceOSC52: values["force_osc52"],
 	}, nil
 }
 

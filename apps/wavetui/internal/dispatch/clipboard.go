@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strings"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
@@ -163,13 +162,35 @@ func (c *ClipboardDispatcher) pbcopyFallback(ctx context.Context, promptText str
 	return errors.New("no clipboard mechanism available: OSC52 unsupported and none of pbcopy/xclip/xsel/wl-copy resolved on $PATH")
 }
 
+// runPipeCommand runs name(args...) with stdin piped in. It deliberately
+// does NOT capture stderr via a Go-managed pipe (an io.Writer like
+// bytes.Buffer, which an earlier version of this function used) — found via
+// task [3.4]'s real-runtime verification against this exact fallback chain:
+// every candidate in fallbackOrder that is actually reachable on a Linux
+// box with no X11 (xclip/xsel — both, same X11-selection-ownership model)
+// forks into the background to keep serving the clipboard selection after
+// this process would otherwise exit (verified live against wl-copy on this
+// machine: `wl-copy --help` documents this explicitly — "stay in the
+// foreground instead of forking" is opt-in via -f). The daemonized
+// grandchild inherits the pipe's write end; os/exec's own Wait/StderrPipe
+// doc comment is explicit that Wait blocks until EVERY holder of a
+// Go-managed pipe closes it — with a daemonizing grandchild holding it open
+// indefinitely, Wait() (and this whole synchronous Dispatch call) hung
+// forever on the SUCCESS path (reproduced live: a real wl-copy invocation
+// that successfully set the clipboard left `go test` blocked >5 minutes).
+// Routing stderr to os.DevNull instead (a real *os.File, dup2'd directly —
+// no Go-side pipe/goroutine at all) removes the hang entirely; the
+// trade-off is losing the trimmed stderr text in pbcopyFallback's wrapped
+// error, an acceptable cost since the failure itself is still surfaced via
+// a non-nil err (cmd.Run()'s own *exec.ExitError), never silently
+// swallowed — design.md's "surfacing failure... when none resolve" is about
+// not silently no-op'ing, not about diagnostic-text richness.
 func runPipeCommand(ctx context.Context, name string, args []string, stdin []byte) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(stdin)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	if devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+		defer devNull.Close()
+		cmd.Stderr = devNull
 	}
-	return nil
+	return cmd.Run()
 }

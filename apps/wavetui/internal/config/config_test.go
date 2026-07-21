@@ -43,6 +43,26 @@ func TestLoadParsesFlairBooleans(t *testing.T) {
 	}
 }
 
+func TestLoadParsesForceOSC52(t *testing.T) {
+	dir := t.TempDir()
+	content := "force_osc52 = true\n"
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(content), 0o644); err != nil {
+		t.Fatalf("setup write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.ForceOSC52 {
+		t.Error("want ForceOSC52=true")
+	}
+	// Additive: existing fields must be unaffected by the new key.
+	if cfg.ShowPlans || cfg.ShowAdvisorPlans || cfg.Flair.Enabled {
+		t.Fatalf("want other fields still default-off, got %+v", cfg)
+	}
+}
+
 func TestLoadParsesBooleans(t *testing.T) {
 	dir := t.TempDir()
 	content := "# a comment\n\nshow_plans = true\nshow_advisor_plans = false\n"
