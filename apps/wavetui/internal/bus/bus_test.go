@@ -106,6 +106,51 @@ func TestSubscribeTornDownOnContextCancel(t *testing.T) {
 	waitFor(t, time.Second, func() bool { return b.Len() == 0 })
 }
 
+// TestPublishAfterCancelStopsDeliveryCleanly extends
+// TestSubscribeTornDownOnContextCancel: that test only proves the
+// subscriber deregisters (Len() -> 0). This proves the stronger claim task
+// [4.1] actually asks for — "stops delivery cleanly" — meaning a Publish
+// racing with, or arriving strictly after, the cancellation must never
+// reach the handler again and must never panic/deadlock the publisher.
+func TestPublishAfterCancelStopsDeliveryCleanly(t *testing.T) {
+	b := New()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var count int64
+	b.Subscribe(ctx, func(Event) {
+		atomic.AddInt64(&count, 1)
+	})
+	waitFor(t, time.Second, func() bool { return b.Len() == 1 })
+
+	b.Publish(testEvent{n: 0})
+	waitFor(t, time.Second, func() bool { return atomic.LoadInt64(&count) == 1 })
+
+	cancel()
+	waitFor(t, time.Second, func() bool { return b.Len() == 0 })
+
+	// A burst of Publish calls immediately after teardown must not panic
+	// and must not deliver to the now-cancelled subscriber.
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			b.Publish(testEvent{n: i})
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Publish after cancel blocked or deadlocked")
+	}
+
+	// Give any (incorrect) straggler delivery a moment to land, then assert
+	// the count never moved past the single pre-cancel delivery.
+	time.Sleep(50 * time.Millisecond)
+	if got := atomic.LoadInt64(&count); got != 1 {
+		t.Fatalf("handler received %d events after cancel, want exactly 1 (none post-cancel)", got)
+	}
+}
+
 func TestPublishWithNoSubscribersDoesNotBlock(t *testing.T) {
 	b := New()
 	done := make(chan struct{})

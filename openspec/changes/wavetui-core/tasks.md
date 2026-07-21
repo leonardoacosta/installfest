@@ -41,13 +41,13 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] `go test` for `internal/bus`: publish/subscribe fan-out to multiple subscribers, context-cancellation stops delivery cleanly [beads:if-t0ma]
+- [x] [4.1] `go test` for `internal/bus`: publish/subscribe fan-out to multiple subscribers, context-cancellation stops delivery cleanly [beads:if-t0ma]
   - depends on: 1.2
-- [ ] [4.2] `go test` for `internal/store`: event application correctness, snapshot immutability/copy-on-write, dep-graph + fan-out-score derivation, and the never-infer-from-filename invariant (a re-query call is made regardless of which specific path changed) [beads:if-0tab]
+- [x] [4.2] `go test` for `internal/store`: event application correctness, snapshot immutability/copy-on-write, dep-graph + fan-out-score derivation, and the never-infer-from-filename invariant (a re-query call is made regardless of which specific path changed) [beads:if-0tab]
   - depends on: 1.3
-- [ ] [4.3] `go test` for `internal/sources/beads.go` and `internal/sources/openspec.go`: fixture directories, tolerant decoding of malformed/missing JSON fields, debounce coalescing under a simulated event burst (assert exactly one CLI invocation), missing-directory startup degradation, non-zero-exit CLI keeps last-good snapshot [beads:if-asml]
+- [x] [4.3] `go test` for `internal/sources/beads.go` and `internal/sources/openspec.go`: fixture directories, tolerant decoding of malformed/missing JSON fields, debounce coalescing under a simulated event burst (assert exactly one CLI invocation), missing-directory startup degradation, non-zero-exit CLI keeps last-good snapshot [beads:if-asml]
   - depends on: 2.1, 2.2, 2.3
-- [ ] [4.4] `go test` for `internal/blocker`: valid grammar variants (with and without the optional `(see <ref>)` suffix, unknown `<type>` values), malformed/missing blocker lines produce no `Blocker` and no error [beads:if-v3fb]
+- [x] [4.4] `go test` for `internal/blocker`: valid grammar variants (with and without the optional `(see <ref>)` suffix, unknown `<type>` values), malformed/missing blocker lines produce no `Blocker` and no error [beads:if-v3fb]
   - depends on: 1.5
-- [ ] [4.5] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` against this repo's own `openspec/changes/` and `.beads/`, confirm the queue updates within 2 seconds of a real `bd`/openspec file change (inside the debounce window), select a row and confirm `DetailPane` populates, kill and restart the process and confirm current on-disk state is reflected within one debounce window, temporarily rename `.beads/` aside and confirm an "unavailable" badge renders (not a crash) — paste the terminal/pty output as evidence [beads:if-nai4]
+- [x] [4.5] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` against this repo's own `openspec/changes/` and `.beads/`, confirm the queue updates within 2 seconds of a real `bd`/openspec file change (inside the debounce window), select a row and confirm `DetailPane` populates, kill and restart the process and confirm current on-disk state is reflected within one debounce window, temporarily rename `.beads/` aside and confirm an "unavailable" badge renders (not a crash) — paste the terminal/pty output as evidence [beads:if-nai4]
   - depends on: 3.4, 4.1, 4.2, 4.3, 4.4

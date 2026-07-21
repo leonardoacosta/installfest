@@ -5,6 +5,7 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -73,6 +74,14 @@ type Root struct {
 	pending    *store.Snapshot
 	lastApply  time.Time
 	flushTimer bool // true while a flush tick is already scheduled
+
+	// errors mirrors the latest applied Snapshot's Errors field — spec.md's
+	// "A missing .beads/ or openspec/ directory degrades to an unavailable
+	// badge, never a crash" Requirement. Store/BeadsSource/OpenSpecSource
+	// already produce this data correctly (see internal/store, internal/
+	// sources); this field plus its rendering in View() is what makes it
+	// visible instead of silently tracked-but-unrendered.
+	errors []store.SourceError
 
 	// now is injected so the coalescing window can be driven deterministically
 	// in tests, without depending on real timers or wall-clock sleeps.
@@ -179,6 +188,7 @@ func (r *Root) applySnapshot(snap store.Snapshot) {
 	}
 	item, ok := r.queue.SelectedItem()
 	r.detail.SetSelected(item, ok)
+	r.errors = snap.Errors
 }
 
 // handleKey handles global keybindings (quit, focus-cycling) and otherwise
@@ -278,9 +288,30 @@ func (r *Root) View() tea.View {
 
 	help := lipgloss.NewStyle().Faint(true).Render("tab: switch pane  ↑/↓: select  q: quit")
 
-	v := tea.NewView(body + "\n" + help)
+	statusLine := help
+	if badges := r.unavailableBadges(); badges != "" {
+		statusLine = badges + "  " + help
+	}
+
+	v := tea.NewView(body + "\n" + statusLine)
 	v.AltScreen = true
 	return v
+}
+
+// unavailableBadges renders one "<source> unavailable" badge per active
+// Snapshot.Errors entry — spec.md's "A missing .beads/ or openspec/
+// directory degrades to an unavailable badge, never a crash" Requirement.
+// Returns "" when there are no active source errors, so callers can decide
+// whether to add a separator without an empty-string special case.
+func (r *Root) unavailableBadges() string {
+	if len(r.errors) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(r.errors))
+	for _, e := range r.errors {
+		parts = append(parts, e.Source+" unavailable")
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("203")).Render(strings.Join(parts, "  "))
 }
 
 func indexOf(panes []Pane, p Pane) int {

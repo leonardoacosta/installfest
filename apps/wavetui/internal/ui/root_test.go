@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +134,41 @@ func TestFocusRingCyclesOnlyFocusablePanes(t *testing.T) {
 	r.focusPrev()
 	if !r.panes[r.focus].Focusable() {
 		t.Fatalf("focusPrev landed on a non-Focusable pane (index %d)", r.focus)
+	}
+}
+
+// TestUnavailableBadgeRendersFromSnapshotErrors is spec.md's "A missing
+// .beads/ or openspec/ directory degrades to an unavailable badge, never a
+// crash" Requirement, exercised at the Root level: a Snapshot carrying a
+// SourceError for "beads" must produce a visible "beads unavailable" badge
+// in View(), and that badge must clear once a later Snapshot reports no
+// errors (the live "unavailable -> available" transition from task 2.3).
+func TestUnavailableBadgeRendersFromSnapshotErrors(t *testing.T) {
+	clockNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	r := NewRoot(NewQueuePane(), NewDetailPane())
+	r.now = func() time.Time { return clockNow }
+	r.width, r.height = 100, 30
+	r.layout()
+
+	r.Update(SnapshotMsg{Snapshot: store.Snapshot{
+		Errors: []store.SourceError{{Source: "beads", Message: "unavailable: .beads/ not found"}},
+	}})
+
+	view := r.View().Content
+	if !strings.Contains(view, "beads unavailable") {
+		t.Fatalf("want a %q badge in the rendered view, got:\n%s", "beads unavailable", view)
+	}
+
+	// The transition back to available (task 2.3: no restart needed) must
+	// clear the badge on the very next snapshot. Advance the injected clock
+	// past renderInterval first so this Update applies immediately rather
+	// than coalescing with the prior one (same clock-driving pattern as
+	// TestRenderCoalescing).
+	clockNow = clockNow.Add(renderInterval + time.Millisecond)
+	r.Update(SnapshotMsg{Snapshot: store.Snapshot{}})
+	view = r.View().Content
+	if strings.Contains(view, "unavailable") {
+		t.Fatalf("badge did not clear after a snapshot with no errors, got:\n%s", view)
 	}
 }
 
