@@ -17,7 +17,7 @@ stack: cc-meta
 
 ## E2E Batch
 
-- [ ] [2.1] Verify the install script: run it (or its clone step) against a scratch `~/.tmux/plugins/` dir, confirm `tmux-resurrect/resurrect.tmux` exists at the expected path afterward [beads:if-m2y3]
+- [x] [2.1] Verify the install script: run it (or its clone step) against a scratch `~/.tmux/plugins/` dir, confirm `tmux-resurrect/resurrect.tmux` exists at the expected path afterward [beads:if-m2y3]
   - depends on: 1.1
-- [ ] [2.2] Verify save/restore end-to-end via scripted tmux automation (`tmux new-session -d`, `send-keys` for `prefix+Ctrl-s`, `kill-server`, new server, `send-keys` for `prefix+Ctrl-r`, `capture-pane`/`list-windows`): confirm window count, window names, and pane working directories match pre-kill state [beads:if-fel6]
+- [x] [2.2] Verify save/restore end-to-end via scripted tmux automation (`tmux new-session -d`, `send-keys` for `prefix+Ctrl-s`, `kill-server`, new server, `send-keys` for `prefix+Ctrl-r`, `capture-pane`/`list-windows`): confirm window count, window names, and pane working directories match pre-kill state [beads:if-fel6]
   - depends on: 1.2
