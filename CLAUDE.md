@@ -70,6 +70,7 @@ source ~/.zshrc           # Reload config (or: reload)
 - **`copen`** (`home/dot_local/bin/executable_copen`) — open/focus a registry project in Cursor on whichever machine `copen` was actually run from; SSH-hops or clones over the mesh as needed.
 - **`mac-open`** (`scripts/mac-open.sh`) — single front door for "show this on my Mac" from the headless homelab: routes URLs/files to the Mac's browser or a cmux pane over Tailscale (replaces cc-browser-open/ropen/fview).
 - **`view`** (`scripts/view.sh`) — single front door for "render this file optimally" from a terminal session; picks the right renderer and shows it in a tmux split.
+- **`vnc-mac`** (`scripts/vnc-mac.sh`) — single front door for "view/control my Mac's screen" from the headless homelab; resolves the Mac's Tailscale hostname from the `mac` SSH alias (`ssh -G mac`) and launches `vncviewer` against its Screen Sharing server (`::5900`). `--print` shows the resolved `host::port` without connecting.
 
 ## Notes for Claude Code
 
