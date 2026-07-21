@@ -1,0 +1,38 @@
+# ~/.gitconfig — managed by chezmoi (home/dot_gitconfig.tmpl)
+#
+# Identity is pinned here so a freshly-restored machine commits as
+# leonardoacosta <leo@leonardoacosta.dev> instead of the macOS default
+# "<user>@<Hostname>.local" (the gap exposed by the 2026-06-14 restore,
+# where commits landed as @Leonardos-MacBook-Pro.local).
+[user]
+	name = leonardoacosta
+	email = leo@leonardoacosta.dev
+{{ if eq .chezmoi.os "darwin" -}}
+{{"	"}}signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOP7RHCSkw303hIZEewKU2r6yn4o6rdyceoEnbPCO7bd
+{{ end -}}
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true
+[credential "http://127.0.0.1:3030"]
+	provider = generic
+[credential "https://homelab.tail296462.ts.net:3443"]
+	provider = generic
+[credential "https://github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+{{ if eq .chezmoi.os "darwin" -}}
+# SSH commit signing via 1Password's op-ssh-sign helper — signs with the
+# same key as the [user] signingkey above, using 1Password's SSH agent
+# (Settings > Developer > "Use the SSH agent") rather than a separate GPG
+# key. darwin-only: op-ssh-sign only ships inside the macOS 1Password app.
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	program = "/Applications/1Password.app/Contents/MacOS/op-ssh-sign"
+[commit]
+	gpgsign = true
+{{ end -}}
