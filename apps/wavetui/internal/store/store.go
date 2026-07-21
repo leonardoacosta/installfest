@@ -258,6 +258,24 @@ type RateLimitSignalEvent struct {
 
 func (RateLimitSignalEvent) EventName() string { return "ratelimit.signal" }
 
+// HeadlessQueueStateEvent publishes wavetui-daemon's headless-dispatch queue
+// state — see wavetui-daemon's design.md § Additive Snapshot field and §
+// Architecture ("HeadlessDispatcher is the only new writer of process
+// state... its only output is a typed event onto the existing bus").
+// HeadlessDispatcher (internal/daemon/headless_dispatcher.go) publishes this
+// whenever its own pause/resume/admission-count state actually changes: on
+// pause(), resume(), a successful Dispatch admission, and any slot release
+// (awaitExit's normal completion or releaseSlotIfZombie's early release).
+// Store.Apply sets this as the Snapshot's current HeadlessQueue (overwriting
+// any prior one), following RateLimitSignalEvent's exact precedent above —
+// this is the missing publish step that used to leave Snapshot.HeadlessQueue
+// permanently nil even once the dispatcher had real pause/active state.
+type HeadlessQueueStateEvent struct {
+	State HeadlessQueueState
+}
+
+func (HeadlessQueueStateEvent) EventName() string { return "headless.queue_state" }
+
 // --- Store --------------------------------------------------------------
 
 // Store is the single writer for all derived wavetui state. Apply is the
@@ -281,6 +299,11 @@ type Store struct {
 	// rateLimit is the most recently published RateLimitSignal, or nil.
 	// Independent of any single item — see Snapshot.RateLimitBanner.
 	rateLimit *RateLimitSignal
+
+	// headlessQueue is the most recently published HeadlessQueueState, or
+	// nil until HeadlessDispatcher publishes its first HeadlessQueueStateEvent
+	// — see Snapshot.HeadlessQueue.
+	headlessQueue *HeadlessQueueState
 }
 
 // New constructs an empty Store.
@@ -361,6 +384,13 @@ func (s *Store) Apply(ev bus.Event) {
 	case RateLimitSignalEvent:
 		sig := e.Signal
 		s.rateLimit = &sig
+	case HeadlessQueueStateEvent:
+		st := e.State
+		if st.PauseSignal != nil {
+			sig := *st.PauseSignal
+			st.PauseSignal = &sig
+		}
+		s.headlessQueue = &st
 	default:
 		// Unknown event type: no-op, not an error.
 		return
@@ -431,11 +461,22 @@ func (s *Store) Snapshot() Snapshot {
 		banner = &b
 	}
 
+	var headlessQueue *HeadlessQueueState
+	if s.headlessQueue != nil {
+		hq := *s.headlessQueue
+		if hq.PauseSignal != nil {
+			sig := *hq.PauseSignal
+			hq.PauseSignal = &sig
+		}
+		headlessQueue = &hq
+	}
+
 	return Snapshot{
 		Items:           items,
 		Errors:          errs,
 		Generated:       time.Now(),
 		RateLimitBanner: banner,
+		HeadlessQueue:   headlessQueue,
 	}
 }
 

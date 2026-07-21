@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
 
@@ -151,4 +152,61 @@ func TestReleaseSlotIfZombieDoesNotDoubleRelease(t *testing.T) {
 	// time out.
 	fr.waiterAt(0).finish(nil)
 	waitFor(t, time.Second, func() bool { return len(fb.exitEvents()) == 1 })
+}
+
+// TestControllerPublishesHeadlessQueueStateToStore is the real end-to-end
+// proof that a pause/resume triggered through Controller actually reaches
+// store.Store.Snapshot().HeadlessQueue — the field HeadlessBar.Update (and
+// its resume keybinding guard) reads. Every other test in this file uses
+// fakeBus, a recording double that never forwards to a real Store, so none
+// of them could have caught the post-wave gate finding: HeadlessDispatcher
+// flipped its own internal paused/running state correctly, but never
+// published anything, so Snapshot.HeadlessQueue stayed permanently nil and
+// HeadlessBar's resume keypress (internal/ui/headlessbar.go's HandleKey
+// guard `h.queue == nil || !h.queue.Paused`) was unreachable from a real
+// running app. This test wires a real bus.Bus to a real store.Store the
+// same way cmd/wavetui/main.go does, so only a genuine end-to-end fix can
+// pass it.
+func TestControllerPublishesHeadlessQueueStateToStore(t *testing.T) {
+	b := bus.New()
+	st := store.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.Subscribe(ctx, func(ev bus.Event) { st.Apply(ev) })
+
+	d := NewHeadlessDispatcher(2, b)
+	c := NewController(d)
+
+	// Trigger a pause via the Controller — the same call
+	// cmd/wavetui/main.go's bus subscriber makes on every fresh Snapshot
+	// (design.md § Rate-limit backpressure) — by simulating a
+	// RateLimitBanner snapshot, exactly what a real TranscriptSource-detected
+	// rate limit looks like from the Controller's point of view.
+	c.OnSnapshot(store.Snapshot{
+		RateLimitBanner: &store.RateLimitSignal{Message: "rate limited (test)"},
+	})
+
+	waitFor(t, time.Second, func() bool {
+		snap := st.Snapshot()
+		return snap.HeadlessQueue != nil && snap.HeadlessQueue.Paused
+	})
+	snap := st.Snapshot()
+	if snap.HeadlessQueue == nil || !snap.HeadlessQueue.Paused {
+		t.Fatalf("Store.Snapshot().HeadlessQueue after Controller-triggered pause = %+v, want non-nil Paused=true", snap.HeadlessQueue)
+	}
+	t.Logf("EVIDENCE: real Store.Snapshot().HeadlessQueue = %+v after Controller.OnSnapshot(rate-limit banner) — this is what HeadlessBar.Update actually reads", snap.HeadlessQueue)
+
+	// Resume via the exact call HeadlessBar.HandleKey makes on a real "r"
+	// keypress (internal/ui/headlessbar.go) — no timer, no scheduling.
+	c.Resume()
+
+	waitFor(t, time.Second, func() bool {
+		snap := st.Snapshot()
+		return snap.HeadlessQueue != nil && !snap.HeadlessQueue.Paused
+	})
+	snap = st.Snapshot()
+	if snap.HeadlessQueue == nil || snap.HeadlessQueue.Paused {
+		t.Fatalf("Store.Snapshot().HeadlessQueue after Controller.Resume() = %+v, want Paused=false", snap.HeadlessQueue)
+	}
+	t.Logf("EVIDENCE: real Store.Snapshot().HeadlessQueue = %+v after Controller.Resume() — the real keypress path updates the Store, not just the dispatcher's own internal field", snap.HeadlessQueue)
 }

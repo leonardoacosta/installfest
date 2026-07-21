@@ -210,6 +210,7 @@ func (d *HeadlessDispatcher) Dispatch(ctx context.Context, item store.Item, prom
 	d.mu.Lock()
 	d.running[item.ID] = hp
 	d.mu.Unlock()
+	d.publishState()
 
 	go d.awaitExit(item.ID, hp)
 	return nil
@@ -235,6 +236,7 @@ func (d *HeadlessDispatcher) awaitExit(itemID string, hp *headlessProc) {
 	if !alreadyReleased {
 		<-d.sem
 	}
+	d.publishState()
 
 	exitCode := 0
 	if exitErr, ok := err.(*exec.ExitError); ok {
@@ -248,6 +250,32 @@ func (d *HeadlessDispatcher) awaitExit(itemID string, hp *headlessProc) {
 	})
 }
 
+// publishState publishes the dispatcher's current pause/admission-count
+// state as a store.HeadlessQueueStateEvent onto the bus — the ONLY path by
+// which Snapshot.HeadlessQueue (store.go's Additive Snapshot field) ever
+// reflects real dispatcher state; without this, Store.Apply never sees a
+// HeadlessQueueStateEvent and Snapshot.HeadlessQueue stays permanently nil,
+// which is exactly the bug this method fixes. Called after every operation
+// that changes pause/admission-count state: pause(), resume(), Dispatch's
+// successful admission, and both slot-release paths (awaitExit's normal
+// completion and releaseSlotIfZombie's early release) — see each call site.
+// Must be called WITHOUT d.mu held: it acquires the lock itself to read a
+// consistent snapshot, then publishes after releasing it, so a slow/blocked
+// subscriber can never hold this dispatcher's own mutex.
+func (d *HeadlessDispatcher) publishState() {
+	d.mu.Lock()
+	st := store.HeadlessQueueState{
+		Enabled:        true,
+		ConcurrencyCap: cap(d.sem),
+		ActiveCount:    len(d.running),
+		Paused:         d.paused,
+		PausedSince:    d.pausedSince,
+		PauseSignal:    d.pauseSignal,
+	}
+	d.mu.Unlock()
+	d.bus.Publish(store.HeadlessQueueStateEvent{State: st})
+}
+
 // pause stops new admission (Dispatch returns ErrQueuePaused) without
 // touching already-running children — design.md § Rate-limit backpressure:
 // "Pausing stops NEW admission only... already-running children are never
@@ -259,13 +287,15 @@ func (d *HeadlessDispatcher) awaitExit(itemID string, hp *headlessProc) {
 // setting it).
 func (d *HeadlessDispatcher) pause(signal *store.RateLimitSignal) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if d.paused {
+		d.mu.Unlock()
 		return
 	}
 	d.paused = true
 	d.pausedSince = time.Now()
 	d.pauseSignal = signal
+	d.mu.Unlock()
+	d.publishState()
 }
 
 // resume is the ONLY path back to admitting new headless dispatch after a
@@ -274,10 +304,11 @@ func (d *HeadlessDispatcher) pause(signal *store.RateLimitSignal) {
 // doc comment for why no timer or automatic caller may ever exist.
 func (d *HeadlessDispatcher) resume() {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.paused = false
 	d.pausedSince = time.Time{}
 	d.pauseSignal = nil
+	d.mu.Unlock()
+	d.publishState()
 }
 
 // releaseSlotIfZombie stops counting itemID against ActiveCount/the
@@ -314,4 +345,5 @@ func (d *HeadlessDispatcher) releaseSlotIfZombie(itemID string) {
 
 	<-d.sem // free the semaphore slot for a new admission; the process
 	// itself is left running untouched.
+	d.publishState()
 }

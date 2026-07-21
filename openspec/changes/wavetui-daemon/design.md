@@ -287,13 +287,23 @@ established for the badge itself) and it does not touch the bd claim. The existi
 in `SessionsPane` is the ONLY UI surface for this state — `headlessbar.go` does not render a
 second one, per the operator's explicit instruction to reuse rather than duplicate.
 
-## Child-process lifecycle on daemon exit — flagged, not assumed
+## Child-process lifecycle on daemon exit — verified: children survive, reparented to PID 1
 
 `exec.CommandContext`'s cancellation on `ctx.Done()` sends `SIGKILL` to the direct child only, on
 Linux and Darwin, by default — it does NOT propagate to a process group unless one is explicitly
-created (`cmd.SysProcAttr.Setpgid`). Whether `claude -p`'s own child processes (if any) survive a
-killed parent is unverified as of this writing — flagged in `proposal.md` § Risks as a runtime
-finding `tasks.md [4.1]` must produce rather than a behavior this design assumes either way.
+created (`cmd.SysProcAttr.Setpgid`).
+
+**Verified** (`tasks.md [4.1]`, `TestE2EChildProcessSurvivesWhenDaemonKilled` in
+`apps/wavetui/internal/daemon/e2e_process_lifecycle_test.go`): a headless-dispatched `claude -p`
+child, and any of its own grandchildren, **survives a SIGKILL of the daemon parent process,
+reparented to PID 1 (init)**. Real `ps` evidence from the test (a separate re-exec'd "daemon"
+harness process SIGKILLed out from under a real child + grandchild pair): both remained alive
+post-kill with `PPID=1`, e.g. `2737467       1 S    sh -c sleep 20 & echo GRANDCHILD_PID=$!; wait`
+and `2737468 2737467 S    sleep 20`. This is not a hypothetical — orphaning IS observed, not
+merely possible. Follow-up remediation (registering running children's PIDs somewhere an operator
+can discover and reap them after a crash) is tracked as `if-ugxa.1`, since building that mechanism
+is out of scope for this proposal's Done Means but the gap it addresses is now confirmed real, not
+speculative.
 
 ## Alternatives considered
 
