@@ -16,11 +16,11 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `internal/daemon/headless_dispatcher.go`: `HeadlessDispatcher` satisfying `wavetui-dispatch`'s exact `Dispatcher` interface (`Dispatch(ctx, item, promptText) error`), semaphore-bounded admission (`ErrConcurrencyCapReached`), `composePrompt` (`/apply <id>` vs `/apply <id> --continue` per `item.TaskProgress`), and `awaitExit` publishing `HeadlessExitEvent` on the existing event bus per `design.md` § Dispatcher interface / § Prompt composition [beads:if-uzzw]
+- [x] [2.1] Implement `internal/daemon/headless_dispatcher.go`: `HeadlessDispatcher` satisfying `wavetui-dispatch`'s exact `Dispatcher` interface (`Dispatch(ctx, item, promptText) error`), semaphore-bounded admission (`ErrConcurrencyCapReached`), `composePrompt` (`/apply <id>` vs `/apply <id> --continue` per `item.TaskProgress`), and `awaitExit` publishing `HeadlessExitEvent` on the existing event bus per `design.md` § Dispatcher interface / § Prompt composition [beads:if-uzzw]
   - depends on: 1.1, 1.2
-- [ ] [2.2] Implement `internal/daemon/daemon.go` rate-limit pause/resume controller: `onSnapshot` reads `Snapshot.RateLimitBanner`, calls `dispatcher.pause()` on nil->non-nil transition (`ErrQueuePaused` for new admissions, already-running children untouched), exposes `resume()` for the explicit operator action — no timer-based resume path anywhere in this file, per `design.md` § Rate-limit backpressure [beads:if-p0m3]
+- [x] [2.2] Implement `internal/daemon/daemon.go` rate-limit pause/resume controller: `onSnapshot` reads `Snapshot.RateLimitBanner`, calls `dispatcher.pause()` on nil->non-nil transition (`ErrQueuePaused` for new admissions, already-running children untouched), exposes `resume()` for the explicit operator action — no timer-based resume path anywhere in this file, per `design.md` § Rate-limit backpressure [beads:if-p0m3]
   - depends on: 2.1
-- [ ] [2.3] Implement `internal/daemon/daemon.go` zombie-slot-release: `onSnapshot` iterates `Snapshot.Items`, calls `dispatcher.releaseSlotIfZombie(itemID)` for any `Item.Session.Zombie == true` headless-tracked item — decrements concurrency accounting only, never kills the process, never releases the bd claim, never re-dispatches, per `design.md` § Zombie interaction [beads:if-qkov]
+- [x] [2.3] Implement `internal/daemon/daemon.go` zombie-slot-release: `onSnapshot` iterates `Snapshot.Items`, calls `dispatcher.releaseSlotIfZombie(itemID)` for any `Item.Session.Zombie == true` headless-tracked item — decrements concurrency accounting only, never kills the process, never releases the bd claim, never re-dispatches, per `design.md` § Zombie interaction [beads:if-qkov]
   - depends on: 2.1
 
 ## UI Batch
