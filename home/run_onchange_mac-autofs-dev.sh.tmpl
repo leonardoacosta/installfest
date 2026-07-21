@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# run_onchange_mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv4
+#
+# Re-runs whenever the backing script or this wrapper changes.
+# Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/mac-autofs-dev.sh")) | trim }}
+#
+# Client side of home/run_onchange_dev-nfs-export.sh.tmpl (the homelab NFSv4
+# export). Wires macOS's native automountd to lazy-mount /Volumes/dev-* on
+# first access via Tailscale MagicDNS — no third-party software.
+#
+# Gated on .machine == "mac" (see home/.chezmoi.toml.tmpl). On homelab/cloudpc
+# this file expands to a no-op stub and exits immediately.
+#
+# The live logic lives in scripts/mac-autofs-dev.sh so it's:
+#   - readable outside the template layer
+#   - runnable ad-hoc from the repo (e.g. for testing or manual re-apply)
+#   - consistent with scripts/homelab/harden.sh's wrapper convention
+
+{{ if ne .machine "mac" -}}
+# Non-mac machine ({{ .machine }}) — nothing to do.
+exit 0
+{{- else -}}
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+export DOTFILES
+
+# Double-check at runtime in case hostname was resolved optimistically.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "mac-autofs-dev: not Darwin, skipping (machine={{ .machine }})" >&2
+    exit 0
+fi
+
+AUTOFS_SCRIPT="$DOTFILES/scripts/mac-autofs-dev.sh"
+if [[ ! -x "$AUTOFS_SCRIPT" ]]; then
+    if [[ -f "$AUTOFS_SCRIPT" ]]; then
+        chmod +x "$AUTOFS_SCRIPT"
+    else
+        echo "mac-autofs-dev: $AUTOFS_SCRIPT not found" >&2
+        exit 1
+    fi
+fi
+
+exec "$AUTOFS_SCRIPT"
+{{- end }}

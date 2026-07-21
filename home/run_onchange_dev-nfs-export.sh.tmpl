@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# run_onchange_dev-nfs-export.sh - homelab NFSv4 export of ~/dev subtrees
+#
+# Re-runs whenever the backing script or this wrapper changes.
+# Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/homelab/nfs-export.sh")) | trim }}
+#
+# Exports 4 top-level ~/dev directories (personal, priceless, cc,
+# central-planning) over NFSv4, Tailscale-CIDR-scoped, for the Mac's autofs
+# mount (home/run_onchange_mac-autofs-dev.sh.tmpl) to lazy-mount.
+#
+# Gated on .machine == "homelab" (see home/.chezmoi.toml.tmpl). On mac/cloudpc
+# this file expands to a no-op stub and exits immediately.
+#
+# The live logic lives in scripts/homelab/nfs-export.sh so it's:
+#   - readable outside the template layer
+#   - runnable ad-hoc from the repo (e.g. for testing or manual re-apply)
+#   - consistent with scripts/homelab/harden.sh's wrapper convention
+
+{{ if ne .machine "homelab" -}}
+# Non-homelab machine ({{ .machine }}) — nothing to do.
+exit 0
+{{- else -}}
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+export DOTFILES
+
+# Only runs on Linux/Arch — double-check at runtime in case hostname was
+# resolved optimistically.
+if [[ ! -f /etc/arch-release ]]; then
+    echo "dev-nfs-export: /etc/arch-release missing, skipping (machine={{ .machine }})" >&2
+    exit 0
+fi
+
+NFS_EXPORT_SCRIPT="$DOTFILES/scripts/homelab/nfs-export.sh"
+if [[ ! -x "$NFS_EXPORT_SCRIPT" ]]; then
+    if [[ -f "$NFS_EXPORT_SCRIPT" ]]; then
+        chmod +x "$NFS_EXPORT_SCRIPT"
+    else
+        echo "dev-nfs-export: $NFS_EXPORT_SCRIPT not found" >&2
+        exit 1
+    fi
+fi
+
+exec "$NFS_EXPORT_SCRIPT"
+{{- end }}
