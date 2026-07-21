@@ -14,7 +14,20 @@ set -euo pipefail
 
 HOMELAB_USER="nyaptor"
 HOMELAB_HOST="homelab"  # SSH alias (resolves via ~/.ssh/config to homelab.tail296462.ts.net)
-CLOUDPC_USER="leo"
+CLOUDPC_USER="leo"  # SSH login user only — do NOT use this for Windows file paths, see below.
+# CLOUDPC_USER's Windows profile DIRECTORY NAME is NOT "leo" — found live
+# 2026-07-21 during a real rotation attempt: C:\Users\leo\ is a genuinely
+# SEPARATE, stale local profile directory (containing old/different keys),
+# not a junction to the real one. The real, AzureAD-joined profile the SSH
+# server actually authenticates against is C:\Users\leo.346-CPC-QJXVZ\ —
+# every prior write to C:\Users\${CLOUDPC_USER}\... (this script's own
+# Phase 2 append) had been silently landing in the WRONG file, which is
+# why Phase 3's verify failed even though the script reported a successful
+# append. Confirm the real value via `whoami` / `echo %USERPROFILE%` over
+# ssh on the actual target machine before trusting this — it is specific
+# to this one Windows machine's profile naming, not a general Windows
+# convention.
+CLOUDPC_PROFILE_DIR="leo.346-CPC-QJXVZ"
 # Tailscale MagicDNS name, not a raw IP — found live 2026-07-21: a raw IP
 # hardcoded here for "mac" (a sibling value to this one, in
 # platform/windows/setup.ps1's $sshMeshConfig) had drifted stale after the
@@ -114,7 +127,7 @@ if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> append NEW_PUB to user + admin authorized_keys if absent"
 else
   run_cloudpc_ps1 <<PS1EOF
-\$userAuthKeys = 'C:\Users\\${CLOUDPC_USER}\.ssh\authorized_keys'
+\$userAuthKeys = 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys'
 New-Item -ItemType Directory -Force -Path (Split-Path \$userAuthKeys) | Out-Null
 if (-not (Test-Path \$userAuthKeys) -or -not (Select-String -Path \$userAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
   Add-Content -Path \$userAuthKeys -Value '${NEW_PUB}'
@@ -208,13 +221,13 @@ REMOTE_SWAP
 fi
 
 # CloudPC
-run scp "$NEW_KEY" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_USER}/.ssh/id_ed25519_new"
-run scp "${NEW_KEY}.pub" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_USER}/.ssh/id_ed25519_new.pub"
+run scp "$NEW_KEY" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_PROFILE_DIR}/.ssh/id_ed25519_new"
+run scp "${NEW_KEY}.pub" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_PROFILE_DIR}/.ssh/id_ed25519_new.pub"
 if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> keep id_ed25519.old, move new key into place"
 else
   run_cloudpc_ps1 <<PS1EOF
-\$sshDir = 'C:\Users\${CLOUDPC_USER}\.ssh'
+\$sshDir = 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh'
 if (Test-Path "\$sshDir\id_ed25519") {
   Copy-Item "\$sshDir\id_ed25519" "\$sshDir\id_ed25519.old"
 }
@@ -361,11 +374,11 @@ if $CLOUDPC_REVERIFY; then
     echo "DRY: ssh cloudpc -> user+admin authorized_keys := NEW_PUB only; icacls admin; rm id_ed25519.old"
   else
     run_cloudpc_ps1 <<PS1EOF
-Set-Content -Path 'C:\Users\\${CLOUDPC_USER}\.ssh\authorized_keys' -Value '${NEW_PUB}'
+Set-Content -Path 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys' -Value '${NEW_PUB}'
 \$adminAuthKeys = 'C:\ProgramData\ssh\administrators_authorized_keys'
 Set-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
 icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
-Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\${CLOUDPC_USER}\.ssh\id_ed25519.old'
+Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\id_ed25519.old'
 Write-Output '  cloudpc: authorized_keys pruned to new key; old key removed'
 PS1EOF
   fi
