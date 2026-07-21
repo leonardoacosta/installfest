@@ -91,6 +91,33 @@ type SessionLink struct {
 	ErrorCount   int
 	// TokensByModel is output tokens, keyed by model name.
 	TokensByModel map[string]int64
+	// Errors is the classified tool_result error feed for this session, most
+	// recent last — see wavetui-sessions' design.md § Store additive fields
+	// (API-batch addendum). ErrorCount above stays a cheap rolling total;
+	// this is the richer per-entry record. No pane in this proposal renders
+	// the feed itself — forward-compat scaffolding for a later proposal.
+	Errors []ErrorEntry
+	// ExecutorLaneFlag is true when this session is a Task-dispatched
+	// subagent (isSidechain: true) whose assistant lines used an opus-tier
+	// model — see design.md's addendum for why isSidechain is the chosen
+	// proxy for "executor lane" (no real agent-role field exists on Item).
+	ExecutorLaneFlag bool
+}
+
+// ErrorEntry is one classified tool_result error attributed to a linked
+// session — see wavetui-sessions' design.md § Store additive fields
+// (API-batch addendum) and spec.md's "Error feed attributes tool-result
+// error classes" Requirement.
+type ErrorEntry struct {
+	Timestamp time.Time
+	// Class is one of "read_first_violation", "edit_string_not_found",
+	// "gate_blocked", or "unclassified" (the generic fallback — spec.md:
+	// "still recorded in the error feed under a generic/unclassified class
+	// rather than being discarded").
+	Class string
+	// Agent is "" when not determinable from transcript agent metadata.
+	Agent   string
+	Message string
 }
 
 // RateLimitSignal is a rate-limit backpressure indicator observed in a
@@ -169,6 +196,33 @@ type SourceOKEvent struct {
 
 func (SourceOKEvent) EventName() string { return "source.ok" }
 
+// SessionLinkEvent updates ONLY the Session sub-field of item ItemID — unlike
+// ItemUpsertEvent, it never touches Title/Kind/Blocker/etc. This exists
+// because TranscriptSource (wavetui-sessions) does not own the base item —
+// BeadsSource/OpenSpecSource do — so it must not republish a full Item it
+// only partially knows about. Session == nil clears a previously-linked
+// session (e.g. the transcript source lost track of it). If ItemID names an
+// item that has not been published yet (a plausible race between sources),
+// the Session value is cached and applied the moment that item's first
+// ItemUpsertEvent arrives — see Store.Apply's ItemUpsertEvent case.
+type SessionLinkEvent struct {
+	ItemID  string
+	Session *SessionLink
+}
+
+func (SessionLinkEvent) EventName() string { return "session.link" }
+
+// RateLimitSignalEvent publishes a rate-limit backpressure indicator observed
+// in a Claude Code transcript — see wavetui-sessions' design.md §
+// Rate-limit backpressure: emit only, never consume. Store.Apply sets this as
+// the Snapshot's current RateLimitBanner (overwriting any prior one); nothing
+// in this proposal consumes or clears it beyond that.
+type RateLimitSignalEvent struct {
+	Signal RateLimitSignal
+}
+
+func (RateLimitSignalEvent) EventName() string { return "ratelimit.signal" }
+
 // --- Store --------------------------------------------------------------
 
 // Store is the single writer for all derived wavetui state. Apply is the
@@ -183,14 +237,24 @@ type Store struct {
 	items  map[string]Item
 	deps   map[string][]string // itemID -> IDs it depends on
 	errors map[string]SourceError
+
+	// pendingSessions holds a SessionLinkEvent's Session value for an
+	// itemID that has not been published via ItemUpsertEvent yet — applied
+	// as soon as that item arrives (see Apply's ItemUpsertEvent case).
+	pendingSessions map[string]*SessionLink
+
+	// rateLimit is the most recently published RateLimitSignal, or nil.
+	// Independent of any single item — see Snapshot.RateLimitBanner.
+	rateLimit *RateLimitSignal
 }
 
 // New constructs an empty Store.
 func New() *Store {
 	return &Store{
-		items:  make(map[string]Item),
-		deps:   make(map[string][]string),
-		errors: make(map[string]SourceError),
+		items:           make(map[string]Item),
+		deps:            make(map[string][]string),
+		errors:          make(map[string]SourceError),
+		pendingSessions: make(map[string]*SessionLink),
 	}
 }
 
@@ -203,17 +267,42 @@ func (s *Store) Apply(ev bus.Event) {
 
 	switch e := ev.(type) {
 	case ItemUpsertEvent:
-		s.items[e.Item.ID] = e.Item
+		item := e.Item
+		// A source that doesn't know about sessions (BeadsSource,
+		// OpenSpecSource) always publishes Item.Session == nil. If
+		// TranscriptSource resolved a link for this item before its base
+		// Item ever arrived, apply the cached value now rather than losing
+		// it to this upsert's zero value.
+		if item.Session == nil {
+			if pending, ok := s.pendingSessions[item.ID]; ok {
+				item.Session = pending
+			}
+		}
+		s.items[item.ID] = item
 		if e.Deps != nil {
-			s.deps[e.Item.ID] = append([]string(nil), e.Deps...)
+			s.deps[item.ID] = append([]string(nil), e.Deps...)
 		}
 	case ItemRemoveEvent:
 		delete(s.items, e.ID)
 		delete(s.deps, e.ID)
+		delete(s.pendingSessions, e.ID)
 	case SourceErrorEvent:
 		s.errors[e.Error.Source] = e.Error
 	case SourceOKEvent:
 		delete(s.errors, e.Source)
+	case SessionLinkEvent:
+		if item, ok := s.items[e.ItemID]; ok {
+			item.Session = e.Session
+			s.items[e.ItemID] = item
+			delete(s.pendingSessions, e.ItemID)
+		} else if e.Session != nil {
+			s.pendingSessions[e.ItemID] = e.Session
+		} else {
+			delete(s.pendingSessions, e.ItemID)
+		}
+	case RateLimitSignalEvent:
+		sig := e.Signal
+		s.rateLimit = &sig
 	default:
 		// Unknown event type: no-op, not an error.
 		return
@@ -278,10 +367,17 @@ func (s *Store) Snapshot() Snapshot {
 	}
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Source < errs[j].Source })
 
+	var banner *RateLimitSignal
+	if s.rateLimit != nil {
+		b := *s.rateLimit
+		banner = &b
+	}
+
 	return Snapshot{
-		Items:     items,
-		Errors:    errs,
-		Generated: time.Now(),
+		Items:           items,
+		Errors:          errs,
+		Generated:       time.Now(),
+		RateLimitBanner: banner,
 	}
 }
 
@@ -316,6 +412,9 @@ func cloneItem(item Item) Item {
 			for k, v := range item.Session.TokensByModel {
 				sl.TokensByModel[k] = v
 			}
+		}
+		if item.Session.Errors != nil {
+			sl.Errors = append([]ErrorEntry(nil), item.Session.Errors...)
 		}
 		item.Session = &sl
 	}

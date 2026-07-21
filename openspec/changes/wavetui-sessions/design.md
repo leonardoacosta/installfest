@@ -203,6 +203,71 @@ type SessionLink struct {
 `Snapshot` gains one field: `RateLimitBanner *RateLimitSignal` (nil when no active signal),
 independent of any single `Item`.
 
+**API-batch addendum (tasks.md [2.2]/[2.3]/[2.4])**: implementing the Error-feed and Token-meter
+Requirements against `spec.md`'s scenarios ("the error is added to that item's error feed with
+its error class recorded") surfaced two fields the DB batch's initial extraction of this section
+did not anticipate — both additive, no existing field renamed/removed:
+
+```go
+type SessionLink struct {
+    // ... fields above unchanged ...
+
+    // Errors is the classified tool_result error feed for this session, most
+    // recent last. ErrorCount stays a cheap rolling total (unchanged shape);
+    // Errors is the richer per-entry record spec.md's Error-feed Requirement
+    // needs ("recorded... with its error class"). No pane in this proposal
+    // renders the feed itself (SessionsPane/KPIBar only surface ErrorCount
+    // and stale-claim minutes per their own Requirements) — this is
+    // forward-compat scaffolding for a later proposal's error-feed UI, the
+    // same precedent wavetui-core's design.md already set for Item.Deps
+    // ("no source in this batch produces dependency edges... internal
+    // scaffolding a later source publishes into").
+    Errors []ErrorEntry
+
+    // ExecutorLaneFlag is true when this session is a Task-dispatched
+    // subagent (isSidechain: true — the transcript-native signal this
+    // repo's own session-linkage algorithm already uses for subagent
+    // detection) whose assistant lines used an opus-tier model. spec.md's
+    // "opus running in an executor lane" scenario cites "the linked item's
+    // agent-role metadata," which does not exist as a real Store/Item field
+    // today (Item carries no agent-role column) — isSidechain is the
+    // closest verified transcript-native proxy for "this is a dispatched
+    // executor, not the orchestrating top-level session," consistent with
+    // this fleet's own documented model-routing convention (opus reserved
+    // for orchestration, see CLAUDE.md's Project Registry: "opus =
+    // orchestrates agents"). Documented as a heuristic, not a verified
+    // field, same honesty standard as the Rate-limit section below.
+    ExecutorLaneFlag bool
+}
+
+// ErrorEntry is one classified tool_result error attributed to a linked
+// session.
+type ErrorEntry struct {
+    Timestamp time.Time
+    Class     string // "read_first_violation" | "edit_string_not_found" | "gate_blocked" | "unclassified"
+    Agent     string // "" when not determinable from transcript agent metadata
+    Message   string
+}
+```
+
+**Wave rollup deferred**: spec.md's Token-meter Requirement also says output-token totals roll up
+"to the wave... when wave metadata is available from the linked item." No `Item.Wave` field
+exists anywhere in the Store (wave-file support is explicitly `wavetui-dispatch`'s concern, out of
+scope here per this proposal's own Scope/OUT list) — the conditional is satisfied by construction
+(never available, so the rollup never fires) rather than built out. If `wavetui-dispatch` later
+adds wave metadata to `Item`, this rollup becomes a real follow-up, not a design change here.
+
+**Rate-limit indicator, unverified positive example**: no session available during this batch's
+authoring hit a real rate-limited response (`isApiErrorMessage: true` was confirmed as a real,
+present top-level field on `assistant` lines in this session's own live transcripts, but every
+observed value was `false` — no live positive example exists to confirm the exact accompanying
+message text). `TranscriptSource` treats `isApiErrorMessage: true` combined with a
+rate-limit-shaped keyword match in the assistant's rendered text (`rate limit`, `429`,
+`overloaded`, `rate_limit_error`) as the signal — a conservative superset of Anthropic's known
+error-type strings, not a field-name-verified match. Same standing mitigation as the transcript
+schema drift risk above: a future Claude Code release changing this shape degrades to "signal
+never fires," never a crash, per the tolerant-decode invariant.
+
 ## Rate-limit backpressure: emit only, never consume
 
 This proposal emits a `RateLimitSignal` event onto the bus when `TranscriptSource` observes a

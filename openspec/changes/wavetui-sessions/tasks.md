@@ -21,29 +21,29 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `internal/sources/transcript.go` tail+decode: fsnotify watch on [beads:if-7s7m]
+- [x] [2.1] Implement `internal/sources/transcript.go` tail+decode: fsnotify watch on [beads:if-7s7m]
   `~/.claude/projects/<flattened-path>/*.jsonl`, per-file byte offset with partial-line remainder
   buffer, offset reset to 0 on file-size-less-than-offset (truncation/replacement), tolerant
   decode ignoring unknown `type` values and unknown fields per `design.md` § Verified transcript
   fields
   - depends on: 1.1
-- [ ] [2.2] Implement context gauge + zombie detection in `transcript.go`: cumulative [beads:if-sazd]
+- [x] [2.2] Implement context gauge + zombie detection in `transcript.go`: cumulative [beads:if-sazd]
   `input_tokens` + `cache_read_input_tokens` sum from `assistant`-type `message.usage` entries vs
   approximate model-window size, 70% threshold handoff badge, zombie badge requiring
   transcript-inactivity (>= 15min config) cross-checked against `TmuxSource` pane state when
   available (never either signal alone), one-key release action wired to a `bd release` call —
   never automatic
   - depends on: 2.1, 1.2
-- [ ] [2.3] Implement error feed + token meter in `transcript.go`: classify `tool_result` error [beads:if-630f]
+- [x] [2.3] Implement error feed + token meter in `transcript.go`: classify `tool_result` error [beads:if-630f]
   shapes (read-first violations, string-not-found edit failures, `gate.sh BLOCKED` output,
   generic/unclassified fallback) attributed to the linked item and agent metadata; accumulate
   `output_tokens` by model per session/item/wave and flag opus running in an executor lane
   - depends on: 2.1, 1.2
-- [ ] [2.4] Implement rate-limit signal emission in `transcript.go`: detect a rate-limit indicator [beads:if-zzg2]
+- [x] [2.4] Implement rate-limit signal emission in `transcript.go`: detect a rate-limit indicator [beads:if-zzg2]
   in the transcript stream and publish a `RateLimitSignal` event onto `wavetui-core`'s bus —
   emission only, no consuming queue/scheduling logic
   - depends on: 2.1
-- [ ] [2.5] Implement `internal/sources/tmux.go`: `@cc-state` pane-option read [beads:if-31fw]
+- [x] [2.5] Implement `internal/sources/tmux.go`: `@cc-state` pane-option read [beads:if-31fw]
   (`tmux show-options -p -v -t <pane> @cc-state`) as primary path for every cc-tmux-tagged pane,
   process-tree walk (`ps -axo pid,ppid,comm`) fallback for untagged panes only, no positional
   ("adjacent pane") inference between panes, per `design.md` § Alternatives / Related Work
