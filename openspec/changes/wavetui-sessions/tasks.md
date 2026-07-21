@@ -67,25 +67,25 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] `go test` for `internal/sources/transcript.go`: offset tracking across multiple reads, [beads:if-ti9t]
+- [x] [4.1] `go test` for `internal/sources/transcript.go`: offset tracking across multiple reads, [beads:if-ti9t]
   partial-line buffering, truncation-triggered offset reset, tolerant decode of all ten observed
   `type` values plus one synthetic unknown type, context-gauge threshold crossing, zombie
   cross-check (transcript-inactivity alone vs. tmux-active override), error-feed classification
   fixtures, token-meter per-model accumulation, rate-limit signal emission
   - depends on: 2.1, 2.2, 2.3, 2.4
-- [ ] [4.2] `go test` for `internal/sources/tmux.go`: `@cc-state`-tagged pane read path, [beads:if-43es]
+- [x] [4.2] `go test` for `internal/sources/tmux.go`: `@cc-state`-tagged pane read path, [beads:if-43es]
   untagged-pane process-tree fallback, no-result (not a guess) when neither path finds a match,
   no positional inference between adjacent panes
   - depends on: 2.5
-- [ ] [4.3] `go test` for `internal/sources/session_link.go`: exact `/apply <id>` match, [beads:if-phfg]
+- [x] [4.3] `go test` for `internal/sources/session_link.go`: exact `/apply <id>` match, [beads:if-phfg]
   cwd+timestamp fallback (both conditions required, cwd-alone and timestamp-alone rejection
   cases), sidechain-inherits-parent linkage, cwd-over-flattening trust
   - depends on: 1.2
-- [ ] [4.4] `go test` for the additive `internal/store/store.go` fields: confirm existing [beads:if-x6ap]
+- [x] [4.4] `go test` for the additive `internal/store/store.go` fields: confirm existing [beads:if-x6ap]
   `wavetui-core` store tests still pass unmodified, plus new coverage for `SessionLink`/
   `RateLimitSignal` snapshot immutability
   - depends on: 1.1
-- [ ] [4.5] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` against this repo's own live [beads:if-ffu4]
+- [x] [4.5] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` against this repo's own live [beads:if-ffu4]
   Claude Code transcript and tmux session, confirm `SessionsPane` shows a context-percent gauge
   that updates as the transcript grows, confirm `KPIBar` renders and increments its rate-limit
   counter on a simulated signal, confirm a session run outside any cc-tmux-tracked pane still

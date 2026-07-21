@@ -504,7 +504,18 @@ func TestTranscriptSourceLinksViaExactApplyReference(t *testing.T) {
 	b.Publish(store.ItemUpsertEvent{Item: store.Item{ID: "if-abc12", Kind: store.KindBead, Title: "thing"}})
 
 	path := filepath.Join(dir, "sess-5.jsonl")
-	writeFile(t, path, `{"type":"user","sessionId":"sess-5","message":{"role":"user","content":"/apply if-abc12"}}`+"\n"+
+	// Real dispatches are wrapped in the harness's own structural
+	// command-dispatch marker (confirmed against this repo's own live
+	// session transcripts) — a bare "/apply if-abc12" substring with no
+	// wrapper is exactly the incidental-prose shape the exact-match false
+	// positive fix (session_link.go's applyDispatchRe) now excludes; see
+	// TestMatchExactApplyRefIgnoresIncidentalProseMention in
+	// session_link_test.go for the dedicated regression coverage.
+	dispatchContent, err := json.Marshal("<command-message>apply</command-message>\n<command-name>/apply</command-name>\n<command-args>if-abc12</command-args>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"type":"user","sessionId":"sess-5","message":{"role":"user","content":`+string(dispatchContent)+`}}`+"\n"+
 		`{"type":"assistant","sessionId":"sess-5","message":{"model":"claude-sonnet-5","usage":{"input_tokens":5,"cache_read_input_tokens":0,"output_tokens":50}}}`+"\n")
 
 	src.tailAll(ctx)

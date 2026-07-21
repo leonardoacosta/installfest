@@ -146,9 +146,25 @@ could be.
 ## Session linkage algorithm
 
 1. **Exact match (cheap, preferred)**: scan `user`-type transcript lines' `message` text for a
-   literal `/apply <id>` substring (id-shaped: matches the same bead/spec-slug grammar
-   `wavetui-core`'s `BeadsSource`/`OpenSpecSource` already parse). First match wins; a session
-   only links to one item at a time.
+   genuine `/apply <id>` slash-command dispatch — id-shaped (matches the same bead/spec-slug
+   grammar `wavetui-core`'s `BeadsSource`/`OpenSpecSource` already parse). First match wins; a
+   session only links to one item at a time.
+
+   **E2E-batch correction (tasks.md [4.3])**: an earlier version of this step matched a bare
+   literal-substring `/apply <id>` regex anywhere in a message's text. That produced a confirmed
+   live false positive — it resolved to the FIRST occurrence of `/apply <word>` anywhere in a
+   transcript, including incidental prose that merely mentions the string (e.g. a CLAUDE.md-style
+   context dump, itself loaded as a `<command-args>` payload belonging to an unrelated command,
+   whose own prose says "... dispatches `/apply` waves via tmux ..."), which won before a later,
+   real, actually-dispatched `/apply <real-id>` command ever got a chance. The fix (`internal/
+   sources/session_link.go`'s `applyDispatchRe`) instead matches the harness's own structural
+   command-dispatch wrapper — `<command-name>/apply</command-name>` immediately followed by a
+   `<command-args>` block — confirmed against this repo's own live session transcripts to be the
+   one shape a genuine interactive dispatch always takes, and a shape no other command's own
+   `<command-args>` payload can produce by accident. A raw-text `/apply <id>` mention typed
+   outside the slash-command mechanism (which never earns this wrapper) is deliberately left
+   unmatched by this step — consistent with this section's existing "ambiguous linkage gets a
+   fallback, never a confident false match" posture — and falls through to step 2 instead.
 2. **Fallback (cwd + claim-timestamp proximity)**: when no exact match exists, compare the
    transcript's `cwd` field (trusted over directory-name flattening — flattening is lossy and
    collision-prone, e.g. two projects that only differ in a character stripped by flattening)

@@ -153,6 +153,194 @@ func TestFanOutScoreTransitiveDependents(t *testing.T) {
 	}
 }
 
+// --- wavetui-sessions additive fields (tasks.md [4.4]) ----------------------
+//
+// These tests cover the Session/RateLimitBanner fields wavetui-sessions
+// added additively to Item/Snapshot (design.md § Store additive fields).
+// Everything above this point is the unmodified wavetui-core test suite —
+// its continued passing (verified by running this whole file) is itself
+// the "existing tests unmodified/passing" half of tasks.md [4.4]'s
+// coverage requirement.
+
+func TestSessionLinkEventUpdatesOnlySessionSubField(t *testing.T) {
+	s := New()
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A"}})
+
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: &SessionLink{
+		SessionID:     "sess-1",
+		ContextPct:    42,
+		TokensByModel: map[string]int64{"claude-sonnet-5": 100},
+	}})
+
+	snap := s.Snapshot()
+	if len(snap.Items) != 1 {
+		t.Fatalf("want 1 item, got %+v", snap.Items)
+	}
+	if snap.Items[0].Title != "A" || snap.Items[0].Kind != KindBead {
+		t.Fatalf("SessionLinkEvent must not touch Title/Kind, got %+v", snap.Items[0])
+	}
+	if snap.Items[0].Session == nil || snap.Items[0].Session.SessionID != "sess-1" {
+		t.Fatalf("expected Session.SessionID sess-1, got %+v", snap.Items[0].Session)
+	}
+}
+
+// TestSessionLinkEventCachesForNotYetPublishedItem covers the documented
+// race (store.go's SessionLinkEvent doc comment): TranscriptSource may
+// resolve a link before BeadsSource/OpenSpecSource ever publishes the base
+// Item. The Session value must be cached and applied the moment that
+// item's first ItemUpsertEvent arrives, not dropped.
+func TestSessionLinkEventCachesForNotYetPublishedItem(t *testing.T) {
+	s := New()
+	s.Apply(SessionLinkEvent{ItemID: "b", Session: &SessionLink{SessionID: "sess-2"}})
+
+	snap := s.Snapshot()
+	if len(snap.Items) != 0 {
+		t.Fatalf("expected no items before the base item is published, got %+v", snap.Items)
+	}
+
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "b", Kind: KindBead, Title: "B"}})
+	snap = s.Snapshot()
+	if len(snap.Items) != 1 || snap.Items[0].Session == nil || snap.Items[0].Session.SessionID != "sess-2" {
+		t.Fatalf("expected the pending session link to be applied on first upsert, got %+v", snap.Items)
+	}
+}
+
+// TestSessionLinkEventNilClearsLink covers "Session == nil clears a
+// previously-linked session" from SessionLinkEvent's doc comment.
+func TestSessionLinkEventNilClearsLink(t *testing.T) {
+	s := New()
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A"}})
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: &SessionLink{SessionID: "sess-1"}})
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: nil})
+
+	snap := s.Snapshot()
+	if snap.Items[0].Session != nil {
+		t.Fatalf("expected nil Session to clear a previously-linked session, got %+v", snap.Items[0].Session)
+	}
+}
+
+// TestSnapshotDeepCopiesSessionLinkMapAndSlice extends
+// TestSnapshotDeepCopiesPointerFields to Session's own nested reference
+// types (TokensByModel map, Errors slice) — cloneItem's doc comment claims
+// these are independently allocated per Snapshot, not shared with the
+// Store's internal *SessionLink.
+func TestSnapshotDeepCopiesSessionLinkMapAndSlice(t *testing.T) {
+	s := New()
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A"}})
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: &SessionLink{
+		SessionID:     "sess-1",
+		TokensByModel: map[string]int64{"claude-sonnet-5": 100},
+		Errors:        []ErrorEntry{{Class: "unclassified", Message: "boom"}},
+	}})
+
+	snap := s.Snapshot()
+	sess := snap.Items[0].Session
+	sess.TokensByModel["claude-sonnet-5"] = 999999
+	sess.TokensByModel["new-model"] = 1
+	sess.Errors[0].Message = "CORRUPTED"
+	sess.Errors = append(sess.Errors, ErrorEntry{Class: "injected"})
+
+	fresh := s.Snapshot()
+	freshSess := fresh.Items[0].Session
+	if freshSess.TokensByModel["claude-sonnet-5"] != 100 {
+		t.Fatalf("mutating a Snapshot's TokensByModel map leaked into Store state: %+v", freshSess.TokensByModel)
+	}
+	if _, ok := freshSess.TokensByModel["new-model"]; ok {
+		t.Fatal("adding a key to a Snapshot's TokensByModel map leaked into Store state")
+	}
+	if freshSess.Errors[0].Message == "CORRUPTED" {
+		t.Fatalf("mutating a Snapshot's Errors slice leaked into Store state: %+v", freshSess.Errors)
+	}
+	if len(freshSess.Errors) != 1 {
+		t.Fatalf("appending to a Snapshot's Errors slice leaked into Store state: %+v", freshSess.Errors)
+	}
+
+	again := s.Snapshot()
+	if again.Items[0].Session == fresh.Items[0].Session {
+		t.Fatal("two Snapshots share the same *SessionLink pointer — not a deep copy")
+	}
+}
+
+// TestSnapshotDeepCopiesRateLimitBanner covers Snapshot.RateLimitBanner —
+// a whole-snapshot pointer field independent of any single Item, so it
+// needs its own copy-on-write proof distinct from cloneItem's coverage.
+func TestSnapshotDeepCopiesRateLimitBanner(t *testing.T) {
+	s := New()
+	s.Apply(RateLimitSignalEvent{Signal: RateLimitSignal{Message: "rate limited"}})
+
+	snap := s.Snapshot()
+	if snap.RateLimitBanner == nil || snap.RateLimitBanner.Message != "rate limited" {
+		t.Fatalf("expected a RateLimitBanner, got %+v", snap.RateLimitBanner)
+	}
+
+	snap.RateLimitBanner.Message = "CORRUPTED"
+
+	fresh := s.Snapshot()
+	if fresh.RateLimitBanner.Message == "CORRUPTED" {
+		t.Fatalf("mutating a Snapshot's RateLimitBanner leaked into Store state: %+v", fresh.RateLimitBanner)
+	}
+	if fresh.RateLimitBanner == snap.RateLimitBanner {
+		t.Fatal("two Snapshots share the same *RateLimitSignal pointer — not a deep copy")
+	}
+}
+
+func TestRateLimitSignalEventOverwritesPrevious(t *testing.T) {
+	s := New()
+	s.Apply(RateLimitSignalEvent{Signal: RateLimitSignal{Message: "first"}})
+	s.Apply(RateLimitSignalEvent{Signal: RateLimitSignal{Message: "second"}})
+
+	snap := s.Snapshot()
+	if snap.RateLimitBanner == nil || snap.RateLimitBanner.Message != "second" {
+		t.Fatalf("expected the banner to be overwritten by the latest signal, got %+v", snap.RateLimitBanner)
+	}
+}
+
+// TestItemUpsertRepublishPreservesExistingSessionLink is the regression
+// test for a real bug caught live during tasks.md [4.5]'s runtime
+// verification (not a hypothetical): BeadsSource/OpenSpecSource republish
+// their known items on every requery cycle (poll or fsnotify-triggered),
+// always with Item.Session == nil (they don't know about sessions at
+// all). Before this fix, Apply's ItemUpsertEvent case only restored a
+// cached pendingSessions value (the "session resolved before the item
+// existed" race) — it never preserved an EXISTING item's already-attached
+// Session across a later, ordinary republish. In a live pty run against
+// this repo's real bd data, a SessionsPane row (linked + zombie-badged)
+// visibly vanished the moment BeadsSource's own periodic requery
+// re-published the same already-linked item, confirmed independently via
+// a standalone repro before this fix landed.
+func TestItemUpsertRepublishPreservesExistingSessionLink(t *testing.T) {
+	s := New()
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A"}})
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: &SessionLink{SessionID: "sess-1", ContextPct: 42}})
+
+	snap := s.Snapshot()
+	if snap.Items[0].Session == nil || snap.Items[0].Session.SessionID != "sess-1" {
+		t.Fatalf("setup: expected item a linked to sess-1, got %+v", snap.Items[0].Session)
+	}
+
+	// Simulate a session-unaware source (BeadsSource/OpenSpecSource)
+	// republishing the SAME item on a later requery cycle — its own
+	// ItemUpsertEvent always carries Session == nil.
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A", CreatedAt: time.Time{}}})
+
+	snap = s.Snapshot()
+	if snap.Items[0].Session == nil {
+		t.Fatal("a session-unaware republish wiped the existing Session link")
+	}
+	if snap.Items[0].Session.SessionID != "sess-1" || snap.Items[0].Session.ContextPct != 42 {
+		t.Fatalf("expected the preserved Session to be unchanged, got %+v", snap.Items[0].Session)
+	}
+
+	// A REAL SessionLinkEvent with Session == nil must still be able to
+	// clear the link — this fix must not make session state permanently
+	// sticky.
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: nil})
+	snap = s.Snapshot()
+	if snap.Items[0].Session != nil {
+		t.Fatal("expected an explicit SessionLinkEvent(nil) to still clear the link after the fix")
+	}
+}
+
 func TestFanOutScoreIgnoresCycleInfiniteLoop(t *testing.T) {
 	s := New()
 	// a <-> b cyclic dependency must not hang recomputeFanOutLocked.

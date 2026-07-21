@@ -269,13 +269,36 @@ func (s *Store) Apply(ev bus.Event) {
 	case ItemUpsertEvent:
 		item := e.Item
 		// A source that doesn't know about sessions (BeadsSource,
-		// OpenSpecSource) always publishes Item.Session == nil. If
-		// TranscriptSource resolved a link for this item before its base
-		// Item ever arrived, apply the cached value now rather than losing
-		// it to this upsert's zero value.
+		// OpenSpecSource) always publishes Item.Session == nil — and it
+		// republishes on every requery cycle (poll or fsnotify-triggered),
+		// not just once, since neither source tracks "have I already sent
+		// this item" beyond its own last-good cache. Two distinct cases
+		// need the incoming nil Session filled in rather than trusted
+		// verbatim:
+		//
+		//  1. TranscriptSource resolved a link for this item BEFORE its
+		//     base Item ever arrived — apply the cached pendingSessions
+		//     value now rather than losing it to this upsert's zero value.
+		//  2. This item already exists AND is already linked (a normal,
+		//     repeated BeadsSource/OpenSpecSource republish of an item
+		//     TranscriptSource previously attached a Session to via its own
+		//     SessionLinkEvent). Without this branch, every such republish
+		//     silently wiped the Session back to nil — a real regression
+		//     caught live during tasks.md [4.5]'s runtime verification: a
+		//     linked, zombie-badged SessionsPane row vanished the moment
+		//     BeadsSource's own periodic requery re-published the same
+		//     item, since case 1's pendingSessions lookup is empty once a
+		//     link has already been applied (SessionLinkEvent's own case
+		//     below deletes that pending entry the moment it fires). Only
+		//     SessionLinkEvent (Session == nil, explicitly) is allowed to
+		//     clear an existing link — an ItemUpsertEvent from a
+		//     session-unaware source must never do so as a side effect of
+		//     republishing the item it DOES own.
 		if item.Session == nil {
 			if pending, ok := s.pendingSessions[item.ID]; ok {
 				item.Session = pending
+			} else if existing, ok := s.items[item.ID]; ok {
+				item.Session = existing.Session
 			}
 		}
 		s.items[item.ID] = item

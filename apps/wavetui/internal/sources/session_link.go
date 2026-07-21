@@ -34,15 +34,54 @@ import (
 // be needed.
 const DefaultLinkWindow = 10 * time.Minute
 
-// applyRefRe matches an exact `/apply <id>` reference in free text — the
-// literal-substring exact-match step of design.md's algorithm (point 1).
+// applyDispatchRe matches the structural marker Claude Code's own CLI
+// wraps around a genuinely interactively-dispatched `/apply <id>` slash
+// command — `<command-name>/apply</command-name>` immediately followed by
+// a `<command-args>` block whose leading token is the invoked id — rather
+// than a bare literal-substring search for "/apply <id>" anywhere in a
+// message's text.
+//
+// This replaces an earlier version of this match (a plain
+// `(?:^|\s)/apply\s+(id)` substring regex) that produced a confirmed live
+// false positive: it resolved to the FIRST occurrence of `/apply <word>`
+// anywhere in a transcript, including incidental prose that merely
+// mentions the string rather than a real dispatch — e.g. a CLAUDE.md-style
+// context dump (loaded as a `<command-args>` block belonging to some other
+// command, such as `/explore`) whose own prose says "... dispatches
+// `/apply` waves via tmux ..." matched and won before the transcript's
+// later, real, actually-dispatched `/apply <real-id>` command ever got a
+// chance. Reproduced directly against this repo's own live session
+// transcripts (`~/.claude/projects/<flattened-path>/*.jsonl`) while fixing
+// this: a genuine interactive dispatch always looks structurally like
+//
+//	<command-message>apply</command-message>
+//	<command-name>/apply</command-name>
+//	<command-args>some-id</command-args>
+//
+// verbatim as the WHOLE message.content string (no other command's own
+// `<command-args>` payload ever contains a nested `<command-name>/apply
+// </command-name>` marker in real data) — this is the harness's own
+// unambiguous "a real slash command was dispatched" signal, never
+// something a passing prose mention can accidentally produce. A raw
+// substring search cannot distinguish those two cases; the structural
+// marker can. design.md's own edge-case philosophy ("ambiguous linkage
+// gets a '?' variant, never a confident match") argues for exactly this
+// conservative direction — under-matching a hypothetical raw-text mention
+// of `/apply <id>` typed outside the slash-command mechanism (which would
+// never earn this wrapper) is preferable to over-matching incidental
+// prose, since design.md's fallback step (cwd+timestamp) still has a
+// chance to resolve that session correctly.
+//
 // The id-shape charclass (`[A-Za-z0-9][A-Za-z0-9._-]*`) mirrors the
 // canonical bead-ID grammar already used elsewhere in this codebase (see
 // internal/timeline/memory_history.go's inlineBeadRefRe, and
 // rules/TOOLING.md's BEADS_ID_RE in the wider cc fleet) and doubles as a
 // valid openspec change-slug shape (e.g. "wavetui-sessions") — both are
-// legal targets of `/apply <id>`.
-var applyRefRe = regexp.MustCompile(`(?:^|\s)/apply\s+([A-Za-z0-9][A-Za-z0-9._-]*)`)
+// legal targets of `/apply <id>`. `\s*` (not `\s+`) between the closing
+// `</command-name>` tag and `<command-args>` tolerates the harness never
+// emitting anything but a single `\n` there in observed data, without
+// hard-coding that exact byte.
+var applyDispatchRe = regexp.MustCompile(`<command-name>/apply</command-name>\s*<command-args>\s*([A-Za-z0-9][A-Za-z0-9._-]*)`)
 
 // SessionTranscript is the subset of one Claude Code session's transcript
 // data a caller (TranscriptSource) must supply for linkage resolution —
@@ -180,12 +219,16 @@ func (l *SessionLinker) Resolved(sessionID string) (itemID string, ok bool) {
 }
 
 // matchExactApplyRef scans messages in order and returns the id captured
-// by the first `/apply <id>` reference found — "first match wins" (design.md
-// point 1), which for messages supplied in chronological order means the
-// earliest occurrence in the session wins.
+// by the first genuine `/apply <id>` slash-command dispatch found — "first
+// match wins" (design.md point 1), which for messages supplied in
+// chronological order means the earliest real dispatch in the session
+// wins. See applyDispatchRe's doc comment for why this matches the
+// harness's structural command-dispatch wrapper rather than a bare
+// literal-substring search — the latter is what produced the false
+// positive this function now fixes.
 func matchExactApplyRef(messages []string) (string, bool) {
 	for _, msg := range messages {
-		if m := applyRefRe.FindStringSubmatch(msg); m != nil {
+		if m := applyDispatchRe.FindStringSubmatch(msg); m != nil {
 			return m[1], true
 		}
 	}
