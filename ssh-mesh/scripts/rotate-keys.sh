@@ -127,7 +127,7 @@ if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> append NEW_PUB to user + admin authorized_keys if absent"
 else
   run_cloudpc_ps1 <<PS1EOF
-\$userAuthKeys = 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys'
+\$userAuthKeys = 'C:\Users\\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys'
 New-Item -ItemType Directory -Force -Path (Split-Path \$userAuthKeys) | Out-Null
 if (-not (Test-Path \$userAuthKeys) -or -not (Select-String -Path \$userAuthKeys -SimpleMatch '${NEW_PUB}' -Quiet)) {
   Add-Content -Path \$userAuthKeys -Value '${NEW_PUB}'
@@ -227,7 +227,7 @@ if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> keep id_ed25519.old, move new key into place"
 else
   run_cloudpc_ps1 <<PS1EOF
-\$sshDir = 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh'
+\$sshDir = 'C:\Users\\${CLOUDPC_PROFILE_DIR}\.ssh'
 if (Test-Path "\$sshDir\id_ed25519") {
   Copy-Item "\$sshDir\id_ed25519" "\$sshDir\id_ed25519.old"
 }
@@ -374,11 +374,11 @@ if $CLOUDPC_REVERIFY; then
     echo "DRY: ssh cloudpc -> user+admin authorized_keys := NEW_PUB only; icacls admin; rm id_ed25519.old"
   else
     run_cloudpc_ps1 <<PS1EOF
-Set-Content -Path 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys' -Value '${NEW_PUB}'
+Set-Content -Path 'C:\Users\\${CLOUDPC_PROFILE_DIR}\.ssh\authorized_keys' -Value '${NEW_PUB}'
 \$adminAuthKeys = 'C:\ProgramData\ssh\administrators_authorized_keys'
 Set-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
 icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
-Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\${CLOUDPC_PROFILE_DIR}\.ssh\id_ed25519.old'
+Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\\${CLOUDPC_PROFILE_DIR}\.ssh\id_ed25519.old'
 Write-Output '  cloudpc: authorized_keys pruned to new key; old key removed'
 PS1EOF
   fi
