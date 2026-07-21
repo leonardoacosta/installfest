@@ -100,6 +100,11 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	)
 	queue.SetDispatcher(ctx, resolver)
 
+	// wavetui-decision-lanes (tasks.md [3.4]): TmuxSpawner is the real
+	// Spawner backing the queue's "s" lane-spawn action — see
+	// internal/dispatch/spawn.go and design.md § Spawn gap.
+	queue.SetSpawner(dispatch.NewTmuxSpawner())
+
 	// wavetui-dispatch (UI batch task [3.4]): the finalize action ("w")
 	// persists QueuePane's current wave-builder selection via task [3.3]'s
 	// JSON writer (internal/wave/writer.go) to a single fixed path beside

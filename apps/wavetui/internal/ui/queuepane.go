@@ -14,6 +14,8 @@ import (
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/lanes"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/wave"
 )
@@ -25,6 +27,9 @@ import (
 // into this same column (see renderBlockerCell); 18 would silently
 // ellipsis-truncate that mandated text mid-word, which is worse than a
 // slightly wider column for every other row's shorter Blocker/Stale badges.
+// wavetui-decision-lanes' own badges (renderLaneBadge, e.g. "lane:decision
+// (spawned)" at 23 runes, "stale — x:cleanup" at 17) were sized to fit this
+// same 24-wide budget rather than widening the column further.
 var queueColumns = []table.Column{
 	{Title: "Item", Width: 32},
 	{Title: "Type", Width: 10},
@@ -93,7 +98,46 @@ type QueuePane struct {
 	// sessionspane.go's lastAction already establishes for a one-key,
 	// never-automatic action.
 	lastWaveAction string
+
+	// --- wavetui-decision-lanes (tasks.md [3.1]-[3.3]) additive state ---
+
+	// lanes mirrors wavetui-decision-lanes' per-item LaneState
+	// (internal/lanes), keyed by item ID — rebuilt by rebuildLanes on every
+	// Update(Snapshot) call via lanes.DetectLane, which preserves
+	// PaneID/SpawnedAt/Since across snapshots for an item whose blocker
+	// Type is unchanged (design.md § Lane detection). An item with no lane
+	// (item.Blocker == nil, or the type just changed) has no entry here —
+	// that absence IS the badge-clear signal design.md specifies; there is
+	// no separate "resolved" flag anywhere. nil/empty is the default,
+	// matching every pre-existing test in this package (none of which
+	// populate a Blocker note, so none ever get a lane).
+	lanes map[string]*lanes.LaneState
+
+	// spawner is nil until SetSpawner is called (cmd/wavetui/main.go, task
+	// [3.4]) — a QueuePane nobody wires a Spawner into (every pre-existing
+	// test) treats the lane "s" key as a silent no-op rather than a
+	// nil-pointer panic, the same convention SetDispatcher/dispatcher
+	// already establish above for the unrelated Start action.
+	spawner dispatch.Spawner
+
+	// spawnBadges is a transient, per-item overlay recording the outcome of
+	// the most recent lane-spawn action for that item — "spawn failed:
+	// <err>" on a Spawn error, per design.md's explicit "no automatic
+	// retry" instruction (dispatchBadges' own doc comment above documents
+	// the identical precedent for the unrelated Start action): the operator
+	// re-triggers "s" manually, nothing here retries on its own.
+	// rebuildLanes clears an entry the moment its item's lane itself
+	// disappears (blocker resolved/edited away), so a stale failure badge
+	// never survives past the blocker note that caused it.
+	spawnBadges map[string]string
 }
+
+// laneIdleWindow is the staleness threshold LaneState.IsStale checks a
+// spawned-but-no-longer-live lane against — design.md § Lane liveness:
+// "default matches wavetui-sessions' 15min zombie default." Reuses
+// sources.DefaultZombieInactivity verbatim rather than declaring a second
+// 15-minute constant, since it is the exact same threshold design.md cites.
+var laneIdleWindow = sources.DefaultZombieInactivity
 
 // defaultQueueWidth/Height give the table a usable size before the first
 // real tea.WindowSizeMsg arrives (Root.layout calls SetSize once it does —
@@ -130,6 +174,7 @@ func (q *QueuePane) Update(snap store.Snapshot) Pane {
 	items := make([]store.Item, len(snap.Items))
 	copy(items, snap.Items)
 	q.items = items
+	q.rebuildLanes()
 	q.rebuildRows()
 
 	if idx := indexOfItemID(items, prevID); idx >= 0 {
@@ -164,6 +209,43 @@ func (q *QueuePane) rebuildRows() {
 		})
 	}
 	q.table.SetRows(rows)
+}
+
+// rebuildLanes re-derives q.lanes from q.items' current blocker notes via
+// lanes.DetectLane, preserving each item's own PaneID/SpawnedAt/Since
+// (design.md § Lane detection's prior-state-carry-forward contract)
+// whenever its blocker Type is unchanged from the previous call. Called by
+// Update immediately after q.items is refreshed, and ONLY there — unlike
+// rebuildRows (also called after every dispatch/wave/lane action so a
+// transient badge shows immediately), lane identity must only ever change
+// in response to a genuine incoming Snapshot, never as a side effect of a
+// spawn/cleanup keypress rebuilding rows.
+//
+// An item whose Blocker becomes nil, or whose Type changes, gets no entry
+// here — dropping the old lane IS the badge-clear signal design.md
+// specifies ("The moment item.Blocker becomes nil or its Type changes, the
+// lane entry is dropped from the map"); there is no separate "resolved"
+// flag anywhere in this codebase. Any q.spawnBadges entry for an item that
+// no longer has a lane is dropped in the same pass, so a stale
+// spawn-failure badge never survives past the blocker note that caused it.
+func (q *QueuePane) rebuildLanes() {
+	next := make(map[string]*lanes.LaneState, len(q.items))
+	for _, it := range q.items {
+		var blockerType string
+		if it.Blocker != nil {
+			blockerType = it.Blocker.Type
+		}
+		if ls := lanes.DetectLane(blockerType, q.lanes[it.ID]); ls != nil {
+			next[it.ID] = ls
+		}
+	}
+	q.lanes = next
+
+	for id := range q.spawnBadges {
+		if _, ok := q.lanes[id]; !ok {
+			delete(q.spawnBadges, id)
+		}
+	}
 }
 
 // View implements Pane. Beyond the underlying table, it appends the
@@ -203,6 +285,16 @@ func (q *QueuePane) SetDispatcher(ctx context.Context, d dispatch.Dispatcher) {
 	q.dispatcher = d
 }
 
+// SetSpawner wires the Spawner (TmuxSpawner in production) the lane "s"
+// action calls — cmd/wavetui/main.go's task [3.4] wiring. Until this is
+// called, "s" is a silent no-op (see spawnSelectedLane) rather than a
+// nil-pointer panic — every pre-existing test in this package never calls
+// this and must keep working unchanged, the same convention SetDispatcher
+// already establishes above for the unrelated Start action.
+func (q *QueuePane) SetSpawner(spawner dispatch.Spawner) {
+	q.spawner = spawner
+}
+
 // SetWaveWriter wires the wave finalization writer (internal/wave/writer.go,
 // task [3.3]) the "w" finalize action calls — cmd/wavetui/main.go's task
 // [3.4] wiring. fn receives SelectedForWave's already-FanOutScore-ordered
@@ -227,18 +319,21 @@ func (q *QueuePane) SetSize(width, height int) {
 	q.table.SetHeight(height)
 }
 
-// HandleKey handles this pane's own wavetui-dispatch actions (tasks.md
-// [3.1]/[3.2]) — "enter" (Start), "space" (toggle wave-builder selection),
-// "w" (finalize the wave), "esc" (clear selection) — and otherwise forwards
-// the key press to the underlying bubbles table (row up/down, paging, ...)
-// when this pane is focused. Deliberately outside the Pane interface:
-// design.md's Pane contract is Update/View/Focusable only, and a bare
-// Snapshot carries no notion of "which key was pressed" — Root type-asserts
-// to *QueuePane to reach this method, see root.go's handleKey. The four
-// dispatch/wave keys are intercepted BEFORE reaching q.table.Update: bubbles'
-// table has no built-in binding for any of them, so this ordering changes
-// nothing about existing navigation, but keeps this pane the single place
-// that decides what each of its own keys means.
+// HandleKey handles this pane's own wavetui-dispatch AND wavetui-
+// decision-lanes actions (tasks.md [3.1]/[3.2]) — "enter" (Start), "space"
+// (toggle wave-builder selection), "w" (finalize the wave), "esc" (clear
+// selection), "s" (spawn a decision-lane session for the highlighted row's
+// blocker, tasks.md [3.2]), "x" (manual stale-lane cleanup, tasks.md [3.3])
+// — and otherwise forwards the key press to the underlying bubbles table
+// (row up/down, paging, ...) when this pane is focused. Deliberately
+// outside the Pane interface: design.md's Pane contract is
+// Update/View/Focusable only, and a bare Snapshot carries no notion of
+// "which key was pressed" — Root type-asserts
+// to *QueuePane to reach this method, see root.go's handleKey. All six
+// dispatch/wave/lane keys are intercepted BEFORE reaching q.table.Update:
+// bubbles' table has no built-in binding for any of them, so this ordering
+// changes nothing about existing navigation, but keeps this pane the single
+// place that decides what each of its own keys means.
 func (q *QueuePane) HandleKey(msg tea.KeyPressMsg) {
 	switch msg.String() {
 	case "enter":
@@ -252,6 +347,12 @@ func (q *QueuePane) HandleKey(msg tea.KeyPressMsg) {
 		return
 	case "esc":
 		q.clearSelection()
+		return
+	case "s":
+		q.spawnSelectedLane()
+		return
+	case "x":
+		q.cleanupSelectedLane()
 		return
 	}
 
@@ -318,6 +419,78 @@ func (q *QueuePane) setDispatchBadge(id string, err error) {
 	default:
 		q.dispatchBadges[id] = "failed: " + err.Error()
 	}
+	q.rebuildRows()
+}
+
+// spawnSelectedLane implements tasks.md [3.2]: pressing "s" on the currently
+// highlighted row calls the wired Spawner (TmuxSpawner in production) with
+// the rendered spawn-prompt template (dispatch.RenderSpawnPrompt), storing
+// the returned paneID/SpawnedAt onto that item's own LaneState in q.lanes so
+// subsequent renders/staleness checks see it immediately — never waiting for
+// a fresh Snapshot, the same "renders an immediate ... badge" requirement
+// startSelected's own doc comment already establishes for the unrelated
+// Start action. A Spawn error renders as an immediate failure badge (see
+// renderLaneBadge) with NO automatic retry — design.md's explicit
+// instruction, mirroring startSelected/setDispatchBadge's own no-retry
+// precedent for the unrelated wavetui-dispatch Start action: the operator
+// re-triggers "s" manually. A nil spawner (SetSpawner never called), no
+// current selection, or a selection with no active lane is a silent no-op,
+// never a panic — the same convention startSelected already establishes for
+// a nil dispatcher.
+func (q *QueuePane) spawnSelectedLane() {
+	item, ok := q.SelectedItem()
+	if !ok || q.spawner == nil {
+		return
+	}
+	ls, ok := q.lanes[item.ID]
+	if !ok {
+		return
+	}
+
+	ctx := q.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	paneID, err := q.spawner.Spawn(ctx, dispatch.RenderSpawnPrompt(item))
+	if q.spawnBadges == nil {
+		q.spawnBadges = make(map[string]string)
+	}
+	if err != nil {
+		q.spawnBadges[item.ID] = "spawn failed: " + err.Error()
+		q.rebuildRows()
+		return
+	}
+	delete(q.spawnBadges, item.ID)
+	ls.PaneID = paneID
+	ls.SpawnedAt = time.Now()
+	q.rebuildRows()
+}
+
+// cleanupSelectedLane implements tasks.md [3.3]'s manual-cleanup action:
+// pressing "x" on a currently stale-badged row drops ONLY that item's
+// q.lanes/q.spawnBadges entries — per design.md § Manual-cleanup prompt,
+// this NEVER touches the underlying bead note, openspec delta, or bd claim;
+// if the operator wants the blocker itself resolved, they edit the note
+// directly. A no-op when nothing is selected, the selection has no lane, or
+// the lane is not currently stale — the same "meaningless outside its one
+// triggering condition" convention releaseSelected (sessionspane.go)
+// already establishes for a non-zombie session.
+func (q *QueuePane) cleanupSelectedLane() {
+	item, ok := q.SelectedItem()
+	if !ok {
+		return
+	}
+	ls, ok := q.lanes[item.ID]
+	if !ok {
+		return
+	}
+	hasLiveSession := item.Session != nil && !item.Session.Zombie
+	if !ls.IsStale(hasLiveSession, laneIdleWindow) {
+		return
+	}
+	delete(q.lanes, item.ID)
+	delete(q.spawnBadges, item.ID)
 	q.rebuildRows()
 }
 
@@ -562,17 +735,51 @@ var conflictWarningStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Co
 
 // renderBlockerCell renders the queue's Blocker/Stale column, layering
 // task [3.1]'s transient per-item dispatch-outcome badge (q.dispatchBadges)
-// on top of the pre-existing blockerBadge — a fresh Start-dispatch outcome
-// takes precedence over a Blocker/Stale badge for the same row, since it is
-// the more current, operator-triggered signal. Falls straight through to
-// the unchanged blockerBadge whenever q.dispatchBadges has no entry for
-// it.ID — the same "render unchanged when the map is empty" contract
+// and (wavetui-decision-lanes, tasks.md [3.1]/[3.2]/[3.3]) the current lane
+// badge on top of the pre-existing blockerBadge. Precedence: a fresh
+// Start-dispatch outcome (q.dispatchBadges) wins over everything else, since
+// it is the more current, operator-triggered signal for the SAME column
+// (the pre-existing rationale this doc comment already documented); next,
+// an active lane (q.lanes) renders its own badge instead of the plain
+// blockerBadge, since a lane is strictly more informative than the raw
+// "blocked:<type>" text once decision-lanes is wired in. Falls straight
+// through to the unchanged blockerBadge whenever neither map has an entry
+// for it.ID — the same "render unchanged when the map is empty" contract
 // renderTitleCell already follows for its own additive overlay maps.
 func (q *QueuePane) renderBlockerCell(it store.Item) string {
 	if badge, ok := q.dispatchBadges[it.ID]; ok {
 		return badge
 	}
+	if ls, ok := q.lanes[it.ID]; ok {
+		return q.renderLaneBadge(it, ls)
+	}
 	return blockerBadge(it)
+}
+
+// renderLaneBadge renders the Blocker/Stale column's lane-specific state for
+// an item with a live entry in q.lanes (tasks.md [3.1]/[3.2]/[3.3]): a stale
+// badge — IsStale is computed fresh on every render, never cached, so it
+// reflects "now" rather than the moment of the last Snapshot — takes
+// precedence over a transient spawn-failure badge, which takes precedence
+// over the base "spawned"/"not yet spawned" state naming the blocker type
+// (design.md § Lane detection: "naming the blocker type"). Kept as plain,
+// unstyled text (no lipgloss color/bold), matching this file's existing
+// dispatchBadges convention (setDispatchBadge's own "failed: <err>" text is
+// likewise unstyled) rather than introducing a new visual-weight decision
+// design.md does not specify. Text is kept compact to fit the 24-wide
+// Blocker column (see queueColumns' doc comment) without truncating.
+func (q *QueuePane) renderLaneBadge(it store.Item, ls *lanes.LaneState) string {
+	hasLiveSession := it.Session != nil && !it.Session.Zombie
+	if ls.IsStale(hasLiveSession, laneIdleWindow) {
+		return "stale — x:cleanup"
+	}
+	if msg, ok := q.spawnBadges[it.ID]; ok {
+		return msg
+	}
+	if ls.PaneID != "" {
+		return fmt.Sprintf("lane:%s (spawned)", ls.Type)
+	}
+	return fmt.Sprintf("lane:%s (s)", ls.Type)
 }
 
 // blockerBadge renders the queue's blocker-badge column: a short type tag

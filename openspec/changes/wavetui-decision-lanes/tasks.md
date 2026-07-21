@@ -33,20 +33,20 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Extend `QueuePane` (`apps/wavetui/internal/ui/queuepane.go`) with lane badge rendering [beads:if-ec6g]
+- [x] [3.1] Extend `QueuePane` (`apps/wavetui/internal/ui/queuepane.go`) with lane badge rendering [beads:if-ec6g]
   for any item with a non-nil `LaneState`, naming the blocker type per `design.md` § Lane
   detection [type:ui]
   - depends on: 1.1, 1.2
-- [ ] [3.2] Wire `QueuePane`'s lane key binding: calls `TmuxSpawner.Spawn` with the rendered [beads:if-9khi]
+- [x] [3.2] Wire `QueuePane`'s lane key binding: calls `TmuxSpawner.Spawn` with the rendered [beads:if-9khi]
   prompt template, stores the returned `paneID`/`SpawnedAt` onto the item's `LaneState`, renders
   an immediate failure badge on a `Spawn` error (no automatic retry, consistent with
   `wavetui-dispatch`'s own no-retry precedent) [type:ui]
   - depends on: 2.1, 2.2, 3.1
-- [ ] [3.3] Render the stale-lane badge + manual-cleanup key binding in `QueuePane` per [beads:if-e3bc]
+- [x] [3.3] Render the stale-lane badge + manual-cleanup key binding in `QueuePane` per [beads:if-e3bc]
   `design.md` § Manual-cleanup prompt: cleanup only drops the lane's local map entry, never
   touches the bead note, openspec delta, or bd claim [type:ui]
   - depends on: 2.3, 3.1
-- [ ] [3.4] Wire `cmd/wavetui/main.go`: instantiate `TmuxSpawner`, thread into `QueuePane`; [beads:if-crv5]
+- [x] [3.4] Wire `cmd/wavetui/main.go`: instantiate `TmuxSpawner`, thread into `QueuePane`; [beads:if-crv5]
   capture runtime evidence of the badge appearing on a synthetic `blocked: decision - ...` note
   and clearing after the note is edited away, against a real tmux session in this repo [type:ui]
   - depends on: 3.2, 3.3
