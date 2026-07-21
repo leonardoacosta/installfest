@@ -18,7 +18,7 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] [owner:homelab-specialist] Add `scripts/vnc-mac.sh`, a front-door script (matching `mac-open.sh`/`view.sh` conventions — usage header, env var overrides, clear failure message) that resolves the Mac's Tailscale hostname from the existing `mac` SSH Host alias (`ssh -G mac`, never a second hardcoded copy of `macbook.tail296462.ts.net`) and launches `vncviewer` against it. [beads:if-5avp]
+- [x] [3.1] [owner:homelab-specialist] Add `scripts/vnc-mac.sh`, a front-door script (matching `mac-open.sh`/`view.sh` conventions — usage header, env var overrides, clear failure message) that resolves the Mac's Tailscale hostname from the existing `mac` SSH Host alias (`ssh -G mac`, never a second hardcoded copy of `macbook.tail296462.ts.net`) and launches `vncviewer` against it. [beads:if-5avp]
   - depends on: 1.1, 2.1
 
 ## E2E Batch
