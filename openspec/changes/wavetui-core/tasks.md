@@ -10,12 +10,12 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Scaffold `apps/wavetui/` Go module: `go.mod` (module path, Go version pin), `cmd/wavetui/main.go` entrypoint stub, `internal/{bus,store,config,blocker,sources,ui}/` package layout, `.gitignore` for build artifacts (binary output, no committed build cache) [beads:if-mcf5]
-- [ ] [1.2] Implement `internal/bus/bus.go`: typed `Event` interface, `Publish`/`Subscribe`, one goroutine per subscriber threaded from a `context.Context`, no shared mutable state between publish and delivery [beads:if-lod2]
-- [ ] [1.3] Implement `internal/store/store.go`: single-writer `Store` with `Item`/`Snapshot`/`SourceError` types (per `design.md` § Store data model), `Apply(Event)` mutates internal state only from the bus-delivery goroutine, `Snapshot()` returns an immutable copy-on-write value, dep-graph + fan-out-score derivation [beads:if-3xmu]
+- [x] [1.1] Scaffold `apps/wavetui/` Go module: `go.mod` (module path, Go version pin), `cmd/wavetui/main.go` entrypoint stub, `internal/{bus,store,config,blocker,sources,ui}/` package layout, `.gitignore` for build artifacts (binary output, no committed build cache) [beads:if-mcf5]
+- [x] [1.2] Implement `internal/bus/bus.go`: typed `Event` interface, `Publish`/`Subscribe`, one goroutine per subscriber threaded from a `context.Context`, no shared mutable state between publish and delivery [beads:if-lod2]
+- [x] [1.3] Implement `internal/store/store.go`: single-writer `Store` with `Item`/`Snapshot`/`SourceError` types (per `design.md` § Store data model), `Apply(Event)` mutates internal state only from the bus-delivery goroutine, `Snapshot()` returns an immutable copy-on-write value, dep-graph + fan-out-score derivation [beads:if-3xmu]
   - depends on: 1.2
-- [ ] [1.4] Implement `internal/config/config.go`: per-project TOML config loader scoped by cwd, `plans`/`advisor-plans` visibility flag (default off), a `tmp`+atomic-`os.rename` write helper for any future writer to reuse [beads:if-7gg1]
-- [ ] [1.5] Formalize the blocker-note grammar in `design.md` (already drafted) and implement `internal/blocker/blocker.go`: parse `blocked: <type> - <reason> (see <ref>)` per the regex in `design.md` § Blocker-note grammar, tolerant of malformed/missing lines (no error, no badge) [beads:if-sh3y]
+- [x] [1.4] Implement `internal/config/config.go`: per-project TOML config loader scoped by cwd, `plans`/`advisor-plans` visibility flag (default off), a `tmp`+atomic-`os.rename` write helper for any future writer to reuse [beads:if-7gg1]
+- [x] [1.5] Formalize the blocker-note grammar in `design.md` (already drafted) and implement `internal/blocker/blocker.go`: parse `blocked: <type> - <reason> (see <ref>)` per the regex in `design.md` § Blocker-note grammar, tolerant of malformed/missing lines (no error, no badge) [beads:if-sh3y]
 
 ## API Batch
 

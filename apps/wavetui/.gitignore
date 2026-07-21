@@ -1,0 +1,12 @@
+# Build output
+/wavetui
+/bin/
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Go build/test cache is never committed (lives outside the repo in $GOCACHE
+# by default, but ignore defensively in case a local override lands one here)
+/.gocache/
