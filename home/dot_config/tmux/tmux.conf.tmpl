@@ -231,6 +231,14 @@ if-shell "test -f ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux" \
 if-shell "test -f ~/.tmux/plugins/cc-tmux/cc-tmux.tmux" \
   "run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux"
 
+# tmux-resurrect: save/restore window & pane layout + cwd across a server crash
+# or reboot (prefix+Ctrl-s save, prefix+Ctrl-r restore), installed by
+# run_onchange_after_install-tmux-resurrect.sh.tmpl into ~/.tmux/plugins/.
+# if-shell guard mirrors which-key/cc-tmux so a fresh machine that hasn't run
+# chezmoi's install script yet still loads the rest of this config.
+if-shell "test -f ~/.tmux/plugins/tmux-resurrect/resurrect.tmux" \
+  "run-shell ~/.tmux/plugins/tmux-resurrect/resurrect.tmux"
+
 # cc-tmux config: window tab = <project-code>:<session-title>, truncated to 20
 # chars combined (cc-tmux-rename-fix-and-truncate, 2026-07-12 — was 10). Read
 # fresh on every register (state change), so this survives a `tmux kill-server`

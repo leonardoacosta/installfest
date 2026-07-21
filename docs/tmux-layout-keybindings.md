@@ -127,6 +127,28 @@ Installed by manual clone/symlink (no TPM — see `docs/audit/tmux.md` N5), each
   usage segment in `status-right` (replaces the retired `tmux-nexus-creds`), and an opt-in
   Conductor. Symlinked into `~/.tmux/plugins/cc-tmux` and Claude-hook-registered by
   `run_onchange_after_install-cc-tmux.sh.tmpl`. Keybindings above.
+- **tmux-resurrect** — session persistence (third-party,
+  `run_onchange_after_install-tmux-resurrect.sh.tmpl`). See § tmux-resurrect below.
+
+## tmux-resurrect (session persistence)
+
+Saves and restores tmux session state so window/pane layout survives a server crash,
+`tmux kill-server`, or a machine reboot. Manual save/restore (no auto-save — tmux-continuum is
+deliberately out of scope, see `openspec/changes/add-tmux-resurrect/proposal.md` § Scope).
+
+| Key | Action |
+|---|---|
+| `prefix + Ctrl-s` | save current session state to disk (prefix is `C-b`, so: `C-b` then `C-s`) |
+| `prefix + Ctrl-r` | restore the last saved session state |
+
+**What it restores:** window count, window names, pane layout (splits), and each pane's working
+directory. Enough to rebuild the shape of a session after the server dies.
+
+**What it does NOT restore — the claude-resume caveat:** tmux-resurrect restores layout and cwd
+but does **not** resume a live `claude` conversation. On restore, a pane re-runs its last shell
+command, which starts a **fresh** Claude Code session rather than continuing the one that was
+running before the crash. To pick the old conversation back up, run `claude --resume` in the
+restored pane and select the prior session — don't expect the restored pane to already be inside it.
 
 ## Related
 
