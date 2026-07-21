@@ -3,8 +3,10 @@ package sources
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -537,5 +539,174 @@ func TestFlattenProjectDir(t *testing.T) {
 	want := "-home-nyaptor-dev-personal-installfest"
 	if got != want {
 		t.Fatalf("flattenProjectDir() = %q, want %q", got, want)
+	}
+}
+
+// --- concurrency: Run() must not race on s.sessions/s.files -----------------
+
+// TestTranscriptSourceRunNoDataRaceBetweenTailAndZombieTicker actually
+// exercises Run() (not tailAll/reevaluateZombies called sequentially on the
+// same goroutine, which would prove nothing about concurrent-access safety):
+// it starts Run on its own goroutine with a very short zombieCheckEvery/poll
+// so reevaluateZombies (ticked from Run's own select loop) and tailAll (run
+// on the requeryLoop's own dedicated goroutine, triggered by real fsnotify
+// events from a concurrently-written transcript file) both hit
+// s.sessions/s.files repeatedly and concurrently — the exact race window the
+// post-wave gate reproduced with `go test -race` before the mutex fix. Must
+// pass cleanly under -race.
+func TestTranscriptSourceRunNoDataRaceBetweenTailAndZombieTicker(t *testing.T) {
+	b := bus.New()
+	src, dir := newTestTranscriptSource(t, b)
+	src.zombieCheckEvery = time.Millisecond
+	src.zombieAfter = 2 * time.Millisecond
+	src.poll = 3 * time.Millisecond
+	src.debounce = time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- src.Run(ctx)
+	}()
+
+	path := filepath.Join(dir, "sess-race.jsonl")
+	writeFile(t, path, "")
+
+	// Real, concurrent writes to the transcript file Run() is actually
+	// watching/tailing — this is what feeds the requeryLoop goroutine's
+	// tailAll calls while the same Run goroutine's zombieTick.C case is
+	// concurrently running reevaluateZombies against the same maps.
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			line := fmt.Sprintf(`{"type":"user","sessionId":"sess-race","cwd":"/proj","message":{"role":"user","content":"msg %d"}}`, i)
+			appendFile(t, path, line+"\n")
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+	// Give a few more tail/zombie cycles a chance to interleave after the
+	// writer goroutine finishes, then shut everything down.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("Run returned unexpected error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after ctx cancellation")
+	}
+}
+
+// --- ReleaseClaim clears the stale session link in the Store ---------------
+
+// TestReleaseClaimClearsSessionLinkInStore reproduces the "released zombie
+// claims never clear their stale badge" bug end-to-end through the real
+// Store: link a session, mark it zombie, invoke the real release path
+// (ReleaseClaim, with only its `bd` shellout stubbed), and confirm the
+// Store's next Snapshot shows Session == nil for that item — not just that
+// ReleaseClaim's `bd` call succeeded. It also reproduces the exact decay
+// scenario from the bug report: a subsequent BeadsSource-style republish of
+// the same base item (Session == nil, as every session-unaware source
+// always publishes) must NOT resurrect the stale Session from
+// Store.Apply's preserve-on-nil-Session branch.
+func TestReleaseClaimClearsSessionLinkInStore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b, st := newWiredStore(t, ctx)
+
+	// Base item, as BeadsSource would publish it.
+	b.Publish(store.ItemUpsertEvent{Item: store.Item{ID: "if-zzz99", Kind: store.KindBead, Title: "thing"}})
+	// TranscriptSource links + zombie-badges it.
+	b.Publish(store.SessionLinkEvent{
+		ItemID:  "if-zzz99",
+		Session: &store.SessionLink{SessionID: "sess-zzz", Zombie: true},
+	})
+
+	eventually(t, time.Second, func() bool {
+		for _, item := range st.Snapshot().Items {
+			if item.ID == "if-zzz99" && item.Session != nil && item.Session.Zombie {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Stub the bd shellout — this test must never invoke a real `bd`
+	// binary, same convention as every other CLI-shelling test in this
+	// package.
+	prev := releaseClaimBd
+	releaseClaimBd = func(context.Context, string) error { return nil }
+	t.Cleanup(func() { releaseClaimBd = prev })
+
+	if err := ReleaseClaim(ctx, b, "if-zzz99"); err != nil {
+		t.Fatalf("ReleaseClaim: %v", err)
+	}
+
+	eventually(t, time.Second, func() bool {
+		for _, item := range st.Snapshot().Items {
+			if item.ID == "if-zzz99" {
+				return item.Session == nil
+			}
+		}
+		return false
+	})
+
+	// The regression scenario: a session-unaware source republishes the
+	// same base item (Session == nil, its own zero value) sometime after
+	// the release. Without ReleaseClaim's clearing publish, Store.Apply's
+	// preserve-on-nil-Session branch would re-fill Session from the old
+	// (now-stale) value it still had cached in s.items, and the zombie
+	// badge would linger forever.
+	b.Publish(store.ItemUpsertEvent{Item: store.Item{ID: "if-zzz99", Kind: store.KindBead, Title: "thing"}})
+
+	time.Sleep(50 * time.Millisecond)
+	for _, item := range st.Snapshot().Items {
+		if item.ID == "if-zzz99" && item.Session != nil {
+			t.Fatalf("expected Session to stay nil after a post-release republish, got %+v", item.Session)
+		}
+	}
+}
+
+// TestReleaseClaimSkipsPublishOnBdFailure confirms a failed release never
+// publishes a clearing event — the item's Session must be left exactly as
+// it was.
+func TestReleaseClaimSkipsPublishOnBdFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b, st := newWiredStore(t, ctx)
+
+	b.Publish(store.ItemUpsertEvent{Item: store.Item{ID: "if-fail1", Kind: store.KindBead, Title: "thing"}})
+	b.Publish(store.SessionLinkEvent{
+		ItemID:  "if-fail1",
+		Session: &store.SessionLink{SessionID: "sess-fail", Zombie: true},
+	})
+	eventually(t, time.Second, func() bool {
+		for _, item := range st.Snapshot().Items {
+			if item.ID == "if-fail1" && item.Session != nil {
+				return true
+			}
+		}
+		return false
+	})
+
+	prev := releaseClaimBd
+	releaseClaimBd = func(context.Context, string) error { return fmt.Errorf("bd update: boom") }
+	t.Cleanup(func() { releaseClaimBd = prev })
+
+	if err := ReleaseClaim(ctx, b, "if-fail1"); err == nil {
+		t.Fatal("expected ReleaseClaim to return the bd failure")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	for _, item := range st.Snapshot().Items {
+		if item.ID == "if-fail1" && item.Session == nil {
+			t.Fatal("expected Session to remain set after a failed release (no clearing publish should have happened)")
+		}
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -321,6 +322,20 @@ type TranscriptSource struct {
 
 	linker *SessionLinker
 
+	// mu guards files/sessions (and every sessionAgg field reachable
+	// through them) since tailAll runs on its own dedicated goroutine (`go
+	// loop.Run(ctx, s.tailAll)`, started in Run) while reevaluateZombies is
+	// called directly from Run's own select loop on zombieTick.C — two
+	// independent goroutines that both read/write this state with no other
+	// synchronization between them. Same "guarded by mu" rationale
+	// TmuxSource's own mu documents for its byPaneID/bySessionID maps
+	// (StateForSession vs scanOnce racing across goroutines); here the
+	// critical section is coarser (the whole tailAll/reevaluateZombies
+	// body, not just a final map swap) because a sessionAgg's fields are
+	// mutated incrementally across many nested calls (handleUserLine,
+	// handleAssistantLine, resolveLink, updateZombie, ...), not written
+	// once and swapped in.
+	mu       sync.Mutex
 	files    map[string]*transcriptFile
 	sessions map[string]*sessionAgg
 
@@ -489,6 +504,11 @@ func (s *TranscriptSource) tailAll(ctx context.Context) {
 	if s.afterQuery != nil {
 		defer s.afterQuery()
 	}
+
+	// Locked for the whole cycle — see the mu field's doc comment on why
+	// this can't be narrowed to just the map accesses.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	dir := s.transcriptDir()
 	entries, err := os.ReadDir(dir)
@@ -833,6 +853,11 @@ func (s *TranscriptSource) clearZombie(agg *sessionAgg) {
 // timer — a session can cross the inactivity threshold purely from time
 // passing, with no new transcript bytes to trigger processLine.
 func (s *TranscriptSource) reevaluateZombies() {
+	// Locked for the whole cycle — see the mu field's doc comment; this
+	// runs on Run's own goroutine, concurrently with tailAll on its own.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, agg := range s.sessions {
 		if !agg.linked {
 			continue
@@ -873,17 +898,47 @@ func (s *TranscriptSource) publishAvailable() {
 	s.bus.Publish(store.SourceOKEvent{Source: SourceNameTranscript})
 }
 
+// releaseClaimBd is the shell-out boundary for ReleaseClaim's `bd update`
+// call — a package-level var (not a struct's injectable `cli` field, the
+// convention every other CLI shellout in this package follows) because
+// ReleaseClaim is a plain exported function with no receiver: it is invoked
+// directly from a keypress handler (SessionsPane), not from a running
+// TranscriptSource instance. Tests override this var to stub the shellout
+// rather than invoking a real `bd` binary.
+var releaseClaimBd = func(ctx context.Context, itemID string) error {
+	_, err := runJSON(ctx, "bd", "update", itemID, "--status", "open", "--assignee", "")
+	return err
+}
+
 // ReleaseClaim releases a zombie-badged item's bd claim — the ONE-KEY,
 // NEVER-AUTOMATIC operator action spec.md's Zombie-detection Requirement
 // requires. This is a plain exported function callers invoke on explicit
-// user input (e.g. a keypress handler in SessionsPane, tasks.md [3.1]) —
-// nothing in this file calls it. `bd release` does not exist as a bd
-// subcommand (confirmed via `bd --help`/`bd release --help` during
-// authoring: "unknown command \"release\" for \"bd\""); the real inverse of
-// `bd update --claim` (which "sets assignee to you, status to in_progress")
-// is `bd update <id> --status open --assignee ""` — verified against a live
-// bd install's --help output for `bd update`.
-func ReleaseClaim(ctx context.Context, itemID string) error {
-	_, err := runJSON(ctx, "bd", "update", itemID, "--status", "open", "--assignee", "")
-	return err
+// user input (e.g. a keypress handler in SessionsPane, tasks.md [3.1]).
+// `bd release` does not exist as a bd subcommand (confirmed via `bd
+// --help`/`bd release --help` during authoring: "unknown command
+// \"release\" for \"bd\""); the real inverse of `bd update --claim` (which
+// "sets assignee to you, status to in_progress") is `bd update <id>
+// --status open --assignee ""` — verified against a live bd install's
+// --help output for `bd update`.
+//
+// On success, ReleaseClaim ALSO publishes a store.SessionLinkEvent{Session:
+// nil} for itemID onto b — the same clearing mechanism store.go's
+// SessionLinkEvent doc comment already documents ("Session == nil clears a
+// previously-linked session"). Without this, nothing in the codebase ever
+// tells the Store a release happened: Store.Apply's ItemUpsertEvent
+// preserve-on-nil-Session branch (added to fix "Session wiped on ordinary
+// republish") keeps re-filling the stale Session/zombie badge from the old
+// value on every subsequent BeadsSource/OpenSpecSource republish of the
+// same item, forever. b may be nil (e.g. a caller with no bus reference);
+// a nil b just skips the clearing publish, matching every other
+// nil-is-tolerated dependency in this package (PaneStateSource, etc.) —
+// production callers always have a real bus.
+func ReleaseClaim(ctx context.Context, b *bus.Bus, itemID string) error {
+	if err := releaseClaimBd(ctx, itemID); err != nil {
+		return err
+	}
+	if b != nil {
+		b.Publish(store.SessionLinkEvent{ItemID: itemID, Session: nil})
+	}
+	return nil
 }

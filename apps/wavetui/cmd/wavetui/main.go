@@ -107,7 +107,7 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	// and MemoryTimelinePane are untouched). Unlike MemoryTimelinePane,
 	// neither pane needs Root-mediated selection/debounce wiring, so a plain
 	// AppendPane call is enough — no EnableSessions-style Root method needed.
-	sessionsPane := ui.NewSessionsPane(ctx)
+	sessionsPane := ui.NewSessionsPane(ctx, b)
 	root.AppendPane(sessionsPane)
 	root.AppendPane(ui.NewKPIBar())
 

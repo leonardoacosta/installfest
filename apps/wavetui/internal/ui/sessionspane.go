@@ -20,6 +20,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
@@ -48,6 +49,16 @@ type SessionsPane struct {
 	// cancelled the same way those sources are when the program quits.
 	ctx context.Context
 
+	// bus is the same event bus every source publishes onto — threaded
+	// through so releaseSelected's sources.ReleaseClaim call can publish the
+	// session-link-cleared event that tells the Store the release happened
+	// (see ReleaseClaim's doc comment). This is the one UI-triggered Store
+	// mutation in this codebase; it goes through the bus rather than
+	// calling store.Store directly because Store.Apply is documented as
+	// callable exclusively from the bus-delivery goroutine (design.md §
+	// Architecture) — the UI never holds a *store.Store reference at all.
+	bus *bus.Bus
+
 	// sessions mirrors the subset of the latest Snapshot's Items that carry
 	// a non-nil Session, in the same order Store.Snapshot already returns
 	// (sorted by ID) — cursor indexes into this slice, not the full item
@@ -71,10 +82,10 @@ type SessionsPane struct {
 }
 
 // NewSessionsPane constructs an empty SessionsPane (no linked sessions yet).
-// ctx is threaded through to releaseSelected's sources.ReleaseClaim call —
-// see the ctx field's doc comment.
-func NewSessionsPane(ctx context.Context) *SessionsPane {
-	return &SessionsPane{ctx: ctx, width: defaultSessionsWidth, cursor: -1}
+// ctx and b are threaded through to releaseSelected's sources.ReleaseClaim
+// call — see the ctx/bus fields' doc comments.
+func NewSessionsPane(ctx context.Context, b *bus.Bus) *SessionsPane {
+	return &SessionsPane{ctx: ctx, bus: b, width: defaultSessionsWidth, cursor: -1}
 }
 
 // Update implements Pane. It rebuilds the session list from the snapshot's
@@ -215,7 +226,7 @@ func (s *SessionsPane) releaseSelected() {
 		return
 	}
 
-	if err := sources.ReleaseClaim(s.ctx, item.ID); err != nil {
+	if err := sources.ReleaseClaim(s.ctx, s.bus, item.ID); err != nil {
 		s.lastAction = fmt.Sprintf("release %s failed: %v", item.ID, err)
 		return
 	}
