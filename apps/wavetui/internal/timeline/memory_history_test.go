@@ -451,6 +451,21 @@ func TestMatchToBeads_DefaultWindowAppliedWhenNonPositive(t *testing.T) {
 	}
 }
 
+func TestMatchToBeads_NoCandidates_Unmatched(t *testing.T) {
+	// Genuinely zero candidates (nil beadEntries, no inline ref) — distinct
+	// from TestMatchToBeads_OutsideWindow_Unmatched, which exercises
+	// rejection of a real-but-too-far candidate. This exercises
+	// nearestBeadWithinWindow's loop body never running at all (found stays
+	// false from its zero value), not a per-candidate rejection.
+	entries := []Entry{
+		{Source: SourceJournal, Time: mustParse(t, "2026-05-01T10:00:00Z"), Text: "no ref, no candidates"},
+	}
+	got := MatchToBeads(entries, nil, 10*time.Minute)
+	if got[0].BeadID != "" || got[0].Match != MatchConfidenceNone {
+		t.Errorf("got BeadID=%q Match=%v, want unmatched (zero candidates)", got[0].BeadID, got[0].Match)
+	}
+}
+
 func mustParse(t *testing.T, s string) time.Time {
 	t.Helper()
 	ts, err := time.Parse(time.RFC3339, s)
