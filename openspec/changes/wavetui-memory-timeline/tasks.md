@@ -10,10 +10,10 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Scaffold `apps/wavetui/internal/timeline/` package layout: shared `Entry`/`Precision`/`MatchConfidence` types per `design.md` § Interleaved rendering and § Journal-to-bead matching, no logic yet [beads:if-hziw]
-- [ ] [1.2] Implement `internal/timeline/beads_history.go`: `BeadsHistorySource.Query(ctx, itemID string, childIDs []string)` reads bd's `interactions.jsonl` audit log (kept under `.beads/`) line-by-line (JSONL), filters to rows matching the given bead ID(s), maps recognized interaction kinds (create/claim/close-with-reason/comment) to `Entry` values with `source=bead`, unrecognized kinds map to a generic "activity" `Entry` rather than being dropped, missing file returns an `unavailable` badge state rather than an error [beads:if-yhok]
+- [x] [1.1] Scaffold `apps/wavetui/internal/timeline/` package layout: shared `Entry`/`Precision`/`MatchConfidence` types per `design.md` § Interleaved rendering and § Journal-to-bead matching, no logic yet [beads:if-hziw]
+- [x] [1.2] Implement `internal/timeline/beads_history.go`: `BeadsHistorySource.Query(ctx, itemID string, childIDs []string)` reads bd's `interactions.jsonl` audit log (kept under `.beads/`) line-by-line (JSONL), filters to rows matching the given bead ID(s), maps recognized interaction kinds (create/claim/close-with-reason/comment) to `Entry` values with `source=bead`, unrecognized kinds map to a generic "activity" `Entry` rather than being dropped, missing file returns an `unavailable` badge state rather than an error [beads:if-yhok]
   - depends on: 1.1
-- [ ] [1.3] Implement `internal/timeline/openspec_archive.go`: `OpenSpecArchiveSource.Query(ctx, proposalSlug string)` globs `openspec/changes/archive/` for a matching dated-prefixed directory, runs `git log -1 --format=%aI --diff-filter=A -- <path>` to recover the archive-landing timestamp as a single `source=archive` `Entry`; no match returns an empty result, not an error [beads:if-1a88]
+- [x] [1.3] Implement `internal/timeline/openspec_archive.go`: `OpenSpecArchiveSource.Query(ctx, proposalSlug string)` globs `openspec/changes/archive/` for a matching dated-prefixed directory, runs `git log -1 --format=%aI --diff-filter=A -- <path>` to recover the archive-landing timestamp as a single `source=archive` `Entry`; no match returns an empty result, not an error [beads:if-1a88]
   - depends on: 1.1
 
 ## API Batch
