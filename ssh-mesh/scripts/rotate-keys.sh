@@ -50,6 +50,29 @@ case "${1:-}" in
   *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;;
 esac
 
+# Execution-model guard (if-r0vb): this script's two deploy targets are homelab
+# + cloudpc, with the LOCAL machine assumed to BE the Mac (the mesh's third
+# member). Running it from homelab or cloudpc silently breaks that model -- the
+# local host doubles as a "remote" target, Phase 4/5's loopback swap consumes
+# $NEW_KEY before every peer is reached, and the Mac's authorized_keys is never
+# updated at all (a real partial-lockout risk, hit live during if-9pjw's
+# 2026-07-21 rotation, which had to be hand-recovered). Until the script is
+# generalized to a true N-peer model (this bead's option 1, adjacent to
+# if-ooke's Phase-1 redesign), refuse to run anywhere but the Mac -- turning a
+# silent partial-lockout into an immediate, clear error. Fires under --dry-run
+# too: a dry-run from the wrong machine would narrate the wrong (Mac-centric)
+# model, so blocking it is honest, not just safe.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "ERROR: rotate-keys.sh must be run from the Mac (uname -s == Darwin)." >&2
+  echo "  Detected: $(uname -s) on host '$(hostname)'." >&2
+  echo "  This script deploys the new key to homelab + cloudpc and assumes the" >&2
+  echo "  machine running it is the Mac; running it from another mesh member" >&2
+  echo "  silently skips updating the Mac's authorized_keys and risks a partial" >&2
+  echo "  lockout. Rotate from the Mac, or generalize the script to an N-peer" >&2
+  echo "  model first (see beads if-r0vb / if-ooke)." >&2
+  exit 3
+fi
+
 # run: execute a mutating command, or narrate it under --dry-run.
 # Heredoc-fed `ssh ... bash -s` / powershell blocks can't route through this;
 # those are guarded inline with `if $DRY_RUN`.
