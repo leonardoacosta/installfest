@@ -288,16 +288,25 @@ if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
   # reachable at this point in Phase 6, so this window has no effect on
   # actual connectivity, only on a fresh-machine `op read` during that
   # window.
+  #
+  # `op item template get "SSH Key"` (confirmed live 2026-07-21) shows this
+  # category has exactly ONE settable key field — id "private_key", type
+  # SSHKEY, label "private key" — no separate "public key" field at all;
+  # 1Password derives the public key from the private key server-side. The
+  # field-type annotation is REQUIRED on create ("private key[SSHKEY]=...",
+  # plain "private key=..." errors with "cannot assign the reserved field").
+  # scripts/op-ssh-provision.sh's `op read .../public key` on the READ side
+  # is unaffected — it reads the derived value, not a stored field.
   if $DRY_RUN; then
     echo "DRY: op item delete \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\""
-    echo "DRY: op item create --category \"SSH Key\" --title \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" 'private key=<new key>' 'public key=<new key>'"
+    echo "DRY: op item create --category \"SSH Key\" --title \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" 'private key[SSHKEY]=<new key>'"
   else
     # Command substitution below reads real key material, so this is an
     # explicit if/else rather than routed through run() — run()'s "$@" form
     # evaluates its arguments eagerly, which would leak the private key into
     # a "DRY: ..." echo under --dry-run. See ssh-mesh/scripts/op-ssh-provision.sh
-    # for the matching field names ("private key", "public key") this reads
-    # back on a fresh machine.
+    # for the matching field name ("private key") this reads back (plus the
+    # server-derived "public key") on a fresh machine.
     if ! command -v op >/dev/null 2>&1; then
       echo "  WARNING: op (1Password CLI) not installed — ${OP_SSH_ITEM} NOT updated."
       echo "  Mesh is rotated and reachable; the 1Password mirror is stale until fixed manually."
@@ -307,8 +316,7 @@ if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
       # is fine (nothing to delete yet, e.g. first-ever rotation) and must
       # not block the create attempt below.
       if op item create --category "SSH Key" --title "$OP_SSH_ITEM_NAME" --vault "$OP_SSH_VAULT" \
-          "private key=$(cat "$HOME/.ssh/id_ed25519")" \
-          "public key=$(cat "$HOME/.ssh/id_ed25519.pub")" >/dev/null 2>&1; then
+          "private key[SSHKEY]=$(cat "$HOME/.ssh/id_ed25519")" >/dev/null 2>&1; then
         echo "  1Password: ${OP_SSH_ITEM} updated with the rotated key"
       else
         echo "  WARNING: 1Password write-back failed (op item create exited non-zero) — ${OP_SSH_ITEM} NOT updated."
