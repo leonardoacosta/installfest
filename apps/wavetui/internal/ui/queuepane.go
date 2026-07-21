@@ -138,6 +138,20 @@ type QueuePane struct {
 	// disappears (blocker resolved/edited away), so a stale failure badge
 	// never survives past the blocker note that caused it.
 	spawnBadges map[string]string
+
+	// ghostIDs marks which entries in q.items are "ghost rows" (if-zts4
+	// fix) — an item that Diff'd as EventItemClosed (absent from the
+	// Snapshot Update just applied) but was appended back into q.items by
+	// withGhostRows because it still has a live entry in q.highlights,
+	// giving wavetui-flair's row_flash at least one real row to paint
+	// before the item disappears for good. Recomputed from scratch on
+	// every Update call — never mutated by any other method — and
+	// consulted only by rebuildLanes, so a ghost's stale-by-definition
+	// Blocker note can't spuriously create or resurrect a decision-lane
+	// entry for an item that no longer exists in the actual data source.
+	// nil/empty (the default, and the whole state whenever nothing was
+	// ever ghosted) behaves identically to every pre-existing QueuePane.
+	ghostIDs map[string]bool
 }
 
 // laneIdleWindow is the staleness threshold LaneState.IsStale checks a
@@ -176,12 +190,22 @@ func NewQueuePane() *QueuePane {
 // new row set (a plain SetRows call would otherwise always reset the cursor
 // to 0, disorienting anyone mid-navigation when an unrelated item's fields
 // merely refresh).
+//
+// Before overwriting q.items, withGhostRows compares the OUTGOING q.items
+// (still carrying whatever just closed) against the incoming snap.Items and
+// against q.highlights, appending back any item that closed this transition
+// but still has a live wavetui-flair highlight (if-zts4) — see that
+// function's doc comment for the full rationale and its dependency on
+// q.highlights already reflecting this transition by the time Update runs.
 func (q *QueuePane) Update(snap store.Snapshot) Pane {
 	prevID := q.SelectedID()
+	prevItems := q.items
 
 	items := make([]store.Item, len(snap.Items))
 	copy(items, snap.Items)
+	items, ghosts := withGhostRows(prevItems, items, q.highlights)
 	q.items = items
+	q.ghostIDs = ghosts
 	q.rebuildLanes()
 	q.rebuildRows()
 
@@ -192,6 +216,57 @@ func (q *QueuePane) Update(snap store.Snapshot) Pane {
 	}
 
 	return q
+}
+
+// withGhostRows appends any item present in prevItems but missing from
+// items (a just-closed item — FlairManager's EventItemClosed) that STILL has
+// an active row-anchored highlight in highlights, so a closed bead's
+// row_flash/static_row_mark gets at least one real row to paint before the
+// item disappears from the table for good (if-zts4: the highlight was
+// starting correctly, but the row it was meant to paint had already been
+// dropped from the table by the time it was ever consulted).
+//
+// This depends on highlights already reflecting THIS transition's
+// freshly-started animation by the time Update calls this — see
+// cmd/wavetui's rootWithFlair.Update, which computes flair's diff/highlight
+// step before forwarding the triggering SnapshotMsg to root.Update (the
+// call that reaches here). A highlight map still keyed to the PRIOR
+// transition would never carry the newly-closed item's ID, and this
+// function would correctly do nothing for it.
+//
+// EventItemClosed+KindProposal (an overlay toast, not a row highlight) never
+// populates highlights for the closing item, so this never manufactures a
+// ghost row for a closed proposal — only for a closed bead, matching
+// row_flash/static_row_mark's row-anchored effects. A ghosted item is
+// appended at the end of items (not reinserted at its prior index) — simpler
+// than re-deriving its original position, and immaterial given the row is
+// gone again the moment the highlight itself settles and a further Snapshot
+// arrives. Returns items unchanged (and a nil ghosts set) whenever there is
+// nothing highlighted or nothing to compare against, so the common case (no
+// flair, or nothing closed this transition) allocates nothing.
+func withGhostRows(prevItems, items []store.Item, highlights map[string]flair.HighlightState) ([]store.Item, map[string]bool) {
+	if len(highlights) == 0 || len(prevItems) == 0 {
+		return items, nil
+	}
+	present := make(map[string]bool, len(items))
+	for _, it := range items {
+		present[it.ID] = true
+	}
+	var ghosts map[string]bool
+	for _, it := range prevItems {
+		if present[it.ID] {
+			continue
+		}
+		if _, highlighted := highlights[it.ID]; !highlighted {
+			continue
+		}
+		items = append(items, it)
+		if ghosts == nil {
+			ghosts = make(map[string]bool, 1)
+		}
+		ghosts[it.ID] = true
+	}
+	return items, ghosts
 }
 
 // rebuildRows re-derives every table row from q.items using the CURRENT
@@ -236,9 +311,18 @@ func (q *QueuePane) rebuildRows() {
 // flag anywhere in this codebase. Any q.spawnBadges entry for an item that
 // no longer has a lane is dropped in the same pass, so a stale
 // spawn-failure badge never survives past the blocker note that caused it.
+//
+// A ghost row (q.ghostIDs, if-zts4) is skipped entirely here: it is a
+// last-known-good snapshot of an item the actual data source has already
+// dropped, kept alive only long enough to render its flash highlight — its
+// stale Blocker note must not spawn or resurrect a decision-lane entry for
+// an item that no longer exists.
 func (q *QueuePane) rebuildLanes() {
 	next := make(map[string]*lanes.LaneState, len(q.items))
 	for _, it := range q.items {
+		if q.ghostIDs[it.ID] {
+			continue
+		}
 		var blockerType string
 		if it.Blocker != nil {
 			blockerType = it.Blocker.Type

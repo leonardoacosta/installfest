@@ -178,24 +178,105 @@ func TestStepFlairPropagatesSpriteGlyphsToQueuePane(t *testing.T) {
 	// each call (rather than bypassing Root) keeps this test exercising
 	// the actual production Update path end to end.
 	//
-	// Three deliveries, not two: QueuePane.SetSpriteGlyphs (like the
-	// pre-existing SetHighlights) only stores the map — it does not itself
-	// trigger a row rebuild. Root.Update's own queue.Update(snap) call
-	// (which DOES rebuild rows) runs BEFORE rootWithFlair.applySnapshot
-	// computes and installs this frame's sprite glyphs, so a glyph
-	// installed on delivery N is only reflected in the rows Update rebuilds
-	// on delivery N+1 (same one-frame-behind shape SetHighlights already
-	// has in this wiring). The third delivery is what actually proves the
-	// glyph reached QueuePane's rendered output.
+	// Only ONE zombieSnap delivery is needed, not two: rootWithFlair.Update
+	// now computes flair's diff/highlight/sprite state (m.applySnapshot)
+	// BEFORE forwarding a SnapshotMsg to root.Update — the if-zts4 fix
+	// (row_flash on a closed bead needs its highlight installed before
+	// QueuePane.Update rebuilds rows, not after). QueuePane.SetSpriteGlyphs,
+	// like SetHighlights, only stores the map; the rebuild that actually
+	// consults it is root.Update's own queue.Update(snap) call, which now
+	// runs AFTER applySnapshot on the SAME delivery — so the glyph installed
+	// for this zombieSnap transition is already reflected in this same
+	// delivery's rebuilt rows (previously it took a second delivery to see
+	// it, since the rebuild ran a half-step ahead of the glyph it needed).
+	// A second delivery here would advance the sprite's 2-frame cycle
+	// (sprite.go's spriteFrames) to its OTHER glyph ("⋋" instead of "×"),
+	// which is exactly why only one is used.
 	w.Update(ui.SnapshotMsg{Snapshot: store.Snapshot{}}) // seed (no real prior state)
 	time.Sleep(150 * time.Millisecond)
-	w.Update(zombieSnap) // starts sprite state + starts row-appear animation
-	time.Sleep(150 * time.Millisecond)
-	w.Update(zombieSnap) // rebuilds the row using the glyph installed above
+	w.Update(zombieSnap) // starts sprite state + installs this frame's glyph
 
 	view := w.root.Queue().View()
 	if !strings.Contains(view, "× Stuck") {
 		t.Fatalf("want the zombie sprite glyph prepended onto the linked item's row, got:\n%s", view)
+	}
+}
+
+// TestRowFlashRendersOnClosedBeadRowBeforeDisappearing is if-zts4's
+// MANDATORY regression test: it drives the REAL rootWithFlair/QueuePane
+// pipeline (real FlairManager, real Diff/OnSnapshot/AdvanceFrame, real
+// ui.Root/QueuePane row rebuild — no fakes, no direct FlairManager/QueuePane
+// wiring bypassing this file's Update) through a real close-event Snapshot
+// transition, and asserts the rendered View() output shows the closed row
+// still present WITH its row_flash highlight applied for at least one frame
+// before it disappears — not merely that FlairManager's internal animState
+// exists (manager_test.go/highlight_test.go already proved that in
+// isolation; the bug this closes is specifically that the highlight never
+// reached the screen).
+func TestRowFlashRendersOnClosedBeadRowBeforeDisappearing(t *testing.T) {
+	w := newTestWrapper(config.FlairConfig{Enabled: true})
+
+	openSnap := ui.SnapshotMsg{Snapshot: store.Snapshot{
+		Items: []store.Item{{ID: "if-zts4", Kind: store.KindBead, Title: "Closeable Bead"}},
+	}}
+
+	// Seed (no real prior state to diff), then let the bead appear — both
+	// spaced past ui.Root's 100ms coalescing window (same pattern
+	// TestStepFlairPropagatesSpriteGlyphsToQueuePane already establishes)
+	// so each delivery is actually applied, not coalesced away.
+	w.Update(ui.SnapshotMsg{Snapshot: store.Snapshot{}})
+	time.Sleep(150 * time.Millisecond)
+	w.Update(openSnap)
+	time.Sleep(150 * time.Millisecond)
+
+	view := w.root.Queue().View()
+	if !strings.Contains(view, "Closeable Bead") {
+		t.Fatalf("want the bead's row present before it closes, got:\n%s", view)
+	}
+
+	// Close it — item "if-zts4" is absent from this Snapshot's Items.
+	w.Update(ui.SnapshotMsg{Snapshot: store.Snapshot{}})
+
+	// The row_flash effect always composes a ParticleBurstEffect alongside
+	// the color spring (highlight.go's rowFlashHighlighter), which renders
+	// its "✱" glyph for every frame until the burst's fixed particleTTL
+	// (400ms) elapses — one 30fps tick in, nowhere close to done. Asserting
+	// on the glyph (not the color) matches this package's own established
+	// convention for proving a highlight actually rendered without
+	// depending on ANSI color codes surviving a non-TTY test environment
+	// (see queuepane_test.go's TestSetHighlightsAppliesColorAndGlyphToMatchingRow).
+	view = w.root.Queue().View()
+	if !strings.Contains(view, "✱") || !strings.Contains(view, "Closeable Bead") {
+		t.Fatalf("want the closed bead's row still rendered with its row_flash glyph on the transition frame (if-zts4), got:\n%s", view)
+	}
+
+	// Drive the animation to completion via real flairTickMsg deliveries —
+	// once the flash settles, FlairManager stops reporting a highlight for
+	// this item at all.
+	const maxFrames = 10_000
+	settled := false
+	for i := 0; i < maxFrames; i++ {
+		_, cmd := w.Update(flairTickMsg{})
+		if !w.mgr.NeedsTick() {
+			settled = true
+			_ = cmd
+			break
+		}
+	}
+	if !settled {
+		t.Fatalf("row_flash animation never settled within %d frames", maxFrames)
+	}
+
+	// One more real Snapshot (same empty state) is what actually triggers
+	// QueuePane's next row rebuild — ticks alone never rebuild rows (see
+	// the comment above on TestStepFlairPropagatesSpriteGlyphsToQueuePane).
+	// With the highlight now gone, withGhostRows must no longer resurrect
+	// the closed row: it has to actually disappear once its flash is done.
+	time.Sleep(150 * time.Millisecond)
+	w.Update(ui.SnapshotMsg{Snapshot: store.Snapshot{}})
+	view = w.root.Queue().View()
+	if strings.Contains(view, "Closeable Bead") {
+		t.Fatalf("want the closed bead's row gone once its row_flash has settled, got:\n%s", view)
 	}
 }
 

@@ -58,22 +58,40 @@ func newRootWithFlair(root *ui.Root, mgr *flair.FlairManager, overlay *flair.Toa
 // Init satisfies tea.Model.
 func (m *rootWithFlair) Init() tea.Cmd { return m.root.Init() }
 
-// Update forwards every message to root.Update first — Root always returns
-// itself as the tea.Model it hands back (see root.go's doc comments), so
-// that returned value is discarded and this wrapper (m) is returned
-// instead, keeping the Program's model identity stable. ui.SnapshotMsg and
-// this file's own flairTickMsg additionally drive FlairManager and
-// conditionally re-schedule the next tick — every other message passes
-// through with flair playing no part at all.
+// Update forwards every message to root.Update — Root always returns itself
+// as the tea.Model it hands back (see root.go's doc comments), so that
+// returned value is discarded and this wrapper (m) is returned instead,
+// keeping the Program's model identity stable. ui.SnapshotMsg and this
+// file's own flairTickMsg additionally drive FlairManager and conditionally
+// re-schedule the next tick — every other message passes through with flair
+// playing no part at all.
+//
+// ui.SnapshotMsg is special-cased to run m.applySnapshot BEFORE forwarding
+// to root.Update, the reverse of every other message (if-zts4 fix).
+// root.Update's handling of a SnapshotMsg is what calls QueuePane.Update,
+// which rebuilds every row from the Snapshot's own Items list — and an
+// EventItemClosed item is, by definition, already absent from that list.
+// QueuePane.Update keeps a just-closed item's row alive as a short-lived
+// "ghost row" for exactly as long as m.root.Queue()'s highlights map still
+// carries an entry for that item's ID (see queuepane.go's withGhostRows),
+// but that only works if the highlight map already reflects THIS
+// transition's freshly-started row_flash by the time the rebuild runs. The
+// previous ordering called root.Update first and computed the highlight
+// afterward, so QueuePane always rebuilt its rows one Snapshot too early to
+// ever see the highlight it needed to keep the row alive — the closed row
+// was already gone before flair had a chance to say anything about it.
 func (m *rootWithFlair) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if snap, ok := msg.(ui.SnapshotMsg); ok {
+		m.applySnapshot(snap.Snapshot)
+		_, rootCmd := m.root.Update(msg)
+		return m, tea.Batch(rootCmd, m.maybeTick())
+	}
+
 	_, rootCmd := m.root.Update(msg)
 
 	switch t := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = t.Width, t.Height
-	case ui.SnapshotMsg:
-		m.applySnapshot(t.Snapshot)
-		return m, tea.Batch(rootCmd, m.maybeTick())
 	case flairTickMsg:
 		m.stepFlair()
 		return m, tea.Batch(rootCmd, m.maybeTick())
