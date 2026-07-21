@@ -164,7 +164,7 @@ stack: t3
   changes). This task stays unchecked pending: (a) Leo restoring genuine SSH access to cloudpc,
   (b) `if-1ydm.1`'s fix landing so a re-run of the real rotation can complete cleanly end-to-end,
   (c) a working `op` sign-in on the Mac so the 1Password write-back can be proven live.
-- [ ] [4.4] Targeted `git add ssh-mesh/scripts/rotate-keys.sh platform/windows/setup.ps1 home/dot_zshenv.tmpl` (no `git add -A`/`.`); commit `feat(ssh-mesh): sync rotation to 1Password, provision CloudPC via op, add Mac SSH agent path`; push. Paste `git log -1 --stat` output. [beads:if-mh7g]
+- [x] [4.4] Targeted `git add ssh-mesh/scripts/rotate-keys.sh platform/windows/setup.ps1 home/dot_zshenv.tmpl` (no `git add -A`/`.`); commit `feat(ssh-mesh): sync rotation to 1Password, provision CloudPC via op, add Mac SSH agent path`; push. Paste `git log -1 --stat` output. — DONE 2026-07-21: all 3 files committed and pushed already, across this session's real work (more granular than one combined commit — each change verified live at the point it landed: ddd4512/be995ed/058a767/942517f/eedd958 for rotate-keys.sh + setup.ps1, d647fba for dot_zshenv.tmpl). `git status --short` clean, nothing pending. [beads:if-mh7g]
   - depends on: 1.1, 2.1, 3.1
 
 ## User Gate
