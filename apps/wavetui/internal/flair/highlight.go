@@ -227,6 +227,20 @@ const particleBurstCount = 6
 // what fired.
 func (m *FlairManager) OnSnapshot(prev, next store.Snapshot) []FlairEvent {
 	events := m.Process(prev, next)
+
+	// Presence-sprite state (sprite.go) is re-derived fresh on every
+	// Snapshot, independent of whether Diff produced any FlairEvent this
+	// call — it is a continuous per-item state, not event-driven. Gated by
+	// cfg.Enabled directly (not m.Process's return) since a disabled
+	// manager must never derive or hold sprite state either — the same
+	// "disabled-equals-identical" invariant Process already enforces for
+	// Diff.
+	if !m.cfg.Enabled {
+		m.spriteStates = nil
+	} else {
+		m.updateSpriteStates(next)
+	}
+
 	if len(events) == 0 {
 		return events
 	}
@@ -308,6 +322,8 @@ func toastMessage(ev FlairEvent, title string) (string, colorful.Color) {
 // tea.Tick and once immediately after every OnSnapshot call — see
 // design.md § Tick-loop lifecycle.
 func (m *FlairManager) AdvanceFrame() (map[string]HighlightState, *ToastRender) {
+	m.advanceSpriteFrame()
+
 	var highlights map[string]HighlightState
 	for id, st := range m.active {
 		if st.highlighter == nil {

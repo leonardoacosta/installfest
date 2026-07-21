@@ -108,6 +108,7 @@ func (m *rootWithFlair) applySnapshot(next store.Snapshot) {
 func (m *rootWithFlair) stepFlair() {
 	highlights, toast := m.mgr.AdvanceFrame()
 	m.root.Queue().SetHighlights(highlights)
+	m.root.Queue().SetSpriteGlyphs(m.mgr.SpriteGlyphs())
 	m.lastToast = toast
 }
 

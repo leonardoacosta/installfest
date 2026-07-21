@@ -61,6 +61,17 @@ type FlairManager struct {
 	toastEffect toastEffect
 	toastMsg    string
 	toastAccent colorful.Color
+
+	// --- presence sprites (sprite.go, design.md § Presence sprites) -------
+	// spriteStates is keyed by item ID, re-derived fresh from every incoming
+	// Snapshot by updateSpriteStates (sprite.go) — nil/empty means no item
+	// currently has a linked session with a derivable sprite state (the
+	// common case: flair disabled, or no item claimed by a live session).
+	spriteStates map[string]SpriteState
+	// spriteFrame is the single shared frame-cycle counter every live
+	// sprite advances through in lockstep — see advanceSpriteFrame's doc
+	// comment for why one shared counter is enough.
+	spriteFrame int
 }
 
 // NewFlairManager constructs a FlairManager gated by cfg.
@@ -72,15 +83,15 @@ func NewFlairManager(cfg config.FlairConfig) *FlairManager {
 	}
 }
 
-// NeedsTick reports whether any animation OR toast is currently live. The
-// root model is expected to call this after every Update() and only
-// re-issue tea.Tick when it returns true — see design.md § Tick-loop
-// lifecycle: "a tick is scheduled if and only if there is something left to
-// animate." FlairManager itself never schedules a tea.Tick — this file
-// contains no unconditional tick loop, and NeedsTick is a pure query, not a
-// side-effecting call.
+// NeedsTick reports whether any animation, toast, OR presence sprite is
+// currently live. The root model is expected to call this after every
+// Update() and only re-issue tea.Tick when it returns true — see design.md
+// § Tick-loop lifecycle: "a tick is scheduled if and only if there is
+// something left to animate." FlairManager itself never schedules a
+// tea.Tick — this file contains no unconditional tick loop, and NeedsTick is
+// a pure query, not a side-effecting call.
 func (m *FlairManager) NeedsTick() bool {
-	return len(m.active) > 0 || m.toastEffect != nil || len(m.toastQueue) > 0
+	return len(m.active) > 0 || m.toastEffect != nil || len(m.toastQueue) > 0 || m.spritesAnimating()
 }
 
 // --- Snapshot diffing (design.md § Snapshot diffing) ---------------------

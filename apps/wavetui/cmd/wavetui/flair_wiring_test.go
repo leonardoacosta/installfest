@@ -1,7 +1,9 @@
 package main
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -152,6 +154,48 @@ func TestViewCompositesToastOverlayOnlyWhenLive(t *testing.T) {
 	}
 	if !changed {
 		t.Fatalf("want View() to change once the toast has sprung in, got identical output after %d frames", maxFrames)
+	}
+}
+
+// TestStepFlairPropagatesSpriteGlyphsToQueuePane confirms the end-to-end
+// wiring for design.md § Presence sprites (if-z7pm/if-u7ul.1): an item
+// carrying a linked session with Session.Zombie==true renders its
+// zombie-state sprite glyph in the real QueuePane row, driven entirely
+// through rootWithFlair.Update -> stepFlair -> QueuePane.SetSpriteGlyphs —
+// no direct FlairManager/QueuePane wiring bypassing this file.
+func TestStepFlairPropagatesSpriteGlyphsToQueuePane(t *testing.T) {
+	w := newTestWrapper(config.FlairConfig{Enabled: true})
+
+	zombieSnap := ui.SnapshotMsg{Snapshot: store.Snapshot{
+		Items: []store.Item{
+			{ID: "a", Kind: store.KindBead, Title: "Stuck", Session: &store.SessionLink{Zombie: true}},
+		},
+	}}
+
+	// ui.Root coalesces a SnapshotMsg arriving within renderInterval
+	// (100ms, internal/ui/root.go) of the last applied one — real,
+	// pre-existing behavior unrelated to sprites. Sleeping past it between
+	// each call (rather than bypassing Root) keeps this test exercising
+	// the actual production Update path end to end.
+	//
+	// Three deliveries, not two: QueuePane.SetSpriteGlyphs (like the
+	// pre-existing SetHighlights) only stores the map — it does not itself
+	// trigger a row rebuild. Root.Update's own queue.Update(snap) call
+	// (which DOES rebuild rows) runs BEFORE rootWithFlair.applySnapshot
+	// computes and installs this frame's sprite glyphs, so a glyph
+	// installed on delivery N is only reflected in the rows Update rebuilds
+	// on delivery N+1 (same one-frame-behind shape SetHighlights already
+	// has in this wiring). The third delivery is what actually proves the
+	// glyph reached QueuePane's rendered output.
+	w.Update(ui.SnapshotMsg{Snapshot: store.Snapshot{}}) // seed (no real prior state)
+	time.Sleep(150 * time.Millisecond)
+	w.Update(zombieSnap) // starts sprite state + starts row-appear animation
+	time.Sleep(150 * time.Millisecond)
+	w.Update(zombieSnap) // rebuilds the row using the glyph installed above
+
+	view := w.root.Queue().View()
+	if !strings.Contains(view, "× Stuck") {
+		t.Fatalf("want the zombie sprite glyph prepended onto the linked item's row, got:\n%s", view)
 	}
 }
 

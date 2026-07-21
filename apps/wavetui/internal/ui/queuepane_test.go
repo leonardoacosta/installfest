@@ -237,6 +237,66 @@ func TestSetHighlightsAppliesColorAndGlyphToMatchingRow(t *testing.T) {
 	}
 }
 
+// TestSetSpriteGlyphsNilOrEmptyRendersUnchanged mirrors
+// TestSetHighlightsNilOrEmptyRendersUnchanged for wavetui-flair's presence
+// sprite (design.md § Presence sprites, if-z7pm/if-u7ul.1): a nil map
+// (never called) and an explicitly-empty map must both render
+// byte-for-byte identically to a QueuePane that never had SetSpriteGlyphs
+// touched at all.
+func TestSetSpriteGlyphsNilOrEmptyRendersUnchanged(t *testing.T) {
+	snap := store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
+	}}
+
+	baseline := NewQueuePane()
+	baseline.Update(snap)
+	want := baseline.View()
+
+	untouched := NewQueuePane()
+	untouched.Update(snap)
+	if got := untouched.View(); got != want {
+		t.Fatalf("never calling SetSpriteGlyphs changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+
+	nilMap := NewQueuePane()
+	nilMap.SetSpriteGlyphs(nil)
+	nilMap.Update(snap)
+	if got := nilMap.View(); got != want {
+		t.Fatalf("SetSpriteGlyphs(nil) changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+
+	emptyMap := NewQueuePane()
+	emptyMap.SetSpriteGlyphs(map[string]string{})
+	emptyMap.Update(snap)
+	if got := emptyMap.View(); got != want {
+		t.Fatalf("SetSpriteGlyphs(empty map) changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+}
+
+// TestSetSpriteGlyphsComposesWithTitleAndHighlight confirms the sprite
+// glyph prepends onto the title (composing with, not replacing, the
+// wave-select marker and any live flair highlight on the same row), and
+// that an unrelated sibling row without a sprite glyph is untouched.
+func TestSetSpriteGlyphsComposesWithTitleAndHighlight(t *testing.T) {
+	q := NewQueuePane()
+	q.SetSpriteGlyphs(map[string]string{"a": "⋋"})
+	q.SetHighlights(map[string]flair.HighlightState{
+		"a": {Color: colorful.Color{R: 0, G: 1, B: 0}, Glyph: "!"},
+	})
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
+		{ID: "b", Kind: store.KindBead, Title: "Beta item"},
+	}})
+
+	view := q.View()
+	if !strings.Contains(view, "! ⋋ Alpha item") {
+		t.Fatalf("want sprite glyph to prepend ahead of the existing highlight glyph+title, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Beta item") || strings.Contains(view, "⋋ Beta item") {
+		t.Fatalf("sibling row with no sprite glyph must render its plain title, got:\n%s", view)
+	}
+}
+
 func TestBlockerBadge(t *testing.T) {
 	cases := []struct {
 		name string

@@ -54,6 +54,14 @@ type QueuePane struct {
 	// before this field existed. See renderTitleCell.
 	highlights map[string]flair.HighlightState
 
+	// spriteGlyphs is wavetui-flair's optional per-item presence-sprite
+	// glyph map (design.md § Presence sprites, if-z7pm/if-u7ul.1) — nil/
+	// empty (the default, and the whole state whenever flair is disabled,
+	// compiled out, or simply no item has a linked session right now)
+	// leaves QueuePane's rendering byte-for-byte identical to how it
+	// rendered before this field existed. See renderTitleCell.
+	spriteGlyphs map[string]string
+
 	// --- wavetui-dispatch (tasks.md [3.1]-[3.3]) additive state ---
 
 	// ctx/dispatcher are nil until SetDispatcher is called (cmd/wavetui/
@@ -272,6 +280,17 @@ func (q *QueuePane) View() string {
 // task does not touch.
 func (q *QueuePane) SetHighlights(highlights map[string]flair.HighlightState) {
 	q.highlights = highlights
+}
+
+// SetSpriteGlyphs installs the current per-item presence-sprite glyph map
+// wavetui-flair computed for this frame (design.md § Presence sprites). A
+// nil or empty map — flair disabled, compiled out, calm mode with no live
+// session, or simply no item with a linked Claude Code session right now —
+// leaves QueuePane's rendering byte-for-byte identical to how it rendered
+// before this method existed, the exact same convention SetHighlights
+// already establishes above.
+func (q *QueuePane) SetSpriteGlyphs(glyphs map[string]string) {
+	q.spriteGlyphs = glyphs
 }
 
 // SetDispatcher wires the Resolver (or any Dispatcher, e.g. a test fake)
@@ -708,6 +727,14 @@ func (q *QueuePane) renderTitleCell(it store.Item) string {
 	prefix := ""
 	if q.selected[it.ID] {
 		prefix = waveSelectMarker
+	}
+	// Presence-sprite glyph (design.md § Presence sprites) composes ahead
+	// of the title, after the wave-select marker, regardless of whether
+	// this row also has a highlight in flight this frame — additive, same
+	// as SetHighlights: q.spriteGlyphs nil/empty (the default) leaves
+	// prefix exactly as it was before this field existed.
+	if sprite := q.spriteGlyphs[it.ID]; sprite != "" {
+		prefix += sprite + " "
 	}
 
 	hl, highlighted := q.highlights[it.ID]
