@@ -70,7 +70,44 @@ func (fsOpenspecParser) Parse(_ context.Context, root string, cfg config.Config)
 var (
 	titleRe    = regexp.MustCompile(`(?m)^#\s+Proposal:\s*(.+)$`)
 	checkboxRe = regexp.MustCompile(`(?m)^\s*-\s*\[([ xX])\]`)
+
+	// touchesLineRe recognizes a `- touches: <value>` bullet line (the label
+	// is mandatory; the leading `-` and its surrounding space are optional,
+	// mirroring scripts/bin/wave-plan-build's parse_proposal_paths regex
+	// `^\s*-?\s*touches:\s*(.+)$`). Matched against an already-trimmed line.
+	touchesLineRe = regexp.MustCompile(`(?i)^-?\s*touches:\s*(.+)$`)
+	// backtickPathRe pulls backtick-delimited tokens out of a touches value —
+	// the preferred, unambiguous author syntax per
+	// commands/feature/references/spec-format.md's "Two parser-visible
+	// contracts" note.
+	backtickPathRe = regexp.MustCompile("`([^`]+)`")
+	// touchesSplitRe is the comma-or-" and "-separated fallback used only
+	// when a touches value carries no backticks at all.
+	touchesSplitRe = regexp.MustCompile(`,|\sand\s`)
 )
+
+// knownPathExtensions mirrors wave-plan-build's KNOWN_PATH_EXTENSIONS list
+// (kept in sync per that script's own comment on the constant) plus ".go",
+// since wavetui itself is the first Go-authored proposal set in this repo.
+// It exists solely to let a slash-less repo-root file (settings.json,
+// CLAUDE.md) register as a touched path; anything with a "/" already
+// qualifies without consulting this list.
+var knownPathExtensions = []string{
+	".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+	".sql", ".md", ".json", ".yml", ".yaml",
+	".sh", ".py", ".toml", ".css", ".scss", ".html",
+	".tf", ".hcl", ".prisma",
+	".prettierrc", ".gitignore", ".gitattributes",
+}
+
+func hasKnownPathExtension(path string) bool {
+	for _, ext := range knownPathExtensions {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
 
 // parseProposals walks changesDir one level deep (non-recursive — mirrors
 // the watch strategy) and parses each proposal subdirectory. archive/ and
@@ -116,6 +153,7 @@ func parseOneProposal(changesDir, slug string) store.Item {
 		if note, ok := parseProposalBlocker(content); ok {
 			item.Blocker = note
 		}
+		item.TouchedFiles = parseProposalTouches(content)
 	}
 
 	if info, err := os.Stat(proposalPath); err == nil {
@@ -151,6 +189,91 @@ func parseProposalBlocker(proposalMD string) (*store.BlockerNote, bool) {
 		}
 	}
 	return nil, false
+}
+
+// parseProposalTouches extracts the file paths a proposal's own author
+// declared it touches, from the literal "- touches:" bullet line (e.g.
+// - touches: `path1`, `path2`) in "## Context" — see design.md § Store
+// additive field (wavetui-dispatch) and
+// commands/feature/references/spec-format.md's "Two parser-visible
+// contracts" note for the authored format this mirrors.
+//
+// Deliberately narrow: only text that appears ON a `- touches:` line (or one
+// of its wrapped continuation lines, see below) is ever swept in. A proposal
+// whose prose elsewhere happens to mention a file-extension-shaped string —
+// "we will edit apps/foo/bar.go as part of this" — is NOT a `- touches:`
+// declaration and must never be treated as one; that is exactly the
+// over-matching footgun wave-plan-build's own extract_paths_from_text (a
+// bare-extension sweep over the WHOLE proposal) has, and why this parser
+// stays anchored to the literal label instead of porting that sweep.
+//
+// A long path list may wrap across multiple physical markdown lines; a
+// continuation is recognized the same way wave-plan-build's own
+// parse_proposal_paths recognizes it — the value-so-far ends in a trailing
+// comma (nx-4n8co.2's fix: matching only the single physical line silently
+// dropped every wrapped path). Returns nil (not an error) when no
+// `- touches:` line is present.
+func parseProposalTouches(proposalMD string) []string {
+	section := extractSection(proposalMD, "Context")
+
+	var paths []string
+	seen := make(map[string]bool)
+
+	var accum string
+	accumulating := false
+
+	for _, line := range strings.Split(section, "\n") {
+		trimmed := strings.TrimSpace(line)
+
+		var value string
+		if accumulating {
+			value = strings.TrimSpace(accum + " " + trimmed)
+		} else {
+			m := touchesLineRe.FindStringSubmatch(trimmed)
+			if m == nil {
+				continue
+			}
+			value = m[1]
+		}
+
+		if strings.HasSuffix(strings.TrimSpace(value), ",") {
+			accum = value
+			accumulating = true
+			continue
+		}
+		accumulating = false
+		accum = ""
+
+		var candidates []string
+		if bt := backtickPathRe.FindAllStringSubmatch(value, -1); len(bt) > 0 {
+			for _, m := range bt {
+				candidates = append(candidates, m[1])
+			}
+		} else {
+			for _, c := range touchesSplitRe.Split(value, -1) {
+				candidates = append(candidates, strings.Trim(strings.TrimSpace(c), "`"))
+			}
+		}
+
+		for _, p := range candidates {
+			p = strings.TrimRight(strings.TrimSpace(p), ".,);:")
+			if p == "" || seen[p] {
+				continue
+			}
+			// Authoritative author declaration, but still require a
+			// path-shape: either a nested path ("/") or a known extension
+			// (so a repo-root file like settings.json registers) — this is
+			// what rejects a stray connective word like "and" that survives
+			// the fallback comma/and split.
+			if !strings.Contains(p, "/") && !hasKnownPathExtension(p) {
+				continue
+			}
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+
+	return paths
 }
 
 // extractSection returns the body text of the "## <heading>" section

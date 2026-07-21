@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -270,5 +271,76 @@ func TestParseProposalsSkipsArchiveAndDotfiles(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != "real-one" {
 		t.Fatalf("want exactly [real-one], got %+v", items)
+	}
+}
+
+// --- if-tkva.1: `- touches:` parsing into Item.TouchedFiles -------------
+
+func TestParseOneProposalTouchesLineParsesIntoTouchedFiles(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	// Real fixture shape, verbatim from this repo's own archived
+	// wavetui-dispatch proposal.md: a backtick-delimited `- touches:` list
+	// that wraps across three physical lines, including a trailing
+	// parenthetical annotation on the final path that must NOT itself be
+	// swept in as a path.
+	makeProposal(t, changesDir, "wavetui-dispatch",
+		"# Proposal: wavetui-dispatch — dispatch\n\n"+
+			"## Context\n"+
+			"- touches: `apps/wavetui/internal/dispatch/dispatcher.go`,\n"+
+			"  `apps/wavetui/internal/dispatch/dispatcher_test.go`,\n"+
+			"  `apps/wavetui/internal/wave/wave.go`, `apps/wavetui/internal/store/store.go` (additive\n"+
+			"  field only — see Risks for the coordination note)\n",
+		"")
+
+	item := parseOneProposal(changesDir, "wavetui-dispatch")
+
+	want := []string{
+		"apps/wavetui/internal/dispatch/dispatcher.go",
+		"apps/wavetui/internal/dispatch/dispatcher_test.go",
+		"apps/wavetui/internal/wave/wave.go",
+		"apps/wavetui/internal/store/store.go",
+	}
+	if !reflect.DeepEqual(item.TouchedFiles, want) {
+		t.Fatalf("TouchedFiles = %+v, want %+v", item.TouchedFiles, want)
+	}
+}
+
+func TestParseOneProposalNoTouchesLineLeavesTouchedFilesNil(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "no-touches",
+		"# Proposal: no-touches — x\n\n## Context\n- Extends: nothing in particular\n",
+		"")
+
+	item := parseOneProposal(changesDir, "no-touches")
+
+	if item.TouchedFiles != nil {
+		t.Fatalf("TouchedFiles = %+v, want nil (no `- touches:` line present)", item.TouchedFiles)
+	}
+}
+
+// TestParseOneProposalProseFileMentionNotSweptIn is the footgun-avoidance
+// case: scripts/bin/wave-plan-build's own extract_paths_from_text sweeps any
+// bare file-extension-shaped string anywhere in a document, which
+// over-matches prose citations that are not real `- touches:` declarations.
+// parseProposalTouches deliberately does NOT do that — only text living on a
+// `- touches:` line (or its wrapped continuation) is ever a candidate. A
+// proposal whose Context prose merely mentions a file path in passing must
+// contribute nothing to TouchedFiles.
+func TestParseOneProposalProseFileMentionNotSweptIn(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "prose-only",
+		"# Proposal: prose-only — x\n\n"+
+			"## Context\n"+
+			"- Extends: we will edit apps/wavetui/internal/foo/bar.go as part of this change\n"+
+			"- Related: see also apps/wavetui/internal/other/baz.ts for prior art\n",
+		"")
+
+	item := parseOneProposal(changesDir, "prose-only")
+
+	if item.TouchedFiles != nil {
+		t.Fatalf("TouchedFiles = %+v, want nil — prose file mentions outside a `- touches:` line must not be swept in", item.TouchedFiles)
 	}
 }
