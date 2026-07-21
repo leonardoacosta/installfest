@@ -389,9 +389,26 @@ Subsystem sftp sftp-server.exe
     }
     # ── End 1Password mesh key provisioning ──
 
-    # SSH key must be transferred securely - do not embed in scripts
-    # The public key can be deployed here (it's public)
-    $publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFqT0bMXcrQGgWvYoLg66dCCvhgAPx1rmrJmzGpMeFVR"
+    # SSH key must be transferred securely - do not embed in scripts.
+    #
+    # Was previously a hardcoded literal here — found stale live 2026-07-21
+    # (task 4.1 live-verify): the mesh had rotated (current key dated
+    # 20260720) but this literal still held a much older key, so any re-run
+    # of this script would have silently overwritten authorized_keys with
+    # the WRONG key, breaking inbound mesh access. Derive $publicKey from
+    # the SAME 1Password fetch the private-key materialization block above
+    # already performed ($meshPublicKeyFile) — it can never go stale again
+    # because it's re-fetched every run, not embedded. If that fetch didn't
+    # happen (op.exe unavailable/not signed in, as was ALSO true on CloudPC
+    # 2026-07-21), there is no safe fallback value to hardcode — skip
+    # deploying authorized_keys rather than risk deploying a stale key.
+    $publicKey = $null
+    if (Test-Path $meshPublicKeyFile) {
+        $publicKey = (Get-Content $meshPublicKeyFile -Raw).Trim()
+    }
+    if (-not $publicKey) {
+        Write-Warn "No mesh public key available (1Password fetch above did not succeed) - skipping authorized_keys/public-key deployment below rather than using a stale hardcoded value. Transfer the current key manually (see ssh-mesh/scripts/rotate-keys.sh) or fix the 1Password CLI prerequisite and re-run."
+    }
 
     # SSH Config for outbound connections to other machines
     $sshMeshConfig = @"
@@ -438,41 +455,52 @@ Host mac
             Write-Ok "Created: $($sshUser.SshDir)"
         }
 
-        # Handle existing authorized_keys
-        if (Test-Path $sshUser.AuthKeys) {
-            takeown /f $sshUser.AuthKeys 2>$null | Out-Null
-            Remove-Item $sshUser.AuthKeys -Force -ErrorAction SilentlyContinue
-        }
+        # Handle existing authorized_keys — only touched when a fresh
+        # $publicKey is actually available (see the 2026-07-21 note above);
+        # otherwise leave whatever is already on disk untouched rather than
+        # deleting a still-valid file with nothing to replace it.
+        if ($publicKey) {
+            if (Test-Path $sshUser.AuthKeys) {
+                takeown /f $sshUser.AuthKeys 2>$null | Out-Null
+                Remove-Item $sshUser.AuthKeys -Force -ErrorAction SilentlyContinue
+            }
 
-        # Write authorized_keys with the mesh public key
-        Set-Content -Path $sshUser.AuthKeys -Value $publicKey -Force
-        Write-Ok "authorized_keys deployed: $($sshUser.AuthKeys)"
+            # Write authorized_keys with the mesh public key
+            Set-Content -Path $sshUser.AuthKeys -Value $publicKey -Force
+            Write-Ok "authorized_keys deployed: $($sshUser.AuthKeys)"
+        } else {
+            Write-Warn "Skipping authorized_keys deployment for $($sshUser.Name) - no fresh public key available."
+        }
 
         # For AzureAD user, also set up outbound SSH config and public key
         if ($sshUser.Config) {
             Set-Content -Path $sshUser.Config -Value $sshMeshConfig -Force
             Write-Ok "SSH config deployed: $($sshUser.Config)"
         }
-        if ($sshUser.PublicKey) {
+        if ($sshUser.PublicKey -and $publicKey) {
             Set-Content -Path $sshUser.PublicKey -Value $publicKey -Force
             Write-Ok "Public key deployed: $($sshUser.PublicKey)"
         }
     }
 
     # Admin authorized_keys (required for admin users on Windows OpenSSH)
-    Write-Step "Setting up administrator authorized_keys..."
-    $sshProgramData = "C:\ProgramData\ssh"
-    if (-not (Test-Path $sshProgramData)) {
-        New-Item -ItemType Directory -Force -Path $sshProgramData | Out-Null
+    if ($publicKey) {
+        Write-Step "Setting up administrator authorized_keys..."
+        $sshProgramData = "C:\ProgramData\ssh"
+        if (-not (Test-Path $sshProgramData)) {
+            New-Item -ItemType Directory -Force -Path $sshProgramData | Out-Null
+        }
+        $adminAuthKeys = "$sshProgramData\administrators_authorized_keys"
+        if (Test-Path $adminAuthKeys) {
+            takeown /f $adminAuthKeys 2>$null | Out-Null
+            Remove-Item $adminAuthKeys -Force -ErrorAction SilentlyContinue
+        }
+        Set-Content -Path $adminAuthKeys -Value $publicKey -Force
+        icacls $adminAuthKeys /inheritance:r /grant "SYSTEM:F" /grant "Administrators:F" | Out-Null
+        Write-Ok "Admin authorized_keys deployed with correct permissions"
+    } else {
+        Write-Warn "Skipping administrator authorized_keys deployment - no fresh public key available."
     }
-    $adminAuthKeys = "$sshProgramData\administrators_authorized_keys"
-    if (Test-Path $adminAuthKeys) {
-        takeown /f $adminAuthKeys 2>$null | Out-Null
-        Remove-Item $adminAuthKeys -Force -ErrorAction SilentlyContinue
-    }
-    Set-Content -Path $adminAuthKeys -Value $publicKey -Force
-    icacls $adminAuthKeys /inheritance:r /grant "SYSTEM:F" /grant "Administrators:F" | Out-Null
-    Write-Ok "Admin authorized_keys deployed with correct permissions"
 
     # ── End SSH Mesh ──
 
