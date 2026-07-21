@@ -51,6 +51,59 @@ when present rather than re-deriving it:
 3. Zero candidates, or no `$TMUX` session at all (checked via `cc-tmux conductor list --json`
    returning an empty array vs. a CLI error) — fall back to `ClipboardDispatcher`.
 
+### Addendum (API batch, tasks.md [2.1]): how the four fields actually compose, and against whom
+
+This section named all four `conductor list --json` fields (`project`, `branch`, `window`,
+`session`) as the scoring inputs without specifying two things a real implementation needs: (a)
+how project/branch and window/session combine into one ranking, and (b) what an "item's
+project/branch" even means, since `store.Item` carries no project/branch field of its own (the
+DB batch's `[1.3]` extraction — `TouchedFiles` only — is the complete, closed set of additive
+fields for this proposal; adding a new `Item` field would be a DB-batch-scope change, not an
+API-batch one).
+
+**Resolved**: every item a single `wavetui` process surfaces belongs to the one repo that process
+is running against — there is no per-item project/branch to track, because there is only one
+project in scope for the whole run. "The item's project/branch" is therefore **wavetui's own**
+project/branch, read once per resolution from `$TMUX_PANE` (the pane wavetui's own process
+happens to be running in, if any) via the exact same primitives `conductor list` itself uses to
+populate those fields on other rows: `@cc-project`/`@cc-branch` pane options for project/branch,
+and `#{session_name}`/`#{window_index}` for session/window locality (verified live against this
+repo's own tmux server that `#{window_index}` — a bare number — not `#{window_id}` — the `@N`
+form — is what actually matches `conductor list --json`'s reported `window` value).
+
+Composition: window/session locality is the PRIMARY tier (same-window scores higher than
+same-session, which scores higher than other); project/branch affinity is a SECONDARY,
+within-tier tie-break only (the gap between locality tiers exceeds the maximum affinity bonus, so
+affinity can never promote a candidate across a locality boundary). This keeps the
+"zero candidates" check in point 3 above strictly literal — reading solely from `conductor
+list`'s raw array length/error, never a project-filtered subset — while still using project/
+branch as real, documented ranking data per this section's original citation of the field. When
+wavetui itself is not running inside any tmux pane (or one cc-tmux has not tagged), self
+project/branch/session/window all resolve to `""` and every candidate falls through to the
+"other" tier uniformly — a safe, if low-confidence, degrade: a single remaining candidate is
+still an unambiguous pick, and 2+ equally-unscored candidates correctly tie and prompt (point 2's
+own "never a silent pick" invariant), rather than being treated as a bug to special-case around.
+
+### Addendum (API batch, tasks.md [2.2]): what "actively streaming" resolves to
+
+§ Mid-turn safety below cites `<session actively streaming>` as a signal "the session state
+wavetui-sessions' `TranscriptSource` already derives from transcript activity" — but
+`store.SessionLink` (wavetui-sessions' own shipped shape) carries no such field; the closest
+candidates (`LastActivity`, `Zombie`) are respectively too coarse (any activity, not specifically
+"mid-turn right now") and already named as a separate, independent condition in that same bullet.
+
+**Resolved**: "actively streaming" maps to cc-tmux's own `@cc-state == "active"` pane option —
+exactly the busy/mid-turn signal cc-tmux's own `send-prompt` refusal already checks
+(`conductor.py`'s `_send_prompt_refusal`) before typing into a pane, and exactly the primitive
+this section's own "TmuxDispatcher primitive choice" subsection already names as the mechanism to
+re-implement rather than shell out to `conductor dispatch --mode send-prompt` for. Combined with
+the `Zombie == false` guard already stated in the bullet, the refusal condition is: linked session
+exists, is not zombie-badged, AND its pane's `@cc-state` reads `active`. Fail-open (no refusal)
+when `@cc-state` has no data for that pane — same convention as every other `@cc-state` read in
+this codebase (wavetui-sessions' own zombie detection already treats tmux-state and
+transcript-activity as independent, fail-open signals; this reuses that precedent rather than
+inventing a new one).
+
 ## TmuxDispatcher primitive choice (Reader Gate citation + documented gap)
 
 **Reused as-is:**
@@ -166,14 +219,47 @@ func validateDispatchTarget(id string) error {
 }
 ```
 
-Applied to `item.ID` and `item.Session.PaneID` (both already id-shaped by construction — bead
-IDs, proposal slugs, tmux pane IDs like `%12`) immediately before either crosses into a
-`tmux`/shell invocation. `promptText` itself is NEVER validated against this regex — it is
-free-form prose by design (that is the entire point of a dispatch) and is delivered exclusively
-through the bracketed-paste buffer / OSC52 payload, never through shell argument
-interpolation or string concatenation into a command line. Bead titles and notes are
-user/agent-authored text and MUST NOT be treated as an id — if a caller ever needs a title
-rendered into a dispatch, it goes through `promptText`, never through `validateDispatchTarget`.
+Applied to `item.ID` (bead IDs, proposal slugs — this codebase's canonical id grammar).
+`promptText` itself is NEVER validated against this regex — it is free-form prose by design (that
+is the entire point of a dispatch) and is delivered exclusively through the bracketed-paste
+buffer / OSC52 payload, never through shell argument interpolation or string concatenation into a
+command line. Bead titles and notes are user/agent-authored text and MUST NOT be treated as an
+id — if a caller ever needs a title rendered into a dispatch, it goes through `promptText`, never
+through `validateDispatchTarget`.
+
+### Addendum (API batch, tasks.md [2.1]-[2.4]): pane IDs get their own validator, not a widened regex
+
+The DB batch flagged that `idShapeRe` above — copied verbatim into `dispatch.go`'s `[1.2]`
+scaffold — does not match a tmux pane ID like `%12` (`%` is absent from the charclass), even
+though this section's original text implied `validateDispatchTarget` applies to
+`item.Session.PaneID` too. `[2.4]`'s `Resolver` is the first task that actually calls a validator
+on a real pane ID, so the inconsistency had to be resolved rather than carried forward.
+
+**Resolved: a separate, narrowly-scoped pattern for pane IDs — not a widened `idShapeRe`.**
+
+```go
+var paneIDShapeRe = regexp.MustCompile(`^%[0-9]+$`)
+
+func validateTmuxPaneID(id string) error {
+    if !paneIDShapeRe.MatchString(id) {
+        return fmt.Errorf("dispatch target %q is not pane-ID-shaped, refusing to cross the dispatch boundary", id)
+    }
+    return nil
+}
+```
+
+Bead IDs/proposal slugs and tmux pane IDs are two different id-spaces with different, non-
+overlapping legal grammars — a bead ID never contains `%`, and a tmux pane ID is never anything
+but `%` followed by digits (tmux's own fixed format, confirmed against this repo's live tmux
+server: `%12`, `%276`, etc., never anything else). Widening `idShapeRe` to admit `%` would loosen
+the validator every `item.ID` call site relies on, for a character no bead or proposal slug will
+ever legitimately need — the wrong direction for a boundary validator whose entire purpose is
+excluding non-id-shaped (potentially attacker-controllable) text from a shell invocation. A
+second pattern matching tmux's actual pane-ID grammar exactly protects the pane-ID call sites
+(`TmuxDispatcher.Dispatch`/`Switch` in `tmux.go`) without touching `idShapeRe`'s existing
+guarantee at all. `validateTmuxPaneID` is applied to every pane ID `TmuxDispatcher` resolves
+(`item.Session.PaneID`, or a scored `conductor list --json` candidate's `id`) immediately before
+it crosses into a `tmux`/`cc-tmux` invocation.
 
 ## No automatic retry
 

@@ -42,29 +42,67 @@ var ErrPaneInCopyMode = errors.New("dispatch target pane is in copy-mode, refusi
 // "queued — session busy" with no automatic retry.
 var ErrSessionStreaming = errors.New("dispatch target session is actively streaming, refusing to dispatch")
 
-// idShapeRe matches an id-shaped string — a bead ID, an openspec change
-// slug, or a tmux pane ID (e.g. "%12"). See design.md § Dispatch-boundary
-// validation.
+// idShapeRe matches an id-shaped string — a bead ID or an openspec change
+// slug. See design.md § Dispatch-boundary validation.
 //
-// Deliberately does not allow "%" itself in the charclass even though
-// tmux pane IDs are conventionally "%<digits>" — a caller passing a raw
-// pane ID through this validator will fail it today. This mirrors
-// design.md's own regex verbatim (`^[A-Za-z0-9_-]+$`); tightening it to
-// admit pane-ID shapes is a decision for whichever API-batch task first
-// calls validateDispatchTarget on a real pane ID, not something to
-// silently pre-empt here.
+// RESOLVED (API batch, tasks.md [2.1]-[2.4]): the DB batch flagged that
+// this regex, taken verbatim from design.md, does not match a tmux pane ID
+// like "%12" ("%" is not in the charclass) even though design.md's prose
+// claimed it should apply to both id-spaces. Now that tasks.md [2.4]'s
+// Resolver is the first caller to actually validate a real pane ID, the
+// question had to be settled: WIDEN this charclass to admit "%", or give
+// pane IDs their OWN, separately-scoped pattern.
+//
+// Decision: separate pattern (see paneIDShapeRe/validateTmuxPaneID below),
+// not a widened charclass. Bead IDs and openspec slugs are one id-space
+// (this codebase's canonical grammar, matching rules/TOOLING.md's
+// BEADS_ID_RE and internal/sources/session_link.go's applyDispatchRe);
+// tmux pane IDs are a DIFFERENT, tmux-owned id-space with their own fixed
+// grammar ("%" followed by one or more digits, nothing else — never a
+// bead ID, never a proposal slug, never anything user/agent-authored).
+// Widening idShapeRe to admit "%" would loosen the validator every
+// item.ID/bead-ID call site relies on, for a character no bead or proposal
+// slug will ever legitimately contain — exactly the kind of blanket
+// loosening the Reader Gate's "tighten to the minimum, not the union"
+// principle warns against for a boundary validator whose whole job is
+// keeping non-id-shaped (attacker-controllable) text out of a shell
+// invocation. A second, narrowly-scoped regex that matches tmux's actual
+// pane-ID grammar exactly (`^%[0-9]+$`) protects the pane-ID call sites
+// (tmux.go's Dispatch/Switch) without touching this one at all.
 var idShapeRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// paneIDShapeRe matches a tmux pane ID exactly as tmux itself formats one —
+// "%" followed by one or more digits (e.g. "%12"). See idShapeRe's doc
+// comment above for why this is a separate pattern rather than a widened
+// idShapeRe.
+var paneIDShapeRe = regexp.MustCompile(`^%[0-9]+$`)
+
 // validateDispatchTarget refuses to let a non-id-shaped string cross the
-// dispatch boundary into a tmux/shell invocation. Applied to item.ID and
-// item.Session.PaneID immediately before either is used to build a
-// tmux/shell command — never to promptText, which is free-form prose by
-// design and is delivered exclusively through the paste-buffer/OSC52
-// payload, never through shell argument interpolation. See design.md §
-// Dispatch-boundary validation.
+// dispatch boundary into a tmux/shell invocation. Applies to bead IDs and
+// openspec change slugs (item.ID) — never to a tmux pane ID, which is a
+// different id-space validated by validateTmuxPaneID instead. Never
+// applied to promptText, which is free-form prose by design and is
+// delivered exclusively through the paste-buffer/OSC52 payload, never
+// through shell argument interpolation. See design.md § Dispatch-boundary
+// validation and idShapeRe's doc comment above.
 func validateDispatchTarget(id string) error {
 	if !idShapeRe.MatchString(id) {
 		return fmt.Errorf("dispatch target %q is not id-shaped, refusing to cross the dispatch boundary", id)
+	}
+	return nil
+}
+
+// validateTmuxPaneID refuses to let a non-pane-ID-shaped string cross the
+// dispatch boundary into a tmux invocation. Applied to every pane ID
+// TmuxDispatcher resolves (item.Session.PaneID, or a scored candidate's ID
+// from `cc-tmux conductor list --json`) immediately before it is used as a
+// `-t <target>` argument to tmux/cc-tmux — see tmux.go's Dispatch/Switch.
+// See idShapeRe's doc comment above for why this is deliberately a
+// separate validator from validateDispatchTarget rather than a widened
+// shared regex.
+func validateTmuxPaneID(id string) error {
+	if !paneIDShapeRe.MatchString(id) {
+		return fmt.Errorf("dispatch target %q is not pane-ID-shaped, refusing to cross the dispatch boundary", id)
 	}
 	return nil
 }
