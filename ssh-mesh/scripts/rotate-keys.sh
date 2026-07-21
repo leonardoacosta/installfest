@@ -268,62 +268,55 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "Syncing rotated key back to 1Password (${OP_SSH_ITEM})..."
 if $HOMELAB_REVERIFY && $CLOUDPC_REVERIFY; then
-  # `op item edit` does NOT accept a full op:// URI as its item argument the
-  # way `op read` does. Parse vault + item name out of OP_SSH_ITEM instead
-  # of passing the raw URI: strip the op:// prefix, split on the first
-  # remaining '/'.
+  # Automated import-based write-back is NOT reliable for an "SSH Key"
+  # category item — confirmed live 2026-07-21 across THREE distinct
+  # failure modes, not one fixable syntax bug:
+  #   1. `op item edit` cannot be used at all for this category ("SSH Key
+  #      item editing in the CLI is not yet supported").
+  #   2. `op item create`'s assignment-statement syntax has NO valid field
+  #      type for a private key — 1Password's own docs (item-fields
+  #      reference) confirm no SSH-key fieldType exists among the
+  #      supported keywords (password/text/email/url/date/monthYear/
+  #      phone/otp/file); the [SSHKEY] annotation this file previously
+  #      used errors with "not a supported field type".
+  #   3. Piping a hand-built JSON template (`op item template get "SSH
+  #      Key" | jq ... | op item create --vault ... -`) DOES create an
+  #      item that LOOKS populated, but it becomes unreadable afterward
+  #      ("private_key isn't a field in the ... item" on every subsequent
+  #      `op item get`) — a real op CLI internal inconsistency, not a
+  #      caller-side mistake.
+  # The only reliably-working path (confirmed live) is 1Password
+  # GENERATING the key natively (`op item create --category "SSH Key"
+  # --ssh-generate-key ed25519`), which also requires a genuine
+  # interactive terminal (fails outright over a non-tty stdin, e.g. run
+  # via `ssh host "..."` with no pty). Given this script already runs
+  # interactively (its own header: "Run from Mac"), that path IS available
+  # here in principle — but flipping Phase 1 to generate the key in
+  # 1Password FIRST and fetch it down (rather than generating locally via
+  # ssh-keygen and trying to push it up, which is the direction that
+  # doesn't work) is a real redesign of this script's key-generation
+  # phase, not a Phase 6b fix. Out of scope for this warning-only patch —
+  # tracked as a real follow-up, not silently absorbed.
+  #
+  # Until that redesign lands, warn clearly and point at the PROVEN
+  # working manual process instead of attempting a write-back known to
+  # fail — shipping code that looks like it works but doesn't is worse
+  # than an honest warning.
+  # Parse vault + item name out of OP_SSH_ITEM for the instructional message
+  # below only — no op command is actually invoked in this phase anymore.
   _op_vault_and_item="${OP_SSH_ITEM#op://}"
   OP_SSH_VAULT="${_op_vault_and_item%%/*}"
   OP_SSH_ITEM_NAME="${_op_vault_and_item#*/}"
 
-  # `op item edit` ALSO cannot be used at all for an "SSH Key"-category item
-  # — confirmed live 2026-07-21: "SSH Key item editing in the CLI is not yet
-  # supported" (a real op CLI limitation, not a syntax issue — this is why
-  # the mesh-ssh 1Password item had drifted stale: an edit-based write-back
-  # can never succeed for this category, regardless of syntax). Delete +
-  # recreate instead. Ordered create-then-delete would risk an ambiguous
-  # title collision (op allows two items with the same title, distinguished
-  # only by UUID); delete-then-create instead, accepting a brief window with
-  # no 1Password mirror at all — the mesh itself is already rotated and
-  # reachable at this point in Phase 6, so this window has no effect on
-  # actual connectivity, only on a fresh-machine `op read` during that
-  # window.
-  #
-  # `op item template get "SSH Key"` (confirmed live 2026-07-21) shows this
-  # category has exactly ONE settable key field — id "private_key", type
-  # SSHKEY, label "private key" — no separate "public key" field at all;
-  # 1Password derives the public key from the private key server-side. The
-  # field-type annotation is REQUIRED on create ("private key[SSHKEY]=...",
-  # plain "private key=..." errors with "cannot assign the reserved field").
-  # scripts/op-ssh-provision.sh's `op read .../public key` on the READ side
-  # is unaffected — it reads the derived value, not a stored field.
   if $DRY_RUN; then
-    echo "DRY: op item delete \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\""
-    echo "DRY: op item create --category \"SSH Key\" --title \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" 'private key[SSHKEY]=<new key>'"
+    echo "DRY: (write-back skipped — automated import is not reliable for SSH Key items; see the 2026-07-21 finding in this script's comments)"
   else
-    # Command substitution below reads real key material, so this is an
-    # explicit if/else rather than routed through run() — run()'s "$@" form
-    # evaluates its arguments eagerly, which would leak the private key into
-    # a "DRY: ..." echo under --dry-run. See ssh-mesh/scripts/op-ssh-provision.sh
-    # for the matching field name ("private key") this reads back (plus the
-    # server-derived "public key") on a fresh machine.
-    if ! command -v op >/dev/null 2>&1; then
-      echo "  WARNING: op (1Password CLI) not installed — ${OP_SSH_ITEM} NOT updated."
-      echo "  Mesh is rotated and reachable; the 1Password mirror is stale until fixed manually."
-    else
-      op item delete "$OP_SSH_ITEM_NAME" --vault "$OP_SSH_VAULT" >/dev/null 2>&1
-      # Delete's own exit status is not checked: a "not found" failure here
-      # is fine (nothing to delete yet, e.g. first-ever rotation) and must
-      # not block the create attempt below.
-      if op item create --category "SSH Key" --title "$OP_SSH_ITEM_NAME" --vault "$OP_SSH_VAULT" \
-          "private key[SSHKEY]=$(cat "$HOME/.ssh/id_ed25519")" >/dev/null 2>&1; then
-        echo "  1Password: ${OP_SSH_ITEM} updated with the rotated key"
-      else
-        echo "  WARNING: 1Password write-back failed (op item create exited non-zero) — ${OP_SSH_ITEM} NOT updated."
-        echo "  The old item was already deleted above, so the 1Password mirror is now MISSING, not merely stale — recreate it manually."
-        echo "  Mesh is rotated and reachable regardless; this only affects a fresh-machine op read until fixed."
-      fi
-    fi
+    echo "  SKIPPED: automated 1Password write-back is not attempted (confirmed unreliable for SSH Key items, 2026-07-21)."
+    echo "  Update ${OP_SSH_ITEM} manually: on a machine with an interactive terminal,"
+    echo "    op item delete \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" 2>/dev/null"
+    echo "    op item create --category \"SSH Key\" --title \"$OP_SSH_ITEM_NAME\" --vault \"$OP_SSH_VAULT\" --ssh-generate-key ed25519"
+    echo "  then redeploy the newly-generated key to every peer (this script's Phase 1-5 pattern, generation source flipped to 1Password)."
+    echo "  Mesh is rotated and reachable regardless; this only affects a fresh-machine op read until the mirror is updated."
   fi
 else
   echo "  SKIP (not all peers re-verified)"
