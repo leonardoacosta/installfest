@@ -66,6 +66,7 @@ install_arch_packages() {
         # Networking
         proxychains-ng
         mosh              # roaming/latency-tolerant SSH replacement (UDP 60000-61000)
+        tigervnc          # VNC client (vncviewer) for scripts/vnc-mac.sh — Mac Screen Sharing over Tailscale
         # Nerd Fonts (required for starship icons)
         ttf-jetbrains-mono-nerd
         ttf-cascadia-mono-nerd

@@ -14,7 +14,7 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] [owner:homelab-specialist] Add the `tigervnc` package to homelab's Arch package list in `scripts/install-arch.sh` (client only — provides `vncviewer`; no server component for homelab). [beads:if-vsph]
+- [x] [2.1] [owner:homelab-specialist] Add the `tigervnc` package to homelab's Arch package list in `scripts/install-arch.sh` (client only — provides `vncviewer`; no server component for homelab). [beads:if-vsph]
 
 ## UI Batch
 
