@@ -20,6 +20,7 @@ import (
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/config"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/ui"
@@ -72,7 +73,17 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	detail := ui.NewDetailPane()
 	root := ui.NewRoot(queue, detail)
 
-	program := tea.NewProgram(root, tea.WithContext(ctx))
+	// wavetui-flair (task [3.2]): FlairManager and ToastOverlay are wired in
+	// via the additive decorator model in flair_wiring.go — root itself
+	// never gains a flair dependency. cfg.Flair defaults to
+	// {Enabled:false}, the literal disabled-equals-identical path (see
+	// config.FlairConfig's doc comment), so an operator who never opts in
+	// gets byte-identical behavior to before this task.
+	flairMgr := flair.NewFlairManager(cfg.Flair)
+	toastOverlay := flair.NewToastOverlay(os.Stderr, os.Environ())
+	model := newRootWithFlair(root, flairMgr, toastOverlay)
+
+	program := tea.NewProgram(model, tea.WithContext(ctx))
 
 	// The Store is the single writer, and this is its only subscriber. Every
 	// event that mutates Store state also pushes a fresh Snapshot to the

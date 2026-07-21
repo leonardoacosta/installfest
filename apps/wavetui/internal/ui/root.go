@@ -108,6 +108,13 @@ func NewRoot(queue *QueuePane, detail *DetailPane) *Root {
 	return r
 }
 
+// Queue exposes the root model's QueuePane so external wiring (wavetui-
+// flair's cmd/wavetui integration, task [3.2]) can call QueuePane-only
+// methods like SetHighlights without Root itself needing to know anything
+// about wavetui-flair. Purely an additive accessor — Root's own Update/View
+// above, and its panes slice, are unmodified by this task.
+func (r *Root) Queue() *QueuePane { return r.queue }
+
 func firstFocusable(panes []Pane) int {
 	for i, p := range panes {
 		if p.Focusable() {

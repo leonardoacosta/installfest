@@ -53,18 +53,18 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Extend `internal/ui/queuepane.go` additively: accept an optional [beads:if-n9a8]
+- [x] [3.1] Extend `internal/ui/queuepane.go` additively: accept an optional [beads:if-n9a8]
   `SetHighlights(map[string]HighlightState)` call from `FlairManager`, render unchanged when the
   map is nil or empty — no change to `QueuePane`'s existing rendering logic for the non-highlight
   path
   - depends on: 2.2
-- [ ] [3.2] Wire `FlairManager` into `cmd/wavetui/main.go`'s root model: hold `prevSnapshot`, [beads:if-1vsf]
+- [x] [3.2] Wire `FlairManager` into `cmd/wavetui/main.go`'s root model: hold `prevSnapshot`, [beads:if-1vsf]
   call `Diff(prevSnapshot, next)` on each `SnapshotMsg` (gated per 2.4), pass the resulting
   highlight map into `QueuePane.SetHighlights`, composite the overlay from 2.3 over the root
   `View()` output, schedule `tea.Tick` only per `NeedsTick()` — append-only wiring, no reordering
   or removal of the existing pane slice
   - depends on: 3.1, 2.3, 2.4
-- [ ] [3.3] Implement `internal/flair/reward.go` (streak counter, combo multiplier for items [beads:if-zut9]
+- [x] [3.3] Implement `internal/flair/reward.go` (streak counter, combo multiplier for items [beads:if-zut9]
   closed within a rolling window, all-clear state when the ready queue hits zero, rare
   variable-reward celebration variant) — later, lower-priority batch per the Scope section; real
   functionality but does not block any task above or below it
@@ -74,6 +74,9 @@ stack: t3
   possibly extended by `wavetui-sessions`) exposes a session-state accessor; if present,
   implement the 2-4 frame cycle sprite mapped to that field; if absent, skip this task entirely
   and file a follow-up bead rather than blocking — additive enhancement, never MVP-blocking
+  (skipped — verified at implementation time: `internal/store/store.go`'s `Item` struct exposes
+  no session-state accessor, and `wavetui-sessions` has not landed yet (no commits under that
+  proposal exist in this repo); needs a follow-up bead once `wavetui-sessions` lands)
   - depends on: 2.1
 
 ## E2E Batch

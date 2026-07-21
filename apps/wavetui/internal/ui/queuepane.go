@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
 
@@ -30,6 +31,12 @@ type QueuePane struct {
 	// detail, task progress, ...) that DetailPane needs but that doesn't fit
 	// in a single table cell.
 	items []store.Item
+	// highlights is wavetui-flair's optional per-item row highlight map
+	// (task [3.1], design.md § Architecture's "row-scoped highlight map"
+	// box) — nil/empty (the default, and the whole state whenever flair is
+	// disabled or compiled out) means every row renders exactly as it did
+	// before this field existed. See renderTitleCell.
+	highlights map[string]flair.HighlightState
 }
 
 // defaultQueueWidth/Height give the table a usable size before the first
@@ -70,7 +77,7 @@ func (q *QueuePane) Update(snap store.Snapshot) Pane {
 	rows := make([]table.Row, 0, len(items))
 	for _, it := range items {
 		rows = append(rows, table.Row{
-			renderItemTitle(it),
+			q.renderTitleCell(it),
 			string(it.Kind),
 			formatCreatedAt(it.CreatedAt),
 			blockerBadge(it),
@@ -92,6 +99,18 @@ func (q *QueuePane) Update(snap store.Snapshot) Pane {
 
 // View implements Pane.
 func (q *QueuePane) View() string { return q.table.View() }
+
+// SetHighlights installs the current per-item highlight map wavetui-flair
+// computed for this frame (task [3.1]). A nil or empty map — flair
+// disabled, compiled out, or simply no event mid-flight for any visible row
+// right now — leaves QueuePane's rendering byte-for-byte identical to how it
+// rendered before this method existed: Update's row-building loop only
+// consults q.highlights through renderTitleCell below, never inline in the
+// pre-existing renderItemTitle/blockerBadge/formatCreatedAt path, which this
+// task does not touch.
+func (q *QueuePane) SetHighlights(highlights map[string]flair.HighlightState) {
+	q.highlights = highlights
+}
 
 // Focusable implements Pane — the queue is always a candidate for focus.
 func (q *QueuePane) Focusable() bool { return true }
@@ -179,6 +198,29 @@ func renderItemTitle(it store.Item) string {
 		return secondClassStyle.Render(it.Title)
 	}
 	return it.Title
+}
+
+// renderTitleCell renders the queue's Item column, layering any highlight
+// wavetui-flair computed for this item this frame on top of the
+// pre-existing SecondClass dimming (task [3.1]). Falls straight through to
+// the unchanged renderItemTitle whenever q.highlights is nil/empty or has
+// no entry for it.ID — the exact "render unchanged when the map is nil or
+// empty" contract this task requires.
+func (q *QueuePane) renderTitleCell(it store.Item) string {
+	hl, highlighted := q.highlights[it.ID]
+	if !highlighted {
+		return renderItemTitle(it)
+	}
+
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(hl.Color.Hex()))
+	if it.SecondClass {
+		style = style.Faint(true)
+	}
+	text := it.Title
+	if hl.Glyph != "" {
+		text = hl.Glyph + " " + text
+	}
+	return style.Render(text)
 }
 
 // blockerBadge renders the queue's blocker-badge column: a short type tag

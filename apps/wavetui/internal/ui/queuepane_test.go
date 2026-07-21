@@ -6,7 +6,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/lucasb-eyer/go-colorful"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
 
@@ -156,6 +158,62 @@ func firstDataRow(view string) string {
 		return ""
 	}
 	return lines[1]
+}
+
+// TestSetHighlightsNilOrEmptyRendersUnchanged is task [3.1]'s core contract:
+// a nil map (never called) and an explicitly-empty map must both render
+// byte-for-byte identically to a QueuePane that never had SetHighlights
+// touched at all.
+func TestSetHighlightsNilOrEmptyRendersUnchanged(t *testing.T) {
+	snap := store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
+	}}
+
+	baseline := NewQueuePane()
+	baseline.Update(snap)
+	want := baseline.View()
+
+	untouched := NewQueuePane()
+	untouched.Update(snap)
+	if got := untouched.View(); got != want {
+		t.Fatalf("never calling SetHighlights changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+
+	nilMap := NewQueuePane()
+	nilMap.SetHighlights(nil)
+	nilMap.Update(snap)
+	if got := nilMap.View(); got != want {
+		t.Fatalf("SetHighlights(nil) changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+
+	emptyMap := NewQueuePane()
+	emptyMap.SetHighlights(map[string]flair.HighlightState{})
+	emptyMap.Update(snap)
+	if got := emptyMap.View(); got != want {
+		t.Fatalf("SetHighlights(empty map) changed rendering:\nwant %q\ngot  %q", want, got)
+	}
+}
+
+// TestSetHighlightsAppliesColorAndGlyphToMatchingRow confirms the additive
+// path actually changes output for a highlighted item, and leaves an
+// unhighlighted sibling row untouched.
+func TestSetHighlightsAppliesColorAndGlyphToMatchingRow(t *testing.T) {
+	q := NewQueuePane()
+	q.SetHighlights(map[string]flair.HighlightState{
+		"a": {Color: colorful.Color{R: 0, G: 1, B: 0}, Glyph: "!"},
+	})
+	q.Update(store.Snapshot{Items: []store.Item{
+		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
+		{ID: "b", Kind: store.KindBead, Title: "Beta item"},
+	}})
+
+	view := q.View()
+	if !strings.Contains(view, "! Alpha item") {
+		t.Fatalf("want highlighted row to carry its glyph prefix, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Beta item") || strings.Contains(view, "! Beta item") {
+		t.Fatalf("unhighlighted sibling row must render its plain title, got:\n%s", view)
+	}
 }
 
 func TestBlockerBadge(t *testing.T) {
