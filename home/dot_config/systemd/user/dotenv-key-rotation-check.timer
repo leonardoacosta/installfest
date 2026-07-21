@@ -1,0 +1,11 @@
+[Unit]
+Description=Run dotenv-key-rotation-check.service daily (if-jhqf)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15m
+Persistent=true
+Unit=dotenv-key-rotation-check.service
+
+[Install]
+WantedBy=timers.target

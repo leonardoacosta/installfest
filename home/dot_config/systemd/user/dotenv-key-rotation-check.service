@@ -1,0 +1,11 @@
+[Unit]
+Description=Check 1Password-stored DOTENV_PRIVATE_KEY for drift and re-provision to Vercel (if-jhqf)
+Documentation=file:%h/dev/personal/installfest/scripts/dotenv-key-rotation-check.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash %h/dev/personal/installfest/scripts/dotenv-key-rotation-check.sh
+EnvironmentFile=-%h/.env
+StandardOutput=append:%h/.local/state/dotenv-key-rotation-check.systemd.log
+StandardError=append:%h/.local/state/dotenv-key-rotation-check.systemd.log
+Restart=no
