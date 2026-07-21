@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -41,6 +42,27 @@ type Config struct {
 	// already named this config file as its intended source before this
 	// field existed. Default false (trust detection).
 	ForceOSC52 bool
+	// HeadlessConcurrencyCap bounds how many headless `claude -p` child
+	// processes wavetui-daemon's HeadlessDispatcher may run at once. See
+	// openspec/changes/wavetui-daemon/design.md § Concurrency cap default.
+	// This raw field round-trips whatever the config file literally sets
+	// (including the zero value when unset or a hand-edited non-positive
+	// number) — EffectiveHeadlessConcurrencyCap below is how a caller
+	// resolves the value actually in effect (default 2 when this field is
+	// unset or <= 0).
+	HeadlessConcurrencyCap int
+}
+
+// EffectiveHeadlessConcurrencyCap returns the concurrency cap
+// HeadlessDispatcher should actually use: HeadlessConcurrencyCap when
+// positive, or the default of 2 when unset (zero) or set to a non-positive
+// value. See openspec/changes/wavetui-daemon/design.md § Concurrency cap
+// default for why 2 (not unbounded, not 1) is the shipped default.
+func (c Config) EffectiveHeadlessConcurrencyCap() int {
+	if c.HeadlessConcurrencyCap <= 0 {
+		return 2
+	}
+	return c.HeadlessConcurrencyCap
 }
 
 // FlairConfig is wavetui-flair's additive settings block — see
@@ -82,22 +104,33 @@ func Load(dir string) (Config, error) {
 	}
 
 	return Config{
-		ShowPlans:        values["show_plans"],
-		ShowAdvisorPlans: values["show_advisor_plans"],
+		ShowPlans:        values.bools["show_plans"],
+		ShowAdvisorPlans: values.bools["show_advisor_plans"],
 		Flair: FlairConfig{
-			Enabled:  values["flair_enabled"],
-			CalmMode: values["flair_calm_mode"],
+			Enabled:  values.bools["flair_enabled"],
+			CalmMode: values.bools["flair_calm_mode"],
 		},
-		ForceOSC52: values["force_osc52"],
+		ForceOSC52:             values.bools["force_osc52"],
+		HeadlessConcurrencyCap: values.ints["headless_concurrency_cap"],
 	}, nil
 }
 
-// parseTOMLSubset reads `key = true|false` lines, skipping blank lines and
-// `#`-prefixed comments. Any line that does not match that shape is
-// silently ignored (tolerant — an unrecognized or hand-edited-wrong line
-// never breaks Load for the whole file).
-func parseTOMLSubset(r *os.File) (map[string]bool, error) {
-	values := make(map[string]bool)
+// parsedValues holds the two literal kinds this subset understands —
+// booleans (the original config surface) and non-negative integers, added
+// for HeadlessConcurrencyCap (wavetui-daemon's design.md § Concurrency cap
+// default), the first int-typed setting this file has ever needed to parse.
+type parsedValues struct {
+	bools map[string]bool
+	ints  map[string]int
+}
+
+// parseTOMLSubset reads `key = true|false` and `key = <integer>` lines,
+// skipping blank lines and `#`-prefixed comments. Any line that does not
+// match one of those two shapes is silently ignored (tolerant — an
+// unrecognized or hand-edited-wrong line never breaks Load for the whole
+// file).
+func parseTOMLSubset(r *os.File) (parsedValues, error) {
+	values := parsedValues{bools: make(map[string]bool), ints: make(map[string]int)}
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -109,18 +142,23 @@ func parseTOMLSubset(r *os.File) (map[string]bool, error) {
 			continue
 		}
 		key = strings.TrimSpace(key)
-		val = strings.ToLower(strings.TrimSpace(val))
-		switch val {
+		val = strings.TrimSpace(val)
+		switch strings.ToLower(val) {
 		case "true":
-			values[key] = true
+			values.bools[key] = true
+			continue
 		case "false":
-			values[key] = false
-		default:
-			// Not a boolean literal this subset understands — ignore.
+			values.bools[key] = false
+			continue
 		}
+		if n, err := strconv.Atoi(val); err == nil {
+			values.ints[key] = n
+			continue
+		}
+		// Not a boolean or integer literal this subset understands — ignore.
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return parsedValues{}, err
 	}
 	return values, nil
 }

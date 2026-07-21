@@ -10,8 +10,8 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Extend `internal/config/config.go` additively: `HeadlessConcurrencyCap int` field (default `2` when unset or `<= 0`) per `design.md` § Concurrency cap default — no existing field renamed, removed, or re-typed [beads:if-9geg]
-- [ ] [1.2] Extend `internal/store/store.go` additively: `Snapshot.HeadlessQueue *HeadlessQueueState` and the `HeadlessQueueState` struct (`Enabled`, `ConcurrencyCap`, `ActiveCount`, `Paused`, `PausedSince`, `PauseSignal`) per `design.md` § Additive Snapshot field — no existing `Item`/`Snapshot` field renamed or removed [beads:if-rk6n]
+- [x] [1.1] Extend `internal/config/config.go` additively: `HeadlessConcurrencyCap int` field (default `2` when unset or `<= 0`) per `design.md` § Concurrency cap default — no existing field renamed, removed, or re-typed [beads:if-9geg]
+- [x] [1.2] Extend `internal/store/store.go` additively: `Snapshot.HeadlessQueue *HeadlessQueueState` and the `HeadlessQueueState` struct (`Enabled`, `ConcurrencyCap`, `ActiveCount`, `Paused`, `PausedSince`, `PauseSignal`) per `design.md` § Additive Snapshot field — no existing `Item`/`Snapshot` field renamed or removed [beads:if-rk6n]
   - depends on: 1.1
 
 ## API Batch

@@ -146,6 +146,27 @@ type RateLimitSignal struct {
 	Message string
 }
 
+// HeadlessQueueState is wavetui-daemon's headless-dispatch queue state — see
+// wavetui-daemon's design.md § Additive Snapshot field. Snapshot.HeadlessQueue
+// being nil means headless dispatch has never been enabled this run; a
+// non-nil value's own zero-value fields (Paused=false, ActiveCount=0,
+// PauseSignal=nil) follow the same "zero means inactive" convention
+// RateLimitSignal above already established.
+type HeadlessQueueState struct {
+	Enabled        bool
+	ConcurrencyCap int
+	// ActiveCount is len(HeadlessDispatcher.running) at the moment this
+	// Snapshot was taken.
+	ActiveCount int
+	Paused      bool
+	PausedSince time.Time
+	// PauseSignal is the exact RateLimitSignal that caused Paused to become
+	// true — nil when not paused. Reuses RateLimitSignal (defined above)
+	// rather than a new type, since it is the same signal
+	// Snapshot.RateLimitBanner already carries.
+	PauseSignal *RateLimitSignal
+}
+
 // SourceError is per-source badge state — a source is never allowed to
 // panic the Store, so a failed fetch surfaces here instead.
 type SourceError struct {
@@ -166,6 +187,10 @@ type Snapshot struct {
 	// wavetui-sessions' design.md § Rate-limit backpressure. Independent of
 	// any single Item — it is a whole-snapshot signal, not per-row state.
 	RateLimitBanner *RateLimitSignal
+	// HeadlessQueue is nil when headless dispatch has never been enabled
+	// this run. See wavetui-daemon's design.md § Additive Snapshot field.
+	// Like RateLimitBanner, independent of any single Item.
+	HeadlessQueue *HeadlessQueueState
 }
 
 // --- Events consumed by Store.Apply -----------------------------------
