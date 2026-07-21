@@ -544,30 +544,45 @@ handle_ghostty_ssh() {
   ssh_cmd=$(ps -o command= -p "$ssh_pid")
   echo "ssh cmd: $ssh_cmd"
 
-  # Extract source port AND destination IP from the same lsof call.
+  # Extract source port AND destination IP from the same lsof call — BEST EFFORT.
   # CRITICAL: -a is needed to AND -i and -p together (lsof default is OR).
   # Without -a, lsof returns all network sockets OR all FDs of this PID.
   #
   # The address pair is the field containing "->". Last field is "(ESTABLISHED)"
   # state token, second-to-last is the address — but field count can vary, so
   # scan backwards for the "->" pattern instead of trusting positions.
+  #
+  # NOT fatal on failure: with ControlMaster (ssh config `Host homelab`), only
+  # the first connection in a ControlPersist window owns a real TCP socket —
+  # every later connection is a multiplexed client riding the control socket
+  # with NO socket of its own, so lsof legitimately returns nothing here. This
+  # is expected, not an error — src_port/dest_ip are only used below as a
+  # fallback when the command-line host parse can't find a plain hostname.
   local conn src_port dest_ip
   conn=$(lsof -a -i -P -n -p "$ssh_pid" 2>/dev/null \
     | awk '/ESTABLISHED/ { for (i=NF; i>=1; i--) if ($i ~ /->/) { print $i; exit } }')
-  [[ -z "$conn" ]] && die "could not read ssh TCP connection"
-  src_port=$(echo "$conn" | awk -F'->' '{print $1}' | awk -F: '{print $NF}')
-  dest_ip=$(echo "$conn" | awk -F'->' '{print $2}' | awk -F: '{print $1}')
-  echo "ssh conn: src_port=$src_port dest_ip=$dest_ip"
-  [[ -z "$src_port" || -z "$dest_ip" ]] && die "could not parse ssh connection: $conn"
+  if [[ -n "$conn" ]]; then
+    src_port=$(echo "$conn" | awk -F'->' '{print $1}' | awk -F: '{print $NF}')
+    dest_ip=$(echo "$conn" | awk -F'->' '{print $2}' | awk -F: '{print $1}')
+    echo "ssh conn: src_port=$src_port dest_ip=$dest_ip"
+  else
+    src_port=""
+    dest_ip=""
+    echo "ssh conn: no socket on pid $ssh_pid (ControlMaster multiplexed client — expected)"
+  fi
 
   # Resolve host: try last positional arg of ssh command, fall back to dest_ip.
-  # Last-arg works for `ssh ... homelab` (typical interactive case).
+  # Last-arg works for `ssh ... homelab` (typical interactive case) and needs
+  # no TCP inspection at all — the common case, and the only one exercised
+  # when ControlMaster leaves dest_ip empty (see above).
   # If last arg looks like an env var (ALL_CAPS or contains =) or doesn't look
-  # like a hostname, fall back to the IP — always works with key auth.
+  # like a hostname, fall back to the IP — always works with key auth, but
+  # requires dest_ip to have been readable.
   local host
   host=$(echo "$ssh_cmd" | awk '{print $NF}')
   if [[ "$host" == *=* ]] || [[ "$host" =~ ^[A-Z_]+$ ]] || [[ ! "$host" =~ [a-z0-9] ]]; then
     echo "last-arg looked like option-value ($host), falling back to dest IP"
+    [[ -z "$dest_ip" ]] && die "could not resolve remote host: ssh command's last arg wasn't a plain hostname ($host), and no TCP socket to fall back to (ControlMaster multiplexed client)"
     host="$dest_ip"
   fi
   echo "ssh host resolved: $host"
