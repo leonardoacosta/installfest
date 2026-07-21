@@ -15,6 +15,32 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if cfg.ShowPlans || cfg.ShowAdvisorPlans {
 		t.Fatalf("want all-defaults-off Config on missing file, got %+v", cfg)
 	}
+	if cfg.Flair.Enabled || cfg.Flair.CalmMode {
+		t.Fatalf("want all-defaults-off Flair on missing file, got %+v", cfg.Flair)
+	}
+}
+
+func TestLoadParsesFlairBooleans(t *testing.T) {
+	dir := t.TempDir()
+	content := "flair_enabled = true\nflair_calm_mode = true\n"
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(content), 0o644); err != nil {
+		t.Fatalf("setup write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Flair.Enabled {
+		t.Error("want Flair.Enabled=true")
+	}
+	if !cfg.Flair.CalmMode {
+		t.Error("want Flair.CalmMode=true")
+	}
+	// Additive: existing fields must be unaffected by the new keys.
+	if cfg.ShowPlans || cfg.ShowAdvisorPlans {
+		t.Fatalf("want ShowPlans/ShowAdvisorPlans still default-off, got %+v", cfg)
+	}
 }
 
 func TestLoadParsesBooleans(t *testing.T) {

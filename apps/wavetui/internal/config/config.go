@@ -22,13 +22,33 @@ import (
 const FileName = ".wavetui.toml"
 
 // Config is wavetui's per-project settings. The zero value is the default:
-// both visibility flags off.
+// both visibility flags off, and Flair all-off (see FlairConfig).
 type Config struct {
 	// ShowPlans surfaces items from a project's plans/ directory in the
 	// queue. Default off.
 	ShowPlans bool
 	// ShowAdvisorPlans surfaces items from advisor-plans/. Default off.
 	ShowAdvisorPlans bool
+	// Flair holds wavetui-flair's opt-in animation settings. Zero value
+	// (Enabled=false) means flair code never runs at all — see
+	// openspec/changes/wavetui-flair/design.md § Config + calm-mode +
+	// truecolor gating.
+	Flair FlairConfig
+}
+
+// FlairConfig is wavetui-flair's additive settings block — see
+// openspec/changes/wavetui-flair/design.md § Config + calm-mode + truecolor
+// gating. Its shape is taken verbatim from that section: do not add fields
+// here without a corresponding design.md update.
+type FlairConfig struct {
+	// Enabled gates whether wavetui-flair's Diff/animation machinery runs at
+	// all. False (default) is the literal disabled-equals-identical path —
+	// FlairManager.Diff is never called and the overlay compositor is never
+	// invoked, not merely suppressed.
+	Enabled bool
+	// CalmMode (only meaningful when Enabled is true) routes every effect to
+	// its static-glyph fallback instead of an animated one.
+	CalmMode bool
 }
 
 // Load reads FileName from dir (typically the caller's cwd, i.e. a
@@ -57,6 +77,10 @@ func Load(dir string) (Config, error) {
 	return Config{
 		ShowPlans:        values["show_plans"],
 		ShowAdvisorPlans: values["show_advisor_plans"],
+		Flair: FlairConfig{
+			Enabled:  values["flair_enabled"],
+			CalmMode: values["flair_calm_mode"],
+		},
 	}, nil
 }
 

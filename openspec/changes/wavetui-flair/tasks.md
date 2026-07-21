@@ -10,16 +10,18 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Extend `wavetui-core`'s `internal/config/config.go` additively: add [beads:if-aecq]
+- [x] [1.1] Extend `wavetui-core`'s `internal/config/config.go` additively: add [beads:if-aecq]
   `Flair.Enabled bool` and `Flair.CalmMode bool` fields per `design.md` § Config + calm-mode +
   truecolor gating — no existing field renamed, removed, or re-typed
   - depends on: none (config.go already exists from `wavetui-core`)
-- [ ] [1.2] Add `apps/wavetui/go.mod` requires: `github.com/charmbracelet/lipgloss/v2 v2.0.5`, [beads:if-xpge]
-  `github.com/charmbracelet/harmonica v0.2.0`, `github.com/lucasb-eyer/go-colorful v1.4.0` — do
-  NOT add or change the `github.com/charmbracelet/bubbletea` requirement (stays v1 per
-  `design.md` § Alternatives)
+- [x] [1.2] Add `apps/wavetui/go.mod` requires (corrected at implementation time — bubbletea and [beads:if-xpge]
+  lipgloss are ALREADY v2 throughout the codebase per `apps/wavetui/go.mod`, and
+  `github.com/lucasb-eyer/go-colorful v1.4.0` was already present as an indirect transitive dep;
+  only `github.com/charmbracelet/harmonica v0.2.0` was genuinely new — added via `go get`, real
+  checksums in `go.sum`. Import path verified live against proxy.golang.org: harmonica has NOT
+  moved to a `charm.land` path)
   - depends on: none
-- [ ] [1.3] Implement `internal/flair/manager.go`'s `FlairManager` struct and `NeedsTick()` [beads:if-rch8]
+- [x] [1.3] Implement `internal/flair/manager.go`'s `FlairManager` struct and `NeedsTick()` [beads:if-rch8]
   method per `design.md` § Tick-loop lifecycle: `active map[string]animState`, no unconditional
   `tea.Tick` scheduling anywhere in this file
   - depends on: 1.1
