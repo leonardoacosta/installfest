@@ -61,6 +61,52 @@ type Item struct {
 	// this to dim the row rather than rendering it identically to a real
 	// proposal.
 	SecondClass bool
+	// Session is the linked Claude Code session's derived state — see
+	// wavetui-sessions' design.md § Store additive fields. nil when no
+	// Claude Code session has been linked to this item (the common case for
+	// an unclaimed or claimed-but-sessionless item). Additive field: every
+	// existing wavetui-core source leaves this nil, which is exactly the
+	// zero value, so no existing caller needs to change.
+	Session *SessionLink
+}
+
+// SessionLink is one claimed item's linked-session state, derived by
+// wavetui-sessions' TranscriptSource (openspec/changes/wavetui-sessions/
+// internal/sources/transcript.go) from a Claude Code transcript. Shape is
+// taken verbatim from that proposal's design.md § Store additive fields —
+// do not add fields here without a corresponding design.md update, same
+// convention as Item's own doc comment above.
+type SessionLink struct {
+	SessionID string
+	// PaneID is "" when TmuxSource has no @cc-state match for this
+	// session's pane (not every session runs inside a cc-tmux-tracked
+	// pane) — absence here is expected, not a failure.
+	PaneID string
+	// ContextPct is 0-100, derived from cumulative input+cache-read tokens
+	// against an approximate model context-window size.
+	ContextPct   float64
+	LastActivity time.Time
+	Zombie       bool
+	ZombieSince  time.Time
+	ErrorCount   int
+	// TokensByModel is output tokens, keyed by model name.
+	TokensByModel map[string]int64
+}
+
+// RateLimitSignal is a rate-limit backpressure indicator observed in a
+// Claude Code transcript stream — see wavetui-sessions' design.md §
+// Rate-limit backpressure: emit only, never consume. This proposal only
+// renders a banner from it (KPIBar); no dispatch/scheduling component
+// reads or acts on it. The exact shape is not dictated by design.md's
+// Store-additive-fields Go block (that section only names the field,
+// `Snapshot.RateLimitBanner *RateLimitSignal`) — Detected/Message is the
+// minimal banner-rendering shape KPIBar needs, additively extensible by a
+// later batch (design.md/tasks.md [2.4]) that actually populates it.
+type RateLimitSignal struct {
+	Detected time.Time
+	// Message is human-readable banner text — typically the raw indicator
+	// text observed in the transcript stream.
+	Message string
 }
 
 // SourceError is per-source badge state — a source is never allowed to
@@ -79,6 +125,10 @@ type Snapshot struct {
 	Items     []Item
 	Errors    []SourceError
 	Generated time.Time
+	// RateLimitBanner is nil when no active rate-limit signal exists. See
+	// wavetui-sessions' design.md § Rate-limit backpressure. Independent of
+	// any single Item — it is a whole-snapshot signal, not per-row state.
+	RateLimitBanner *RateLimitSignal
 }
 
 // --- Events consumed by Store.Apply -----------------------------------
@@ -236,13 +286,14 @@ func (s *Store) Snapshot() Snapshot {
 }
 
 // cloneItem returns a copy of item whose pointer fields (Blocker,
-// TaskProgress) are independently allocated, not shared with item's own
-// pointers. Snapshot's doc comment claims "a later Store mutation can never
-// retroactively change a Snapshot already handed to a caller" — a plain
-// struct copy (Go's default `item` value semantics in the range loop above)
-// already satisfies that for Item's primitive fields, but Blocker and
-// TaskProgress are pointers, so without this, every Snapshot's Items would
-// still share the exact *BlockerNote/*TaskProgress the Store's internal map
+// TaskProgress, Session) are independently allocated, not shared with
+// item's own pointers. Snapshot's doc comment claims "a later Store
+// mutation can never retroactively change a Snapshot already handed to a
+// caller" — a plain struct copy (Go's default `item` value semantics in the
+// range loop above) already satisfies that for Item's primitive fields, but
+// Blocker, TaskProgress, and (added by wavetui-sessions) Session are
+// pointers, so without this, every Snapshot's Items would still share the
+// exact *BlockerNote/*TaskProgress/*SessionLink the Store's internal map
 // holds. Nothing in this codebase currently mutates through those pointers
 // post-construction (every source always assigns a freshly allocated one —
 // see sources/beads.go's toItem and sources/openspec.go's parseOneProposal),
@@ -257,6 +308,16 @@ func cloneItem(item Item) Item {
 	if item.TaskProgress != nil {
 		tp := *item.TaskProgress
 		item.TaskProgress = &tp
+	}
+	if item.Session != nil {
+		sl := *item.Session
+		if item.Session.TokensByModel != nil {
+			sl.TokensByModel = make(map[string]int64, len(item.Session.TokensByModel))
+			for k, v := range item.Session.TokensByModel {
+				sl.TokensByModel[k] = v
+			}
+		}
+		item.Session = &sl
 	}
 	return item
 }

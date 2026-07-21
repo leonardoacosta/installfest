@@ -10,10 +10,10 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.Session [beads:if-pjqd]
+- [x] [1.1] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.Session [beads:if-pjqd]
   *SessionLink` and `Snapshot.RateLimitBanner *RateLimitSignal` fields per `design.md` § Store
   additive fields — no existing field renamed, removed, or re-typed
-- [ ] [1.2] Implement `internal/sources/session_link.go`: exact `/apply <id>` match on `user`-type [beads:if-xa0y]
+- [x] [1.2] Implement `internal/sources/session_link.go`: exact `/apply <id>` match on `user`-type [beads:if-xa0y]
   transcript lines, cwd+claim-timestamp-proximity fallback (default 10-minute window, config from
   `wavetui-core`'s `internal/config`), subagent sidechain inheritance via `parentUuid`, cwd trusted
   over directory-name flattening per `design.md` § Session linkage algorithm
