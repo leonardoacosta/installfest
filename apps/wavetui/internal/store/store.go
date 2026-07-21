@@ -511,11 +511,6 @@ func (s *Store) Snapshot() Snapshot {
 // than fixing an observed corruption, but it is exactly the kind of latent
 // bug that bites the first future caller that does mutate in place, so
 // it's cheap to close now.
-// post-construction (every source always assigns a freshly allocated one —
-// see sources/beads.go's toItem and sources/openspec.go's parseOneProposal),
-// so this is defensive rather than fixing an observed corruption, but it is
-// exactly the kind of latent bug that bites the first future caller that
-// does mutate in place, so it's cheap to close now.
 func cloneItem(item Item) Item {
 	if item.Blocker != nil {
 		b := *item.Blocker
