@@ -10,10 +10,10 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.LaneState [beads:if-nha1]
+- [x] [1.1] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.LaneState [beads:if-nha1]
   *lanes.LaneState` field per `design.md` § Lane detection — no existing field renamed, removed,
   or re-typed [type:db]
-- [ ] [1.2] Scaffold `apps/wavetui/internal/lanes/lanes.go`: `LaneState` struct [beads:if-1fap]
+- [x] [1.2] Scaffold `apps/wavetui/internal/lanes/lanes.go`: `LaneState` struct [beads:if-1fap]
   (`Type`/`Since`/`PaneID`/`SpawnedAt`) and `DetectLane(item, prior) *LaneState` per `design.md`
   § Lane detection [type:db]
   - depends on: 1.1

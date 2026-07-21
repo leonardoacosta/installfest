@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/lanes"
 )
 
 // ItemKind identifies what kind of thing an Item represents. It is a plain
@@ -78,6 +79,19 @@ type Item struct {
 	// leaves this nil, which is exactly the zero value, so no existing
 	// caller needs to change. internal/wave's ConflictsFor is the consumer.
 	TouchedFiles []string
+	// LaneState is the decision-lane presentation-tracking state derived
+	// from this item's Blocker note — see wavetui-decision-lanes' design.md
+	// § Lane detection. nil when the item has no lane (no blocker note, or
+	// an item whose blocker note was resolved/removed). Additive field:
+	// every existing wavetui-core/wavetui-dispatch/wavetui-sessions source
+	// leaves this nil, which is exactly the zero value, so no existing
+	// caller needs to change. internal/lanes.DetectLane is the sole
+	// deriver of this value; internal/store never invokes lanes package
+	// logic itself, it only holds the exported LaneState type — the
+	// reverse dependency (lanes importing store) does not exist, since
+	// DetectLane takes a plain string rather than a store.Item or
+	// *BlockerNote, avoiding an import cycle between the two packages.
+	LaneState *lanes.LaneState
 }
 
 // SessionLink is one claimed item's linked-session state, derived by
@@ -481,15 +495,22 @@ func (s *Store) Snapshot() Snapshot {
 }
 
 // cloneItem returns a copy of item whose pointer fields (Blocker,
-// TaskProgress, Session) are independently allocated, not shared with
-// item's own pointers. Snapshot's doc comment claims "a later Store
-// mutation can never retroactively change a Snapshot already handed to a
-// caller" — a plain struct copy (Go's default `item` value semantics in the
-// range loop above) already satisfies that for Item's primitive fields, but
-// Blocker, TaskProgress, and (added by wavetui-sessions) Session are
-// pointers, so without this, every Snapshot's Items would still share the
-// exact *BlockerNote/*TaskProgress/*SessionLink the Store's internal map
-// holds. Nothing in this codebase currently mutates through those pointers
+// TaskProgress, Session, and (added by wavetui-decision-lanes) LaneState)
+// are independently allocated, not shared with item's own pointers.
+// Snapshot's doc comment claims "a later Store mutation can never
+// retroactively change a Snapshot already handed to a caller" — a plain
+// struct copy (Go's default `item` value semantics in the range loop
+// above) already satisfies that for Item's primitive fields, but Blocker,
+// TaskProgress, Session, and LaneState are pointers, so without this,
+// every Snapshot's Items would still share the exact
+// *BlockerNote/*TaskProgress/*SessionLink/*lanes.LaneState the Store's
+// internal map holds. Nothing in this codebase currently mutates through
+// those pointers post-construction (every source always assigns a freshly
+// allocated one — see sources/beads.go's toItem and
+// sources/openspec.go's parseOneProposal), so this is defensive rather
+// than fixing an observed corruption, but it is exactly the kind of latent
+// bug that bites the first future caller that does mutate in place, so
+// it's cheap to close now.
 // post-construction (every source always assigns a freshly allocated one —
 // see sources/beads.go's toItem and sources/openspec.go's parseOneProposal),
 // so this is defensive rather than fixing an observed corruption, but it is
@@ -519,6 +540,10 @@ func cloneItem(item Item) Item {
 			sl.Errors = append([]ErrorEntry(nil), item.Session.Errors...)
 		}
 		item.Session = &sl
+	}
+	if item.LaneState != nil {
+		ls := *item.LaneState
+		item.LaneState = &ls
 	}
 	return item
 }
