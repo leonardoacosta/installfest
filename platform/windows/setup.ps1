@@ -410,11 +410,20 @@ Subsystem sftp sftp-server.exe
         Write-Warn "No mesh public key available (1Password fetch above did not succeed) - skipping authorized_keys/public-key deployment below rather than using a stale hardcoded value. Transfer the current key manually (see ssh-mesh/scripts/rotate-keys.sh) or fix the 1Password CLI prerequisite and re-run."
     }
 
-    # SSH Config for outbound connections to other machines
+    # SSH Config for outbound connections to other machines.
+    #
+    # Uses Tailscale MagicDNS names, not raw IPs — found live 2026-07-21:
+    # this block's hardcoded 100.91.88.16 for "mac" had drifted stale (the
+    # Mac's real current Tailscale IP is 100.82.80.88) and was silently
+    # deployed to CloudPC as-is, causing a real "cloudpc -> mac: Connection
+    # timed out" failure that looked like a network/firewall issue but was
+    # actually just a stale hardcoded value. MagicDNS names (confirmed via
+    # `tailscale status --json`'s DNSName field) survive a peer's IP
+    # changing, since Tailscale re-resolves the name on every connection.
     $sshMeshConfig = @"
 # SSH Mesh Config (managed by setup.ps1)
 Host homelab
-    HostName 100.73.182.4
+    HostName homelab.tail296462.ts.net
     User nyaptor
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
@@ -422,7 +431,7 @@ Host homelab
     ConnectTimeout 10
 
 Host mac
-    HostName 100.91.88.16
+    HostName macbook.tail296462.ts.net
     User leonardoacosta
     IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60

@@ -13,9 +13,16 @@ set -euo pipefail
 # Usage: rotate-keys.sh [--dry-run]
 
 HOMELAB_USER="nyaptor"
-HOMELAB_HOST="homelab"  # SSH alias or 100.73.182.4
+HOMELAB_HOST="homelab"  # SSH alias (resolves via ~/.ssh/config to homelab.tail296462.ts.net)
 CLOUDPC_USER="leo"
-CLOUDPC_HOST="100.83.148.5"  # Tailscale IP (no SSH alias assumed)
+# Tailscale MagicDNS name, not a raw IP — found live 2026-07-21: a raw IP
+# hardcoded here for "mac" (a sibling value to this one, in
+# platform/windows/setup.ps1's $sshMeshConfig) had drifted stale after the
+# Mac's Tailscale IP changed, and looked like a network/firewall failure
+# instead of what it actually was. MagicDNS names survive IP churn since
+# Tailscale re-resolves on every connection; no SSH alias is assumed here
+# (deliberately, so this script doesn't depend on ~/.ssh/config existing).
+CLOUDPC_HOST="cpc.tail296462.ts.net"
 KEY_COMMENT="leo-mesh-$(date +%Y%m%d)"
 NEW_KEY="$HOME/.ssh/id_ed25519_new"
 
@@ -201,13 +208,13 @@ REMOTE_SWAP
 fi
 
 # CloudPC
-run scp "$NEW_KEY" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/LeonardoAcosta/.ssh/id_ed25519_new"
-run scp "${NEW_KEY}.pub" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/LeonardoAcosta/.ssh/id_ed25519_new.pub"
+run scp "$NEW_KEY" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_USER}/.ssh/id_ed25519_new"
+run scp "${NEW_KEY}.pub" "${CLOUDPC_USER}@${CLOUDPC_HOST}:C:/Users/${CLOUDPC_USER}/.ssh/id_ed25519_new.pub"
 if $DRY_RUN; then
   echo "DRY: ssh cloudpc -> keep id_ed25519.old, move new key into place"
 else
   run_cloudpc_ps1 <<PS1EOF
-\$sshDir = 'C:\Users\LeonardoAcosta\.ssh'
+\$sshDir = 'C:\Users\${CLOUDPC_USER}\.ssh'
 if (Test-Path "\$sshDir\id_ed25519") {
   Copy-Item "\$sshDir\id_ed25519" "\$sshDir\id_ed25519.old"
 }
@@ -358,7 +365,7 @@ Set-Content -Path 'C:\Users\\${CLOUDPC_USER}\.ssh\authorized_keys' -Value '${NEW
 \$adminAuthKeys = 'C:\ProgramData\ssh\administrators_authorized_keys'
 Set-Content -Path \$adminAuthKeys -Value '${NEW_PUB}'
 icacls \$adminAuthKeys /inheritance:r /grant 'SYSTEM:(F)' /grant 'Administrators:(F)' | Out-Null
-Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\LeonardoAcosta\.ssh\id_ed25519.old'
+Remove-Item -Force -ErrorAction SilentlyContinue 'C:\Users\${CLOUDPC_USER}\.ssh\id_ed25519.old'
 Write-Output '  cloudpc: authorized_keys pruned to new key; old key removed'
 PS1EOF
   fi
