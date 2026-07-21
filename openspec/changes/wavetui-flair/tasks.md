@@ -28,24 +28,24 @@ stack: t3
 
 ## API Batch
 
-- [ ] [2.1] Implement `internal/flair/manager.go`'s `Diff(prev, next core.Snapshot) []FlairEvent` [beads:if-x55p]
+- [x] [2.1] Implement `internal/flair/manager.go`'s `Diff(prev, next core.Snapshot) []FlairEvent` [beads:if-x55p]
   pure function per `design.md` § Snapshot diffing: ID-set comparison for appeared/closed,
   per-item field-transition comparison for `Item.Blocker` (blocker-resolved) and `Item.Stale`
   (negative), zero side effects, zero mutation of either input
   - depends on: 1.3
-- [ ] [2.2] Implement `internal/flair/effects.go`'s event->effect map per `design.md` § Event -> [beads:if-nejf]
+- [x] [2.2] Implement `internal/flair/effects.go`'s event->effect map per `design.md` § Event -> [beads:if-nejf]
   effect map: `harmonica`-driven spring/decay for row flash, particle burst, slide-in, and shake;
   `go-colorful`-driven lerp for fade and pulse; the shake-plus-red-pulse effect wired exclusively
   to `EventNegative`, verified by a code-level assertion that no other event kind's dispatch
   path can reach it
   - depends on: 2.1
-- [ ] [2.3] Implement `internal/flair/overlay.go`'s lipgloss v2 `Layer`/`Canvas` compositor for [beads:if-gcoz]
+- [x] [2.3] Implement `internal/flair/overlay.go`'s lipgloss v2 `Layer`/`Canvas` compositor for [beads:if-gcoz]
   toast-banner spring-in/auto-dismiss, scoped to this package's own rendering path only — no
   change to any existing lipgloss v1 usage in `queuepane.go`/`detailpane.go`; include the
   terminal color-profile detection + `go-colorful` nearest-ANSI-equivalent fallback per
   `design.md` § Config + calm-mode + truecolor gating
   - depends on: 1.2, 2.2
-- [ ] [2.4] Implement calm-mode + disabled-mode gating in `manager.go`: `!cfg.Enabled` short- [beads:if-cajv]
+- [x] [2.4] Implement calm-mode + disabled-mode gating in `manager.go`: `!cfg.Enabled` short- [beads:if-cajv]
   circuits before `Diff` is ever called (not merely before effects are applied); `cfg.CalmMode`
   routes every effect selection in `effects.go` to its static-glyph fallback per `design.md` §
   Config + calm-mode + truecolor gating
