@@ -67,6 +67,15 @@ func (r *fakeRunner) promptCount() int {
 	return len(r.prompts)
 }
 
+// promptAt returns the promptText passed to the i-th Start call, in call
+// order — used by daemon_test.go's admission-loop tests to assert WHICH
+// item was dispatched (ordering), not just how many.
+func (r *fakeRunner) promptAt(i int) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.prompts[i]
+}
+
 func (r *fakeRunner) waiterAt(i int) *fakeWaiter {
 	r.mu.Lock()
 	defer r.mu.Unlock()

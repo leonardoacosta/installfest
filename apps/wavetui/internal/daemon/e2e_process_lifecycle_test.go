@@ -135,7 +135,7 @@ func TestE2ERealProcessRateLimitPauseLeavesInFlightChildRunningThenExplicitResum
 	}
 	t.Logf("EVIDENCE: real in-flight child pid=%d alive before simulated rate-limit signal", childPID)
 
-	c.OnSnapshot(store.Snapshot{RateLimitBanner: &store.RateLimitSignal{Message: "rate limited (simulated for e2e)"}})
+	c.OnSnapshot(ctx, store.Snapshot{RateLimitBanner: &store.RateLimitSignal{Message: "rate limited (simulated for e2e)"}})
 
 	err := d.Dispatch(ctx, store.Item{ID: "b"}, "sleep 1")
 	if !errors.Is(err, ErrQueuePaused) {

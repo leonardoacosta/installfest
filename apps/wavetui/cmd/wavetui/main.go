@@ -211,7 +211,7 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 		// same fresh Snapshot every pane's own Update(Snapshot) call
 		// reacts to (design.md § Rate-limit backpressure / § Zombie
 		// interaction) — no second watcher, no second transcript parse.
-		daemonCtrl.OnSnapshot(snap)
+		daemonCtrl.OnSnapshot(ctx, snap)
 		program.Send(ui.SnapshotMsg{Snapshot: snap})
 	})
 

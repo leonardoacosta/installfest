@@ -8,11 +8,11 @@ stack: t3
 
 ## API Batch
 
-- [ ] [1.1] Add an `enabled bool` toggle to `daemon.Controller` (default `false`), plus a [beads:if-75ks]
+- [x] [1.1] Add an `enabled bool` toggle to `daemon.Controller` (default `false`), plus a [beads:if-75ks]
       `ToggleAdmission()` method that flips it. searched: `apps/wavetui/internal/daemon/daemon.go`
       — `Controller` currently has no state beyond `dispatcher`; `Resume()` is the existing
       precedent for a single explicit-action method. [type:api]
-- [ ] [1.2] Extend `Controller.OnSnapshot` to, when `enabled`, filter `snap.Items` for [beads:if-pznc]
+- [x] [1.2] Extend `Controller.OnSnapshot` to, when `enabled`, filter `snap.Items` for [beads:if-pznc]
       `Blocker == nil && Session == nil`, sort by `FanOutScore` descending, and call
       `dispatcher.Dispatch(ctx, item, composePrompt(item))` per item until it returns
       `ErrConcurrencyCapReached` (stop silently, no retry, no log). Any other error from
