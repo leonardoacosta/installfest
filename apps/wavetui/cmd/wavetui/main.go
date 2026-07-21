@@ -1,37 +1,60 @@
 // Command wavetui is the entrypoint for the wavetui terminal dashboard.
 //
-// This batch (API) wires the bus, Store, and both sources end-to-end with
-// graceful shutdown on SIGINT/SIGTERM (tasks.md [2.4]) — the bubbletea
-// Program and root model land in the UI batch (tasks.md [3.1]-[3.4]), so
-// `run` currently just keeps both sources alive until ctx is cancelled.
+// This batch (UI) wires the bus, Store, config, both sources, and the
+// bubbletea root model end-to-end (tasks.md [3.4]): every Store mutation
+// (delivered via the bus subscriber below) triggers a fresh
+// Program.Send(ui.SnapshotMsg{...}) so the running tea.Program always
+// reflects current Store state, and ctx cancellation (SIGINT/SIGTERM, or the
+// TUI's own 'q'/ctrl+c quit) stops both sources and the Program together.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/config"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/ui"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := run(ctx); err != nil {
+	if err := run(ctx, cancel); err != nil {
 		fmt.Fprintln(os.Stderr, "wavetui:", err)
 		os.Exit(1)
 	}
 }
 
+// isExpectedShutdown reports whether err is one of tea's own "the program
+// stopped because someone asked it to" sentinels (an interrupt signal, or
+// the external ctx being cancelled) rather than a genuine runtime failure —
+// a normal ctrl+c/SIGTERM quit must exit 0, not print a "wavetui: ..." error
+// line and os.Exit(1).
+func isExpectedShutdown(err error) bool {
+	return err == nil ||
+		errors.Is(err, tea.ErrInterrupted) ||
+		errors.Is(err, tea.ErrProgramKilled) ||
+		errors.Is(err, context.Canceled)
+}
+
 // run is the real entrypoint body, separated from main so it can be tested
-// and so main stays a thin os.Exit wrapper.
-func run(ctx context.Context) error {
+// and so main stays a thin os.Exit wrapper. cancel is signal.NotifyContext's
+// stop function: calling it both cancels ctx (stopping the sources below)
+// and unregisters the signal handler — it is called once run's own work is
+// done, whether that happened because ctx was cancelled externally (a real
+// SIGINT/SIGTERM) or because the TUI itself quit (task 3.4's "q"/ctrl+c
+// keybinding in internal/ui/root.go), so either quit path stops everything.
+func run(ctx context.Context, cancel context.CancelFunc) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("wavetui: getwd: %w", err)
@@ -44,28 +67,48 @@ func run(ctx context.Context) error {
 
 	b := bus.New()
 	st := store.New()
-	// The Store is the single writer; this is its only subscriber. The UI
-	// batch adds a second subscriber (or reads st.Snapshot() from the
-	// bubbletea goroutine) — see design.md § Architecture.
-	b.Subscribe(ctx, func(ev bus.Event) { st.Apply(ev) })
+
+	queue := ui.NewQueuePane()
+	detail := ui.NewDetailPane()
+	root := ui.NewRoot(queue, detail)
+
+	program := tea.NewProgram(root, tea.WithContext(ctx))
+
+	// The Store is the single writer, and this is its only subscriber. Every
+	// event that mutates Store state also pushes a fresh Snapshot to the
+	// running Program — this is the only place a Snapshot is ever sent; the
+	// root model's Update (see internal/ui/root.go) never watches or polls
+	// anything on its own, per design.md § Architecture.
+	b.Subscribe(ctx, func(ev bus.Event) {
+		st.Apply(ev)
+		program.Send(ui.SnapshotMsg{Snapshot: st.Snapshot()})
+	})
 
 	beadsSrc := sources.NewBeadsSource(cwd, b)
 	openspecSrc := sources.NewOpenSpecSource(cwd, b, cfg)
 
 	// Both sources run on their own ctx-derived goroutine; ctx cancellation
-	// (SIGINT/SIGTERM, via signal.NotifyContext above) is what stops them —
-	// see task 2.4.
+	// is what stops them — see task 2.4.
 	errCh := make(chan error, 2)
 	go func() { errCh <- beadsSrc.Run(ctx) }()
 	go func() { errCh <- openspecSrc.Run(ctx) }()
 
-	<-ctx.Done()
+	_, runErr := program.Run()
+
+	// The Program has exited — either the user quit it directly, or ctx was
+	// already cancelled by a real signal. Either way, cancel now so the
+	// sources' own ctx-derived goroutines unwind too (task 2.4's contract),
+	// then wait for them to actually finish before returning.
+	cancel()
 
 	var firstErr error
 	for range 2 {
-		if err := <-errCh; err != nil && firstErr == nil {
+		if err := <-errCh; err != nil && !isExpectedShutdown(err) && firstErr == nil {
 			firstErr = err
 		}
+	}
+	if runErr != nil && !isExpectedShutdown(runErr) && firstErr == nil {
+		firstErr = fmt.Errorf("wavetui: program: %w", runErr)
 	}
 	return firstErr
 }

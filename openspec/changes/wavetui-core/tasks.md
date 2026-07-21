@@ -30,13 +30,13 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [3.1] Implement `internal/ui/root.go`: bubbletea root model wired to Store snapshots via `Program.Send()`, a `Pane` interface (`Update(Snapshot) Pane`, `View() string`, `Focusable() bool`) plus an ordered pane slice + focus index (the focus ring), render-coalescing to roughly a 10fps cap [beads:if-aleg]
+- [x] [3.1] Implement `internal/ui/root.go`: bubbletea root model wired to Store snapshots via `Program.Send()`, a `Pane` interface (`Update(Snapshot) Pane`, `View() string`, `Focusable() bool`) plus an ordered pane slice + focus index (the focus ring), render-coalescing to roughly a 10fps cap [beads:if-aleg]
   - depends on: 1.3
-- [ ] [3.2] Implement `internal/ui/queuepane.go`: bubbles table with columns item/type/created-at/blocker-badge/fan-out-score, implementing the `Pane` interface from `[3.1]` [beads:if-7c4o]
+- [x] [3.2] Implement `internal/ui/queuepane.go`: bubbles table with columns item/type/created-at/blocker-badge/fan-out-score, implementing the `Pane` interface from `[3.1]` [beads:if-7c4o]
   - depends on: 3.1
-- [ ] [3.3] Implement `internal/ui/detailpane.go`: renders notes, blocker reason, and task progress for `QueuePane`'s currently selected row; lipgloss layout splitting the two panes [beads:if-se54]
+- [x] [3.3] Implement `internal/ui/detailpane.go`: renders notes, blocker reason, and task progress for `QueuePane`'s currently selected row; lipgloss layout splitting the two panes [beads:if-se54]
   - depends on: 3.1, 3.2
-- [ ] [3.4] Wire `cmd/wavetui/main.go` end-to-end: instantiate bus, store, config, both sources, and the root model; run the `tea.Program`; capture runtime evidence rendering against this repo's own `.beads/` and `openspec/changes/` state (paste rendered pty output) [beads:if-xj6u]
+- [x] [3.4] Wire `cmd/wavetui/main.go` end-to-end: instantiate bus, store, config, both sources, and the root model; run the `tea.Program`; capture runtime evidence rendering against this repo's own `.beads/` and `openspec/changes/` state (paste rendered pty output) [beads:if-xj6u]
   - depends on: 2.3, 2.4, 3.2, 3.3
 
 ## E2E Batch
