@@ -53,16 +53,16 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [4.1] `go test` for `internal/lanes`: `DetectLane` nil/non-nil/preserved-across-snapshots [beads:if-n34y]
+- [x] [4.1] `go test` for `internal/lanes`: `DetectLane` nil/non-nil/preserved-across-snapshots [beads:if-n34y]
   cases, `IsStale` idle-window boundary cases (just under, just over, never-spawned, live-session
   short-circuit) [type:testing]
   - depends on: 1.2, 2.3
-- [ ] [4.2] `go test` for `internal/dispatch/spawn.go`: `TmuxSpawner.Spawn` against a mock [beads:if-tb5o]
+- [x] [4.2] `go test` for `internal/dispatch/spawn.go`: `TmuxSpawner.Spawn` against a mock [beads:if-tb5o]
   `cc-tmux` CLI invocation asserting `--mode spawn-task` is used and no raw `tmux split-window`
   call appears; prompt-template rendering asserts the `/apply <item.ID>` substring and the
   persistence-mandate text are present [type:testing]
   - depends on: 2.1, 2.2
-- [ ] [4.3] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` in a real tmux session in [beads:if-fmwr]
+- [x] [4.3] Runtime-verify end-to-end: run `apps/wavetui/cmd/wavetui` in a real tmux session in [beads:if-fmwr]
   this repo, trigger a lane spawn on a synthetic blocked-decision item, confirm a new pane opens
   running `claude` with the templated prompt (paste pty output), edit the underlying note to
   remove the blocker and confirm the badge clears on the next render with no manual action, then
