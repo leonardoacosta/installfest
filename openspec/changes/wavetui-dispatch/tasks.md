@@ -10,10 +10,11 @@ stack: t3
 
 ## DB Batch
 
-- [ ] [1.1] [user] DECISION: wave-file format (JSON vs Markdown) and whether a finalized wave is itself a bead — `design.md` § Open Question presents the tradeoff and recommends JSON, not a bead. searched: `wavetui-core` design.md § Store data model (forward-compat placeholder only, no format chosen), `wavetui-sessions` design.md § Store additive fields (same); no documented convention in this repo commits a format for this cross-proposal machine artifact. [type:config] [beads:if-4exl]
-- [ ] [1.2] Scaffold `apps/wavetui/internal/dispatch/`: `Dispatcher` interface (`Dispatch(ctx, item, promptText) error`), error types `ErrPaneInCopyMode`/`ErrSessionStreaming`, and `validateDispatchTarget` (id-shaped regex `^[A-Za-z0-9_-]+$`) per `design.md` § Dispatcher interface / § Dispatch-boundary validation [beads:if-4f2x]
-- [ ] [1.3] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.TouchedFiles []string` per `design.md` § Store additive field — no existing field renamed, removed, or re-typed [beads:if-dym7]
-- [ ] [1.4] Implement `apps/wavetui/internal/wave/wave.go` skeleton: `ConflictsFor(candidates []store.Item) map[string][]string` pure file-overlap detection per `design.md` § Store additive field — no I/O in this task, finalization writer lands in the UI batch [beads:if-fxn9]
+- [x] [1.1] [user] DECISION: wave-file format (JSON vs Markdown) and whether a finalized wave is itself a bead — `design.md` § Open Question presents the tradeoff and recommends JSON, not a bead. searched: `wavetui-core` design.md § Store data model (forward-compat placeholder only, no format chosen), `wavetui-sessions` design.md § Store additive fields (same); no documented convention in this repo commits a format for this cross-proposal machine artifact. [type:config] [beads:if-4exl]
+  - Resolved during this run's Phase 0d preflight — see `decisions.jsonl` (`{"task": "1.1", "action": "answer", "by": "leo", "verdict": "JSON, not a bead", ...}`, run `apply-all-20260721-021527`). Settled: the wave file format is JSON; a finalized wave is NOT itself a bead. No I/O implemented by this task — this is the decision record consumed by `[1.4]`'s design and the UI batch's `[3.3]` finalization writer.
+- [x] [1.2] Scaffold `apps/wavetui/internal/dispatch/`: `Dispatcher` interface (`Dispatch(ctx, item, promptText) error`), error types `ErrPaneInCopyMode`/`ErrSessionStreaming`, and `validateDispatchTarget` (id-shaped regex `^[A-Za-z0-9_-]+$`) per `design.md` § Dispatcher interface / § Dispatch-boundary validation [beads:if-4f2x]
+- [x] [1.3] Extend `wavetui-core`'s `internal/store/store.go` additively: add `Item.TouchedFiles []string` per `design.md` § Store additive field — no existing field renamed, removed, or re-typed [beads:if-dym7]
+- [x] [1.4] Implement `apps/wavetui/internal/wave/wave.go` skeleton: `ConflictsFor(candidates []store.Item) map[string][]string` pure file-overlap detection per `design.md` § Store additive field — no I/O in this task, finalization writer lands in the UI batch [beads:if-fxn9]
   - depends on: 1.3
 
 ## API Batch

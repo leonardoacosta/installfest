@@ -68,6 +68,16 @@ type Item struct {
 	// existing wavetui-core source leaves this nil, which is exactly the
 	// zero value, so no existing caller needs to change.
 	Session *SessionLink
+	// TouchedFiles is the set of file paths this item's own author declared
+	// it touches — see wavetui-dispatch's design.md § Store additive field.
+	// Populated by OpenSpecSource from a proposal's `- touches:` line (the
+	// same author-declared, authoritative contract
+	// `scripts/bin/wave-plan-build`'s parse_proposal_paths already treats as
+	// the override for noisy text extraction); empty (not nil) for a bead,
+	// which has no such declaration. Additive field: every existing source
+	// leaves this nil, which is exactly the zero value, so no existing
+	// caller needs to change. internal/wave's ConflictsFor is the consumer.
+	TouchedFiles []string
 }
 
 // SessionLink is one claimed item's linked-session state, derived by
@@ -427,6 +437,9 @@ func cloneItem(item Item) Item {
 	if item.TaskProgress != nil {
 		tp := *item.TaskProgress
 		item.TaskProgress = &tp
+	}
+	if item.TouchedFiles != nil {
+		item.TouchedFiles = append([]string(nil), item.TouchedFiles...)
 	}
 	if item.Session != nil {
 		sl := *item.Session
