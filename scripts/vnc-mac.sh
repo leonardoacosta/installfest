@@ -74,4 +74,4 @@ if ! command -v vncviewer >/dev/null 2>&1; then
 fi
 
 echo "vnc-mac: connecting to $MAC_HOST ($target) ..." >&2
-exec vncviewer "${passthrough[@]}" "$target"
+exec vncviewer ${passthrough[@]+"${passthrough[@]}"} "$target"
