@@ -33,8 +33,13 @@ Host mac
 
 {{ end -}}
 # CloudPC via Tailscale (all machines)
+# MagicDNS name, not a raw IP — found live 2026-07-21: an equivalent raw IP
+# for "mac" in platform/windows/setup.ps1's own mesh config had drifted
+# stale after a Tailscale IP change and silently broke cloudpc -> mac
+# connectivity, looking like a network/firewall issue. Using the DNS name
+# here for the same reason "mac"/"homelab" above already do.
 Host cloudpc
-    HostName 100.83.148.5
+    HostName cpc.tail296462.ts.net
     User leo
     IdentityFile ~/.ssh/id_ed25519
 
