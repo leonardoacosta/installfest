@@ -62,10 +62,43 @@ type frameHighlighter interface {
 	done() bool
 }
 
-type rowFlashHighlighter struct{ e *RowFlashEffect }
+// rowFlashHighlighter drives EffectRowFlash — design.md § Event -> effect
+// map's EventItemClosed(KindBead) row: "Row flash green -> decayed fade,
+// small particle burst." particle is composed alongside e (not a second,
+// independently-triggered effect) so both fire together off the same
+// closed-bead event, per that table row. bubbles/v2's table has no
+// per-cell primitive for rendering n independent particle positions (the
+// same rendering ceiling documented on HighlightState above for
+// EffectRowSlideIn's x-offset), so the burst degrades to a short-lived
+// glyph overlay on top of the flash color rather than faking particle
+// motion the widget cannot render — cleared automatically once the
+// particle's own fixed particleTTL lifetime (effects.go) elapses.
+type rowFlashHighlighter struct {
+	e        *RowFlashEffect
+	particle *ParticleBurstEffect
+}
 
-func (a *rowFlashHighlighter) advance() HighlightState { return HighlightState{Color: a.e.Advance()} }
-func (a *rowFlashHighlighter) done() bool              { return a.e.Done() }
+func (a *rowFlashHighlighter) advance() HighlightState {
+	hl := HighlightState{Color: a.e.Advance()}
+	if a.particle != nil {
+		a.particle.Advance(tickInterval)
+		if !a.particle.Done() {
+			hl.Glyph = particleBurstGlyph
+		}
+	}
+	return hl
+}
+
+// done reports settled only once BOTH the flash color and the particle
+// burst have finished — a still-bursting particle must not have its glyph
+// pruned out from under it just because the (typically slower) color
+// spring happened to settle first.
+func (a *rowFlashHighlighter) done() bool {
+	if a.particle != nil && !a.particle.Done() {
+		return false
+	}
+	return a.e.Done()
+}
 
 type slideInHighlighter struct {
 	e     *SlideInEffect
@@ -166,27 +199,42 @@ var (
 )
 
 const (
-	slideInGlyph    = "→"
-	staticRowGlyph  = "●"
-	staticGlyphMark = "◆"
-	shakeAlertGlyph = "!"
+	slideInGlyph       = "→"
+	staticRowGlyph     = "●"
+	staticGlyphMark    = "◆"
+	shakeAlertGlyph    = "!"
+	particleBurstGlyph = "✱"
 )
+
+// particleBurstCount is how many particles EffectRowFlash's composed
+// ParticleBurstEffect radiates per closed-bead event — "small" per
+// design.md's table row, matched to effects_test.go's own
+// TestParticleBurstEffectSettles fixture count.
+const particleBurstCount = 6
 
 // OnSnapshot diffs prev->next (via Process — gated exactly as before this
 // task: a disabled manager never calls Diff at all) and starts a fresh
 // row-highlight animState or toast queue entry for every resulting event.
-// next is threaded through so a newly-queued toast can look up the item's
-// Title for its message (FlairEvent deliberately carries only ID/Kind — see
-// FlairEvent's doc comment — so this is the one place that lookup happens,
-// rather than duplicating it at every call site). Returns the events Diff
-// produced, mainly so callers/tests can inspect what fired.
+// Both prev and next are threaded through so a newly-queued toast can look
+// up the item's Title for its message (FlairEvent deliberately carries only
+// ID/Kind — see FlairEvent's doc comment — so this is the one place that
+// lookup happens, rather than duplicating it at every call site). titleByID
+// is seeded from prev FIRST and next SECOND (next overwrites) so a
+// still-present item's current title wins, but an EventItemClosed item —
+// which by definition is absent from next — still resolves to its
+// last-known title from prev instead of falling back to the raw item ID.
+// Returns the events Diff produced, mainly so callers/tests can inspect
+// what fired.
 func (m *FlairManager) OnSnapshot(prev, next store.Snapshot) []FlairEvent {
 	events := m.Process(prev, next)
 	if len(events) == 0 {
 		return events
 	}
 
-	titleByID := make(map[string]string, len(next.Items))
+	titleByID := make(map[string]string, len(prev.Items)+len(next.Items))
+	for _, it := range prev.Items {
+		titleByID[it.ID] = it.Title
+	}
 	for _, it := range next.Items {
 		titleByID[it.ID] = it.Title
 	}
@@ -210,7 +258,10 @@ func (m *FlairManager) start(ev FlairEvent, title string) {
 	case EffectStaticToast:
 		m.enqueueToast(ev, title, ev.Kind == EventItemClosed, true)
 	case EffectRowFlash:
-		m.active[ev.ItemID] = animState{Kind: effect, highlighter: &rowFlashHighlighter{e: NewRowFlashEffect(rowFlashFrom, rowFlashTo)}}
+		m.active[ev.ItemID] = animState{Kind: effect, highlighter: &rowFlashHighlighter{
+			e:        NewRowFlashEffect(rowFlashFrom, rowFlashTo),
+			particle: NewParticleBurstEffect(particleBurstCount),
+		}}
 	case EffectRowSlideIn:
 		m.active[ev.ItemID] = animState{Kind: effect, highlighter: &slideInHighlighter{e: NewSlideInEffect(), color: slideInColor}}
 	case EffectGlyphPulse:

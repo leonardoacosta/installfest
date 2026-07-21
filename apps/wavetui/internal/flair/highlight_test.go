@@ -40,6 +40,58 @@ func TestOnSnapshotStartsRowHighlightForClosedBead(t *testing.T) {
 // comparison above.
 var colorfulZero = HighlightState{}.Color
 
+// TestRowFlashHighlighterComposesParticleBurst confirms EffectRowFlash's
+// highlighter wires in the particle-burst glyph design.md § Event -> effect
+// map's EventItemClosed(KindBead) row calls for ("Row flash green ->
+// decayed fade, small particle burst") rather than only ever animating the
+// flash color: the glyph is present while the burst is in flight, clears
+// once the burst settles, and done() does not report settled until BOTH
+// the flash and the burst have finished.
+func TestRowFlashHighlighterComposesParticleBurst(t *testing.T) {
+	h := &rowFlashHighlighter{
+		e:        NewRowFlashEffect(rowFlashFrom, rowFlashTo),
+		particle: NewParticleBurstEffect(particleBurstCount),
+	}
+
+	hl := h.advance()
+	if hl.Glyph != particleBurstGlyph {
+		t.Fatalf("want the particle-burst glyph on the first frame, got %q", hl.Glyph)
+	}
+	if h.done() {
+		t.Fatal("want done()==false while the particle burst is still in flight")
+	}
+
+	// Drain the (short, fixed-TTL) particle burst without ever calling
+	// e.Advance() again out of turn — advance() always steps both, so the
+	// flash spring advances alongside it, same as the real tick loop.
+	burstGone := false
+	const maxFrames = 1000
+	for i := 0; i < maxFrames; i++ {
+		hl = h.advance()
+		if hl.Glyph == "" {
+			burstGone = true
+			break
+		}
+	}
+	if !burstGone {
+		t.Fatalf("want the particle-burst glyph to clear within %d frames (particleTTL elapsed)", maxFrames)
+	}
+
+	// The highlighter as a whole must not report done() until the (slower)
+	// flash color spring also settles, even though the burst already has.
+	settled := false
+	for i := 0; i < 10_000; i++ {
+		h.advance()
+		if h.done() {
+			settled = true
+			break
+		}
+	}
+	if !settled {
+		t.Fatal("want rowFlashHighlighter to eventually settle once both flash and burst finish")
+	}
+}
+
 // TestOnSnapshotDisabledStartsNothing confirms the disabled-gate invariant
 // extends through OnSnapshot: Process already guarantees Diff never runs,
 // so start() is never reached and active/toast state stays empty.
@@ -138,6 +190,37 @@ func TestCalmModeUsesStaticHighlighterAndStillSettles(t *testing.T) {
 	}
 	if !settled {
 		t.Fatalf("calm-mode static highlight never settled within %d frames", maxFrames)
+	}
+}
+
+// TestOnSnapshotClosedProposalToastUsesLastKnownTitle confirms the
+// must-fix from the post-wave gate: an EventItemClosed item is, by
+// definition, absent from `next` (that's exactly what makes it a closed
+// event), so a titleByID built from next.Items alone can never resolve its
+// title and the toast falls back to the raw item ID. titleByID must also
+// be seeded from prev.Items so a just-closed item's last-known title is
+// still available.
+func TestOnSnapshotClosedProposalToastUsesLastKnownTitle(t *testing.T) {
+	m := NewFlairManager(config.FlairConfig{Enabled: true})
+
+	const realTitle = "A Real Human-Readable Title"
+	prev := mkSnapshot(store.Item{ID: "if-realid", Kind: store.KindProposal, Title: realTitle})
+	next := mkSnapshot()
+
+	events := m.OnSnapshot(prev, next)
+	if len(events) != 1 || events[0].Kind != EventItemClosed {
+		t.Fatalf("want one EventItemClosed, got %+v", events)
+	}
+
+	_, toast := m.AdvanceFrame()
+	if toast == nil {
+		t.Fatal("want a live ToastRender for the closed proposal")
+	}
+	if !strings.Contains(toast.Message, realTitle) {
+		t.Fatalf("want toast message to contain the real title %q, got %q", realTitle, toast.Message)
+	}
+	if strings.Contains(toast.Message, "if-realid") {
+		t.Fatalf("toast message must not fall back to the raw item ID, got %q", toast.Message)
 	}
 }
 

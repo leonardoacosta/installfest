@@ -4,11 +4,17 @@
 // go-colorful nearest-ANSI-equivalent fallback.
 //
 // This is deliberately the ONLY file in this package (and in wavetui) that
-// imports lipgloss/v2's Layer/Canvas types — see design.md's Alternatives
-// section: "this proposal's overlay.go can import v2 while every
-// existing/sibling pane (queuepane.go, detailpane.go, ...) keeps importing
-// v1 [lipgloss] untouched." Per task [2.3]'s scope, this file does not
-// touch queuepane.go or detailpane.go at all.
+// imports lipgloss/v2's Layer/Canvas/Compositor types. This is NOT a
+// lipgloss-version split — every sibling pane (queuepane.go, detailpane.go,
+// ...) already imports "charm.land/lipgloss/v2" too, same as this file, since
+// wavetui-core's UI phase. The real reason overlay.go stands alone is
+// narrower: it is the only file anywhere in wavetui that needs v2's
+// Layer/Canvas/Compositor layered-rendering primitives (see design.md's
+// Alternatives section on why those are a genuine new capability, not a
+// version upgrade) — every sibling pane still renders single-layer strings
+// via lipgloss/v2's ordinary Style/Join* API and never touches compositing.
+// Per task [2.3]'s scope, this file does not touch queuepane.go or
+// detailpane.go at all.
 package flair
 
 import (
