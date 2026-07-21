@@ -1,0 +1,198 @@
+{
+  "generated_at": "2026-07-19T22:03:41.211649",
+  "generated_by": "wave-state init",
+  "spec_names": [
+    "add-cmux-sidebar-widgets",
+    "cc-tmux-usage-reset-countdown"
+  ],
+  "status": "completed",
+  "current_wave": 3,
+  "current_phase": null,
+  "completed_waves": [
+    1,
+    2
+  ],
+  "completed_specs": [
+    "add-cmux-sidebar-widgets",
+    "cc-tmux-usage-reset-countdown"
+  ],
+  "failed_specs": [],
+  "decisions": [
+    {
+      "date": "2026-07-19",
+      "decision": "Ambiguity preflight D5 collision (render.py/usage.py shared between add-cmux-sidebar-widgets and cc-tmux-usage-reset-countdown) treated as resolve-at-apply",
+      "source": "guardrail",
+      "rationale": "Wave plan already serializes the two specs across separate waves (wave 1 then wave 2, explicit depends_on) -- stronger than the same-wave D5 case the rubric already classifies resolve-at-apply. No parallel dispatch will touch these files concurrently.",
+      "affected_waves": [
+        1,
+        2
+      ],
+      "affected_specs": [
+        "add-cmux-sidebar-widgets",
+        "cc-tmux-usage-reset-countdown"
+      ]
+    },
+    {
+      "date": "2026-07-20",
+      "decision": "Widen active_usage() to a real 4-tuple (adds r5) and wire cli.py end-to-end (both call sites + _resolve_session_usage's nexus-agent-first path) so the 5H reset countdown actually renders on the live tmux status line -- option B over the backward-compatible-opt-in-only alternative",
+      "source": "user",
+      "rationale": "wave2-ui found the literal task 1.1 file list (usage.py/render.py/testing.py only) would either crash cli.py's two hardcoded 3-tuple unpacks, or ship a countdown that never appears in the real deployed status line since _resolve_session_usage's nexus-agent path is primary and active_usage() is only the fallback. User chose full end-to-end wiring over checkbox-green dead code.",
+      "affected_waves": [
+        2
+      ],
+      "affected_specs": [
+        "cc-tmux-usage-reset-countdown"
+      ]
+    }
+  ],
+  "runtime": {},
+  "waves": [
+    {
+      "wave_number": 1,
+      "specs": [
+        {
+          "name": "add-cmux-sidebar-widgets",
+          "file_paths": [
+            "apps/cc-tmux/src/cc_tmux/tmux.py",
+            "apps/cc-tmux/src/cc_tmux/usage.py",
+            "apps/cc-tmux/src/cc_tmux/render.py",
+            "home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl",
+            "scripts/cmux-usage-dashboard.py",
+            "scripts/cmux-git-tree.py",
+            "openspec/specs/cc-tmux/spec.md",
+            "openspec/specs/cmux-sidebars/spec.md",
+            "home/dot_config/cmux/` (new, chezmoi-managed)",
+            "openspec/specs/cc-tmux/",
+            "openspec/specs/cmux-sidebars/"
+          ],
+          "task_count": 15,
+          "phase_classification": {
+            "DB": [
+              "[1.1] Verify live whether `workspaces.latestMessage`/`.unread`/`.remote` populate for a plain-terminal `claude` launch (our current `cmux-workspaces.sh` architecture) vs. only cmux's native agent-session surface type \u2014 SSH into the Mac, create a disposable test workspace, launch `claude` as a plain pane command, inspect `cmux workspace list --json` for those fields, record the finding [beads:if-tuox]",
+              "[1.2] Define the shared smuggled-field encoding scheme (state token, optional wait-reason, transition epoch, openspec summary, beads summary, usage 5H/7D figures) as a single documented format both the Python writer and the Swift reader consume identically \u2014 one canonical reference, not reinvented per field [beads:if-c2ad]",
+              "[1.3] Confirm the exact `cmux workspace-action` CLI param names and `cmux()` action-method name/params for setting a workspace's `description` from both a CLI call (Python) and in-sidebar context, via `cmux docs api` and the `cli-contract.md` raw resource [beads:if-nxb6]"
+            ],
+            "API": [
+              "[2.1] Extend `apps/cc-tmux/src/cc_tmux/tmux.py`'s hook handlers to dual-write the [1.2] encoding via `cmux workspace-action --description` on every existing state transition, gated on `CMUX_WORKSPACE_ID` being set; fail-open on any cmux-call error, matching the existing hook fail-open invariants [beads:if-3jd4]",
+              "[2.2] Port `apps/cc-tmux/src/cc_tmux/usage.py`'s `color_for`/`pct_for`/`_extract_util` logic to a standalone JS module; build a static HTML page that fetches `http://localhost:7400/credentials` client-side and renders the full multi-account dashboard (per-account progress bars, reset countdowns, summary header) using that ported logic [beads:if-5oeg]",
+              "[2.3] Build a git-tree generator script (`git log --graph --all --format=...` parsed into HTML) that runs wherever it's invoked (local or remote SSH host) and is wired via `cmux browser open` from the workspace's own context [beads:if-f51y]",
+              "[2.4] Build a small periodic writer that populates the [1.2]-encoded openspec-status, beads-status, and usage 5H/7D fields via `cmux workspace-action`/the `cmux()` action confirmed in [1.3] [beads:if-34sn]"
+            ],
+            "UI": [
+              "[3.1] Prototype a minimal left custom sidebar (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) using only cmux's natively-free fields: `title`/`directory` (truncated to 5 chars) + session name, `branch`, `dirty` \u2014 verify it renders correctly in a real cmux session before adding smuggled-field rows on top [beads:if-boqe]",
+              "[3.2] Extend the sidebar with the Claude-state indicator: SF-Symbol/shape stand-in for the Claude mark, solid when `idle`, pulsating opacity when `active` (alternating on `clock` wall-clock parity), pulsing red when `waiting` with reason `permission`; parses the [1.2] encoding from `description` [beads:if-n2oq]",
+              "[3.3] Extend the sidebar with the openspec-status + beads-status row and the compact usage-meter footer (CYAN/YELLOW/RED thresholds ported from `usage.py`), both sourced from the [2.4] writer's smuggled fields [beads:if-6to1]",
+              "[3.4] Wire the sidebar file into chezmoi deployment (`home/dot_config/cmux/sidebars/claude-sessions.swift.tmpl`) so it deploys to `~/.config/cmux/sidebars/` on `chezmoi apply` [beads:if-wut0]"
+            ],
+            "E2E": [
+              "[4.1] Live-verify cc-tmux's dual-write: trigger a real state transition (prompt submit, permission prompt, stop) inside a cmux workspace, confirm `cmux workspace-action` fires and the workspace's `description` updates with the correct encoding [beads:if-35jf]",
+              "[4.2] Live-verify the full left sidebar in a real cmux session: git state, project/session name, Claude-state icon animation (all three modes), openspec/beads segments, usage footer \u2014 against a real disposable test workspace, cleaned up after [beads:if-g4u2]",
+              "[4.3] Live-verify the git-tree panel against both a local workspace and an SSH-backed workspace (homelab), confirming the SSH case renders the REMOTE repository's graph, not a stale local one [beads:if-tf9q]",
+              "[4.4] Live-verify the usage dashboard panel against real nexus-agent data (or its unreachable-degradation path) [beads:if-kg51]"
+            ]
+          },
+          "ddl_tables": [],
+          "feature": "if-g2mg",
+          "epic": "if-bqw",
+          "priority": 2,
+          "depends_on": [],
+          "status": "merged",
+          "dispatched_at": "2026-07-19T22:05:17.330170",
+          "merged_at": "2026-07-19T23:53:19.602473"
+        }
+      ]
+    },
+    {
+      "wave_number": 2,
+      "specs": [
+        {
+          "name": "cc-tmux-usage-reset-countdown",
+          "file_paths": [
+            "apps/cc-tmux/src/cc_tmux/usage.py",
+            "apps/cc-tmux/src/cc_tmux/render.py",
+            "apps/cc-tmux/src/cc_tmux/testing.py"
+          ],
+          "task_count": 3,
+          "phase_classification": {
+            "DB": [],
+            "API": [],
+            "UI": [
+              "[1.1] In `apps/cc-tmux/src/cc_tmux/usage.py`: extend `extract_active` to also return the active credential's `usage5hResetAt` epoch (reuse `_extract_reset_at` \u2014 do not re-derive ISO parsing), widen the cache payload (`_read_usage_cache`/`_write_usage_cache`/`active_usage`) from the `(label, u5, u7)` triple to include `r5` (float epoch or None; a cache file missing the key reads as None \u2014 fail-open, no cache-version bump needed). In `render.py`, append `\u00b7<countdown>` in DIM to the row-2 5H segment (line ~710) ONLY when `u5 >= 0.80` and `r5` is a future epoch: minutes form `47m` under 60 minutes, `1h12m` at/above; past/absent `r5` or `u5 < 0.80` renders the segment byte-identical to today. Add `testing.py` self-test cases: formatting (m / h+m / past -> absent), threshold gate (0.79 no countdown, 0.80 countdown), cache round-trip of `r5`, absent-field fail-open. Run `python -m cc_tmux` self-test from `apps/cc-tmux` and paste PASS output. [beads:if-d979]",
+              "[1.2] Live render verification: with the deployed symlinked plugin (`~/.tmux/plugins/cc-tmux -> apps/cc-tmux`), delete the usage cache file (`/tmp/cc-tmux-usage-cache.<uid>.json`), re-render row 2 against the real nexus-agent payload, and paste the rendered string showing either the countdown (if 5H >= 80% right now) or the unchanged segment plus a forced-cache test (write a synthetic cache with `u5: 0.94, r5: now+47m` and paste the rendered `5H:94%\u00b747m`). Reload live bindings via `tmux run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux` if entrypoint changed (it should not). [beads:if-d8um]"
+            ],
+            "E2E": [
+              "[2.1] Targeted `git add apps/cc-tmux/src/cc_tmux/usage.py apps/cc-tmux/src/cc_tmux/render.py apps/cc-tmux/src/cc_tmux/testing.py` (no `git add -A`/`.`); commit `feat(cc-tmux): render 5H reset countdown on row 2 near session limit`; push. Paste `git log -1 --stat` output. [beads:if-w9ke]"
+            ]
+          },
+          "ddl_tables": [],
+          "feature": "if-8oi8",
+          "epic": "if-bqw",
+          "priority": 2,
+          "depends_on": [
+            "add-cmux-sidebar-widgets"
+          ],
+          "status": "merged",
+          "dispatched_at": "2026-07-19T23:54:00.404068",
+          "merged_at": "2026-07-20T01:25:39.525956"
+        }
+      ]
+    }
+  ],
+  "run_id": "apply-2026-07-19-001",
+  "conflicts": {
+    "add-cmux-sidebar-widgets": [
+      "cc-tmux-usage-reset-countdown"
+    ],
+    "cc-tmux-usage-reset-countdown": [
+      "add-cmux-sidebar-widgets"
+    ]
+  },
+  "ordering": [
+    "add-cmux-sidebar-widgets",
+    "cc-tmux-usage-reset-countdown"
+  ],
+  "neighbor_specs": {
+    "add-cmux-sidebar-widgets": {
+      "wave_index": 0,
+      "neighbors": []
+    },
+    "cc-tmux-usage-reset-countdown": {
+      "wave_index": 1,
+      "neighbors": []
+    }
+  },
+  "errors": [],
+  "mode": "consolidated",
+  "mega_batch_state": {
+    "current_phase": null,
+    "phases_completed": [
+      "ui",
+      "e2e"
+    ],
+    "task_results": {
+      "add-cmux-sidebar-widgets": {
+        "db": null,
+        "api": null,
+        "ui": null,
+        "e2e": "completed",
+        "doc": null
+      },
+      "cc-tmux-usage-reset-countdown": {
+        "db": null,
+        "api": null,
+        "ui": "completed",
+        "e2e": "completed",
+        "doc": null
+      }
+    },
+    "phase_started_at": {
+      "ui": "2026-07-19T23:54:00.433965",
+      "e2e": "2026-07-20T01:22:34.158992"
+    },
+    "phase_completed_at": {
+      "ui": "2026-07-20T01:22:24.052144",
+      "e2e": "2026-07-20T01:22:56.994297"
+    }
+  },
+  "completed_at": "2026-07-20T01:28:31.982019"
+}

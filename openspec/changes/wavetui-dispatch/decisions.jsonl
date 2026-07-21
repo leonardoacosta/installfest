@@ -1,0 +1,1 @@
+{"task": "1.1", "action": "answer", "by": "leo", "verdict": "JSON, not a bead", "reason": "matches fleet machine-artifact convention; avoids markdown-checkbox-parser fragility class", "resurface_when": null, "run": "apply-all-20260721-021527", "ask_ref": "wavetui-dispatch#1.1", "ts": "2026-07-21T02:15:27Z"}

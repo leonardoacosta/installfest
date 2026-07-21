@@ -1,0 +1,1 @@
+{"task": "5.1", "action": "defer", "by": "leo", "verdict": null, "reason": "unrelated to the wavetui rollout in progress; resolve in a dedicated ssh-mesh session", "resurface_when": "never", "run": "apply-all-20260721-021527", "ask_ref": "harden-ssh-mesh-1password-integration#5.1", "ts": "2026-07-21T02:15:27Z"}
