@@ -11,6 +11,7 @@ projects.toml
 # Skip macOS-only files on Linux (patterns match TARGET paths, not source)
 .config/ghostty
 .config/karabiner
+.config/1Password
 Library
 {{ end }}
 

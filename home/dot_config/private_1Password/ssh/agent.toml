@@ -1,0 +1,45 @@
+# This is the 1Password SSH agent config file, which allows you to customize the
+# behavior of the SSH agent running on this machine.
+#
+# You can use it to:
+# * Enable keys from other vaults than the Private vault
+# * Control the order in which keys are offered to SSH servers
+#
+# EXAMPLE
+#
+# By default, all keys in your Private vault(s) are enabled:
+#
+#  [[ssh-keys]]
+#  vault = "Private"
+#
+# You can enable more keys by adding more `[[ssh-keys]]` entries.
+# For example, to first enable item "My SSH Key" from "My Custom Vault":
+#
+#  [[ssh-keys]]
+#  item = "My SSH Key"
+#  vault = "My Custom Vault"
+#
+#  [[ssh-keys]]
+#  vault = "Private"
+#
+# You can test the result by running:
+#
+#  SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock ssh-add -l
+#
+# More examples can be found here:
+#  https://www.1password.dev/ssh/agent/config
+
+# ssh-mesh's mesh-ssh item (openspec/changes/harden-ssh-mesh-1password-integration,
+# task 5.1 / bead if-tla9) — referenced elsewhere as op://Private/mesh-ssh, hence
+# vault "Private" here. UNCONFIRMED against the account: the entry below this one
+# only lists vault "Personal", so "Private" may be a distinct vault that has never
+# had an ssh-keys entry before now, or the op:// URI's "Private" segment and this
+# file's "Personal" vault name may refer to the same vault under different labels
+# in different 1Password surfaces. Verify `ssh-add -l` actually lists mesh-ssh
+# after this change — if it doesn't, the vault name here needs correcting.
+[[ssh-keys]]
+item = "mesh-ssh"
+vault = "Private"
+
+[[ssh-keys]]
+vault = "Personal"
