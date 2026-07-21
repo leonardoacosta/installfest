@@ -23,6 +23,7 @@ import (
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/sources"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/timeline"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/ui"
 )
 
@@ -72,6 +73,23 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	queue := ui.NewQueuePane()
 	detail := ui.NewDetailPane()
 	root := ui.NewRoot(queue, detail)
+
+	// wavetui-memory-timeline (UI batch task [3.4]): MemoryTimelinePane is
+	// appended to Root's own pane slice (AppendPane, append-only — queue and
+	// detail are untouched) and wired to the three read-only timeline
+	// sources via EnableMemoryTimeline. These sources are queried on-demand
+	// per design.md § On-demand querying, not Snapshot-resident like
+	// beadsSrc/openspecSrc below — they are never Run() on a goroutine and
+	// never publish onto the bus; EnableMemoryTimeline drives them directly
+	// from Root's own selection-change dispatch (task 3.2).
+	memoryTimeline := ui.NewMemoryTimelinePane()
+	root.EnableMemoryTimeline(
+		ctx,
+		timeline.NewBeadsHistorySource(cwd),
+		timeline.NewOpenSpecArchiveSource(cwd),
+		timeline.NewMemoryHistorySource(cwd),
+		memoryTimeline,
+	)
 
 	// wavetui-flair (task [3.2]): FlairManager and ToastOverlay are wired in
 	// via the additive decorator model in flair_wiring.go — root itself
