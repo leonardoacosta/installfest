@@ -119,8 +119,41 @@ def current_branch(repo_path):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def extract_stream_json_result_text(claude_stdout):
+    """Pull the final assistant-visible text out of a --output-format
+    stream-json transcript.
+
+    Root-cause fix (2026-07-21 homelab session audit, Appendix A.4-A.6):
+    the default text --output-format cannot execute an orchestrator slash
+    command headless in a fresh/untrusted worktree -- it emits "Execution
+    error" and produces zero assistant turns, hanging every run to
+    CLAUDE_TIMEOUT_S. stream-json is the proven fix, but it changes stdout
+    from plain text to one JSON object per line (plus, per the live A.4
+    repro, an occasional leading plain-text banner line before the JSON
+    starts -- e.g. an auth/connector warning -- which this tolerates by
+    skipping any line that isn't valid JSON). The terminal
+    `{"type": "result", ...}` record's `result` field carries the same
+    final text a plain `--output-format text` run would have printed; an
+    error_during_execution subtype carries no `result` field, so absence
+    is a legitimate "nothing to extract" outcome, not a parse bug.
+    """
+    text = ""
+    for line in claude_stdout.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "result":
+            text = event.get("result") or ""
+    return text
+
+
 def derive_slug(claude_stdout, fallback_repo_code):
-    m = re.search(r"^BRANCH:\s*([a-z0-9-]+)\s*$", claude_stdout, re.MULTILINE)
+    result_text = extract_stream_json_result_text(claude_stdout)
+    m = re.search(r"^BRANCH:\s*([a-z0-9-]+)\s*$", result_text, re.MULTILINE)
     if m:
         slug = m.group(1).strip("-")[:60]
         if slug:
@@ -185,6 +218,17 @@ def process_repo(proj, state):
                 "opus",
                 "--permission-mode",
                 "bypassPermissions",
+                # 2026-07-21 homelab session audit (Appendix A.4-A.6): the default
+                # text --output-format cannot execute an orchestrator slash command
+                # headless in a fresh/untrusted worktree (every run here creates
+                # one) -- it emits "Execution error" with zero assistant turns and
+                # hangs to CLAUDE_TIMEOUT_S. stream-json is the proven fix (11 real
+                # assistant turns in 50s in the live repro, same fresh-worktree
+                # conditions). --verbose is required alongside stream-json per
+                # `claude -p --help`.
+                "--output-format",
+                "stream-json",
+                "--verbose",
             ],
             cwd=worktree_path,
             timeout=CLAUDE_TIMEOUT_S,
@@ -193,7 +237,8 @@ def process_repo(proj, state):
             log(f"{code}: claude -p failed (exit {claude.returncode}): {claude.stderr[:400]}")
             return {"repo": code, "status": "error", "detail": "claude_invocation_failed"}
 
-        if re.search(r"^BRANCH:\s*none\s*$", claude.stdout, re.MULTILINE):
+        result_text = extract_stream_json_result_text(claude.stdout)
+        if re.search(r"^BRANCH:\s*none\s*$", result_text, re.MULTILINE):
             log(f"{code}: nothing to report this run")
             state[code] = {"last_sha": head, "checked_at": datetime.now(timezone.utc).isoformat()}
             return None
