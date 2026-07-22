@@ -1,59 +1,63 @@
 #!/usr/bin/env bash
-# scripts/mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv3 (idempotent).
+# scripts/mac-autofs-dev.sh - macOS autofs mount of homelab's curated ~/dev root over NFSv3 (idempotent).
 #
 # Client side of the "mount ~/dev as a network drive" feature. Uses macOS's
 # native automountd (autofs) — no third-party software — via a dedicated
-# INDIRECT map mounted under /Volumes, keyed by name (dev-personal, etc.).
+# INDIRECT map mounted under /Volumes, with ONE key: "dev".
 #
-# CORRECTED 2026-07-22: an earlier version of this script used a second
-# "/-" DIRECT-map line in /etc/auto_master, intending to avoid colliding
-# with the built-in "/-  -static" fstab-backed map already present there.
-# That was wrong, not just risky — macOS's auto_master only honors ONE "/-"
-# (direct map) entry; a second one is silently ignored by automountd, which
-# is exactly why "cd /Volumes/dev-personal" returned a plain "no such file
-# or directory" instead of an NFS-layer error on first live test. The fix
-# is an indirect map under /Volumes instead: it never touches the existing
-# "/-  -static" line, and the final mounted paths (/Volumes/dev-personal
-# etc.) are unchanged from what was originally designed. See
-# configure_auto_master_entry() below for the stale-line migration.
+# CORRECTED 2026-07-22 (three changes, same day):
+#
+# 1. An earlier version of this script used a second "/-" DIRECT-map line
+#    in /etc/auto_master, intending to avoid colliding with the built-in
+#    "/-  -static" fstab-backed map already present there. That was wrong,
+#    not just risky — macOS's auto_master only honors ONE "/-" (direct map)
+#    entry; a second one is silently ignored by automountd, which is
+#    exactly why "cd /Volumes/dev-personal" returned a plain "no such file
+#    or directory" instead of an NFS-layer error on first live test. Fixed
+#    with an indirect map under /Volumes instead — see
+#    configure_auto_master_entry() below for the stale-line migration.
+#
+# 2. vers=4 -> vers=3+locallocks. v4 consistently failed with "RPC prog.
+#    not avail" — root-caused to a kernel-level lockd/nfsdctl issue on
+#    homelab's exact kernel version (see nfs-export.sh's header for the
+#    full diagnostic trail). NFSv3 mounted successfully on first try.
+#    locallocks is load-bearing, not cosmetic: it keeps all file-locking
+#    operations client-side, so the mount never depends on lockd/statd
+#    being reachable over the network — those run on unstable DYNAMIC
+#    ports that change every nfs-server restart. nolocks (the more
+#    obvious-looking option) is documented as NFSv2/v3-only too, but it
+#    fully DISABLES locking rather than keeping it local — locallocks is
+#    strictly better for a mount real editors/tools will touch.
+#
+# 3. 4 separate mounts -> 1 unified mount. Originally one autofs key per
+#    exported dir (dev-personal, dev-priceless, ...), mounted as 4 SEPARATE
+#    /Volumes/dev-* volumes. Leo wanted ONE /Volumes/dev that mirrors
+#    ~/dev's structure, not 4 flat sibling mounts. Server side now exports
+#    a single curated root (see nfs-export.sh's EXPORT_ROOT +
+#    nfs-export-bindmounts.sh) — this script just needs ONE autofs key
+#    ("dev") pointing at that root; /Volumes/dev/personal,
+#    /Volumes/dev/brown, etc. all resolve correctly underneath it via the
+#    server's `crossmnt` export option.
 #
 # Server side: scripts/homelab/nfs-export.sh.
 #
 # Mounts (lazy on first access, unmounted again on idle — standard automount
 # behavior):
-#   /Volumes/dev-personal         -> homelab:/home/nyaptor/dev/personal
-#   /Volumes/dev-priceless        -> homelab:/home/nyaptor/dev/priceless
-#   /Volumes/dev-cc               -> homelab:/home/nyaptor/dev/cc
-#   /Volumes/dev-central-planning -> homelab:/home/nyaptor/dev/central-planning
+#   /Volumes/dev -> homelab:/srv/nfs-dev-export (personal/, priceless/, cc/,
+#                   central-planning/, brown/ underneath — mirrors ~/dev)
 #
 # Addressed via Tailscale MagicDNS (homelab.tail296462.ts.net) rather than a
 # raw IP, so this keeps working regardless of whether Tailscale is currently
 # negotiating direct-LAN or relaying via DERP.
-#
-# CORRECTED 2026-07-22: vers=4 was the original design (single-port NFS
-# server, 2049 only) but live-tested against the real Mac + a real homelab
-# reboot, it consistently failed with "RPC prog. not avail" — root-caused to
-# a kernel-level lockd/nfsdctl issue on homelab's exact kernel version (see
-# nfs-export.sh's header for the full diagnostic trail). NFSv3 mounted
-# successfully on first try against the same exports, no server-side change
-# needed for the protocol switch itself.
-#
-# locallocks is load-bearing, not cosmetic: it keeps all file-locking
-# operations client-side, so the mount never depends on lockd/statd being
-# reachable over the network at all — those run on unstable DYNAMIC ports
-# that change every nfs-server restart, which would otherwise make the
-# firewall rules go stale after every homelab reboot. nolocks (the more
-# obvious-looking option) is documented as NFSv2/v3-only too, but it fully
-# DISABLES locking rather than keeping it local — locallocks is the
-# strictly better choice for a mount real editors/tools will touch.
 #
 # Re-runs safely: /etc/auto_dev is content-compared before writing;
 # /etc/auto_master (a shared system file with pre-existing entries) gets one
 # grep-guarded append, never a wholesale rewrite; automount -vc reloads only
 # when something actually changed.
 #
-# Verified end-to-end 2026-07-22 via SSH to the real Mac: mount, directory
-# listing, and a write test all succeeded with these exact options.
+# Verified end-to-end 2026-07-22 via SSH to the real Mac (4-mount version):
+# mount, directory listing, and a write test all succeeded. Unified-mount
+# version not yet independently re-verified — same mechanism, single key.
 
 set -uo pipefail
 
@@ -63,12 +67,12 @@ DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 . "$DOTFILES/scripts/utils.sh"
 
 NFS_HOST="homelab.tail296462.ts.net"
-DEV_ROOT="/home/nyaptor/dev"
+EXPORT_ROOT="/srv/nfs-dev-export"
 MAP_FILE="/etc/auto_dev"
 MASTER_FILE="/etc/auto_master"
 MOUNT_PREFIX="/Volumes"
 MOUNT_OPTS="fstype=nfs,vers=3,resvport,nosuid,intr,locallocks"
-EXPORT_DIRS=(personal priceless cc central-planning)
+MOUNT_KEY="dev"
 
 # ---------------------------------------------------------------------------
 # Preflight
@@ -108,22 +112,17 @@ write_if_changed() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1: /etc/auto_dev — indirect map, one line per exported ~/dev subtree
+# Step 1: /etc/auto_dev — indirect map, one key ("dev") for the whole
+# curated export root
 # ---------------------------------------------------------------------------
 
 configure_auto_dev_map() {
-    local lines=(
-        "# Managed by scripts/mac-autofs-dev.sh — do not hand-edit."
-        "# Indirect-map mounts of homelab's ~/dev subtrees (NFSv3 over Tailscale)."
-        "# Mounted under ${MOUNT_PREFIX}, keyed by name — see auto_master's"
-        "# '${MOUNT_PREFIX} auto_dev' line."
-    )
-    local d
-    for d in "${EXPORT_DIRS[@]}"; do
-        lines+=("dev-$d -${MOUNT_OPTS} ${NFS_HOST}:${DEV_ROOT}/$d")
-    done
     local content
-    content=$(printf '%s\n' "${lines[@]}")
+    content=$(printf '%s\n' \
+        "# Managed by scripts/mac-autofs-dev.sh — do not hand-edit." \
+        "# Indirect-map mount of homelab's curated ~/dev root (NFSv3 over Tailscale)." \
+        "# Mounted under ${MOUNT_PREFIX} — see auto_master's '${MOUNT_PREFIX} auto_dev' line." \
+        "${MOUNT_KEY} -${MOUNT_OPTS} ${NFS_HOST}:${EXPORT_ROOT}")
     write_if_changed "$MAP_FILE" "$content"
 }
 
@@ -187,7 +186,7 @@ main() {
         success "autofs config already up to date — no reload needed"
     fi
 
-    success "autofs configured — first 'ls /Volumes/dev-personal' (etc.) will lazy-mount"
+    success "autofs configured — first 'ls /Volumes/dev' will lazy-mount"
 }
 
 main "$@"
