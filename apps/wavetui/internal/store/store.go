@@ -170,6 +170,83 @@ type RateLimitSignal struct {
 	Message string
 }
 
+// CtxScanReport is wavetui's project -> class -> document mirror of
+// ctx-scan's band-annotated RenderViewModel (apps/ctx-scan/src/render/
+// view-model.ts), scoped to the single current project CtxScanSource scans
+// — see wavetui-context-pane's proposal.md "Scan root decision": the fleet
+// level always collapses to at most one project (whichever project, if
+// any, `ctx-scan view-model --root <repo-root>` discovers at that root),
+// never a fleet-wide leaderboard. Populated by sources/ctxscan.go's
+// requeryOnce from the CLI's JSON envelope; ContextPane
+// (internal/ui/ctxscanpane.go) is the sole reader. Additive: no existing
+// Store field is touched by this type's introduction.
+type CtxScanReport struct {
+	SchemaVersion int
+	Root          string
+	GeneratedAt   time.Time
+	// ProjectName/ProjectPath are "" when the scan root itself was not a
+	// discovered project (e.g. no CLAUDE.md/.claude/.mcp.json marker at that
+	// path) — Classes is then also empty, rendered by ContextPane as "no
+	// classes" rather than a fabricated placeholder.
+	ProjectName string
+	ProjectPath string
+	Classes     []CtxScanClass
+}
+
+// CtxScanClass is one context-surface class within CtxScanReport — mirrors
+// view-model.ts's ClassView.
+type CtxScanClass struct {
+	// Class is ctx-scan's raw NodeClass value (e.g. "claude-md-chain",
+	// "skills-listing") — kept as the wire string rather than a redeclared
+	// Go enum, since wavetui only ever displays it via Label and never
+	// branches control flow on a specific class value.
+	Class       string
+	Label       string
+	Documents   []CtxScanDocument
+	TotalTokens float64
+	// WorstBand is "GREEN" | "AMBER" | "RED" | "NONE" — ctx-scan's
+	// BandVerdictOrNone, mirrored as a plain string (see Class's doc comment
+	// for why wavetui doesn't redeclare a Go enum here either).
+	WorstBand string
+}
+
+// CtxScanDocument is one measured source document within a CtxScanClass —
+// mirrors view-model.ts's DocumentView.
+type CtxScanDocument struct {
+	Path        string
+	DisplayName string
+	Class       string
+	Tier        int
+	// Origin is "global" | "project" — ctx-scan's NodeOrigin.
+	Origin         string
+	RawChars       float64
+	EffectiveChars float64
+	EstTokens      float64
+	WorstBand      string
+	// Bands carries every applicable Table A rubric-row verdict for this
+	// document — a non-GREEN entry here IS the "violation" ContextPane's
+	// document-detail view renders (see spec.md's ContextPane Requirement),
+	// there is no separate violations field to keep in sync.
+	Bands       []CtxScanBand
+	Truncations []CtxScanTruncation
+}
+
+// CtxScanBand is one Table A rubric-row verdict — mirrors model.ts's Band.
+type CtxScanBand struct {
+	Rule     string
+	Band     string
+	Measured float64
+	Limit    float64
+}
+
+// CtxScanTruncation is one applied size-cap truncation — mirrors model.ts's
+// Truncation.
+type CtxScanTruncation struct {
+	Raw       float64
+	Effective float64
+	Cap       string
+}
+
 // HeadlessQueueState is wavetui-daemon's headless-dispatch queue state — see
 // wavetui-daemon's design.md § Additive Snapshot field. Snapshot.HeadlessQueue
 // being nil means headless dispatch has never been enabled this run; a
@@ -215,6 +292,21 @@ type Snapshot struct {
 	// this run. See wavetui-daemon's design.md § Additive Snapshot field.
 	// Like RateLimitBanner, independent of any single Item.
 	HeadlessQueue *HeadlessQueueState
+	// CtxScan is the current project's ctx-scan context-budget report — see
+	// wavetui-context-pane's CtxScanReport doc comment. nil until
+	// CtxScanSource's first successful scan completes. Independent of any
+	// single Item, like RateLimitBanner/HeadlessQueue above.
+	CtxScan *CtxScanReport
+	// CtxScanErr is the most recent CtxScanSource failure message, or "" when
+	// the last attempt succeeded. ContextPane renders its own unavailable
+	// badge from this field directly — see wavetui-context-pane's spec.md
+	// "scan failure renders a badge" scenario — rather than routing through
+	// the generic Errors/SourceError registry above, since the Context tab
+	// is not always the visible tab and owns its own badge presentation. A
+	// non-empty value does NOT imply CtxScan is nil: a transient failure
+	// after a prior success leaves the last-good CtxScan in place (rendered
+	// stale) alongside this error string.
+	CtxScanErr string
 }
 
 // --- Events consumed by Store.Apply -----------------------------------
@@ -300,6 +392,24 @@ type HeadlessQueueStateEvent struct {
 
 func (HeadlessQueueStateEvent) EventName() string { return "headless.queue_state" }
 
+// CtxScanEvent publishes one CtxScanSource scan attempt's outcome — see
+// wavetui-context-pane's "CtxScanSource polls the current project..."
+// Requirement. Report is nil and Err is non-empty on any exec/decode/
+// schema-version failure; Store.Apply's CtxScanEvent case leaves the
+// previous Snapshot.CtxScan value untouched in that case (last-good
+// retained), setting only CtxScanErr — mirroring markStale's "republish
+// last-good, mark it stale" convention used by BeadsSource/OpenSpecSource,
+// but through CtxScanReport's own dedicated Snapshot fields rather than the
+// generic SourceError registry (see Snapshot.CtxScanErr's doc comment for
+// why). A successful scan (Err == "") clears CtxScanErr and replaces
+// CtxScan with the fresh Report.
+type CtxScanEvent struct {
+	Report *CtxScanReport
+	Err    string
+}
+
+func (CtxScanEvent) EventName() string { return "ctxscan.report" }
+
 // --- Store --------------------------------------------------------------
 
 // Store is the single writer for all derived wavetui state. Apply is the
@@ -328,6 +438,12 @@ type Store struct {
 	// nil until HeadlessDispatcher publishes its first HeadlessQueueStateEvent
 	// — see Snapshot.HeadlessQueue.
 	headlessQueue *HeadlessQueueState
+
+	// ctxScan/ctxScanErr are the most recently published CtxScanReport and
+	// failure message — see Snapshot.CtxScan/CtxScanErr and CtxScanEvent's
+	// doc comment for the last-good-retained-on-failure contract.
+	ctxScan    *CtxScanReport
+	ctxScanErr string
 }
 
 // New constructs an empty Store.
@@ -415,6 +531,15 @@ func (s *Store) Apply(ev bus.Event) {
 			st.PauseSignal = &sig
 		}
 		s.headlessQueue = &st
+	case CtxScanEvent:
+		if e.Err != "" {
+			s.ctxScanErr = e.Err
+			// s.ctxScan deliberately left untouched — last-good retained,
+			// per CtxScanEvent's doc comment.
+		} else {
+			s.ctxScan = e.Report
+			s.ctxScanErr = ""
+		}
 	default:
 		// Unknown event type: no-op, not an error.
 		return
@@ -501,7 +626,35 @@ func (s *Store) Snapshot() Snapshot {
 		Generated:       time.Now(),
 		RateLimitBanner: banner,
 		HeadlessQueue:   headlessQueue,
+		CtxScan:         cloneCtxScanReport(s.ctxScan),
+		CtxScanErr:      s.ctxScanErr,
 	}
+}
+
+// cloneCtxScanReport deep-copies r (including its nested Classes/Documents/
+// Bands/Truncations slices) so a Snapshot's CtxScan field can never be
+// retroactively mutated by a later CtxScanSource publish sharing the same
+// backing arrays — the same "a later Store mutation can never retroactively
+// change a Snapshot already handed to a caller" contract cloneItem upholds
+// for Item's own pointer/slice fields. Returns nil for a nil input.
+func cloneCtxScanReport(r *CtxScanReport) *CtxScanReport {
+	if r == nil {
+		return nil
+	}
+	out := *r
+	out.Classes = make([]CtxScanClass, len(r.Classes))
+	for i, c := range r.Classes {
+		cc := c
+		cc.Documents = make([]CtxScanDocument, len(c.Documents))
+		for j, d := range c.Documents {
+			dd := d
+			dd.Bands = append([]CtxScanBand(nil), d.Bands...)
+			dd.Truncations = append([]CtxScanTruncation(nil), d.Truncations...)
+			cc.Documents[j] = dd
+		}
+		out.Classes[i] = cc
+	}
+	return &out
 }
 
 // cloneItem returns a copy of item whose pointer fields (Blocker,

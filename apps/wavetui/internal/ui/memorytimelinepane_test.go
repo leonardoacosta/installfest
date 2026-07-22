@@ -193,6 +193,60 @@ func TestSourceDistilledRendersDistilledChangeLabel(t *testing.T) {
 	}
 }
 
+// TestRenderTimelineEntryShowsTimeOfDayForTimestampPrecision is
+// wavetui-memory-timeline-richness's core scenario: a PrecisionTimestamp
+// entry shows its time-of-day alongside the entry text, not just its date
+// group header.
+func TestRenderTimelineEntryShowsTimeOfDayForTimestampPrecision(t *testing.T) {
+	e := timeline.Entry{
+		Source:    timeline.SourceBead,
+		Text:      "claimed",
+		Time:      time.Date(2026, 7, 1, 14, 32, 0, 0, time.UTC),
+		Precision: timeline.PrecisionTimestamp,
+	}
+
+	if got := renderTimelineEntry(e); !strings.Contains(got, "14:32") {
+		t.Fatalf("want the time-of-day (14:32) shown for a PrecisionTimestamp entry, got %q", got)
+	}
+}
+
+// TestRenderTimelineEntryHidesTimeForDateOnlyPrecision is the contrasting
+// case: a PrecisionDateOnly entry has no time-of-day to show — it must not
+// render one, even though Time is set.
+func TestRenderTimelineEntryHidesTimeForDateOnlyPrecision(t *testing.T) {
+	e := timeline.Entry{
+		Source:    timeline.SourceArchive,
+		Text:      "archived",
+		Time:      time.Date(2026, 7, 1, 14, 32, 0, 0, time.UTC),
+		Precision: timeline.PrecisionDateOnly,
+	}
+
+	if got := renderTimelineEntry(e); strings.Contains(got, "14:32") {
+		t.Fatalf("a PrecisionDateOnly entry must not show a time-of-day, got %q", got)
+	}
+}
+
+// TestRenderTimelineEntryShowsActorWhenPresent /
+// TestRenderTimelineEntryHidesActorWhenEmpty cover
+// wavetui-memory-timeline-richness's "a bead-sourced entry with a known
+// actor names them" / "an entry with no actor shows none" scenarios.
+func TestRenderTimelineEntryShowsActorWhenPresent(t *testing.T) {
+	e := timeline.Entry{Source: timeline.SourceBead, Text: "claimed", Actor: "leo"}
+
+	if got := renderTimelineEntry(e); !strings.Contains(got, "leo") {
+		t.Fatalf("want the actor (leo) shown alongside the entry text, got %q", got)
+	}
+}
+
+func TestRenderTimelineEntryHidesActorWhenEmpty(t *testing.T) {
+	e := timeline.Entry{Source: timeline.SourceArchive, Text: "archived", Actor: ""}
+
+	got := renderTimelineEntry(e)
+	if strings.Contains(got, "—") {
+		t.Fatalf("an entry with no actor must not render the actor separator/placeholder, got %q", got)
+	}
+}
+
 // TestUnavailableBadgesPerLaneIndependent is tasks.md [3.3]'s "per-lane
 // 'unavailable' badges independent of the other two lanes" requirement: with
 // exactly one lane (bead) unavailable and the other two (archive, memory)

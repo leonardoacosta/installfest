@@ -139,6 +139,11 @@ type Root struct {
 	// EnableMemoryTimeline is called, same lifecycle as timelineCtx et al.
 	memory *MemoryTimelinePane
 
+	// ctxScan is a typed reference to the pane EnableContextPane appends —
+	// same rationale/lifecycle as memory above, for the "[3] Context" tab
+	// (wavetui-context-pane). nil until EnableContextPane is called.
+	ctxScan *ContextPane
+
 	// --- wavetui-memory-timeline on-demand dispatch state (task 3.2) ---
 	// lastSelID/lastSelOK mirror the most recently notified QueuePane
 	// selection, so notifySelection can tell a genuine selection CHANGE
@@ -215,16 +220,29 @@ func (r *Root) EnableMemoryTimeline(ctx context.Context, beads beadsHistoryQueri
 	r.AppendPane(pane)
 }
 
+// EnableContextPane wires pane (wavetui-context-pane's ContextPane) into
+// Root's focus ring via AppendPane, mirroring EnableMemoryTimeline's
+// append-only precedent above. Unlike EnableMemoryTimeline, ContextPane has
+// no on-demand querier to thread through — its content arrives via the
+// ordinary Snapshot.CtxScan/CtxScanErr fields Update already delivers to
+// every pane (see ctxscanpane.go's own doc comment), so this is a one-line
+// AppendPane wrapper rather than a multi-field wiring call.
+func (r *Root) EnableContextPane(pane *ContextPane) {
+	r.ctxScan = pane
+	r.AppendPane(pane)
+}
+
 // Tab indices for Root.activeTab.
 const (
 	tabItems    = 0
 	tabMemories = 1
+	tabScan     = 2
 )
 
 // tabLabels are the tab bar's display strings (also the click-target text
 // tabAtX measures) — the bracketed digit doubles as the keybinding hint and
-// the "1"/"2" handleKey case below.
-var tabLabels = []string{"[1] Items", "[2] Memories"}
+// the "1"/"2"/"3" handleKey case below.
+var tabLabels = []string{"[1] Items", "[2] Memories", "[3] Context"}
 
 // tabBarSeparator joins tabLabels in both renderTabBar and tabAtX — declared
 // once so the two stay in sync (a click's X math must match what was
@@ -241,10 +259,16 @@ func (r *Root) switchTab(tab int) {
 	if tab == tabMemories && r.memory == nil {
 		return
 	}
+	if tab == tabScan && r.ctxScan == nil {
+		return
+	}
 	r.activeTab = tab
-	if tab == tabMemories {
+	switch tab {
+	case tabMemories:
 		r.focus = indexOf(r.panes, Pane(r.memory))
-	} else {
+	case tabScan:
+		r.focus = indexOf(r.panes, Pane(r.ctxScan))
+	default:
 		r.focus = indexOf(r.panes, r.queue)
 	}
 }
@@ -260,6 +284,9 @@ func (r *Root) switchTab(tab int) {
 func (r *Root) paneVisible(p Pane) bool {
 	if r.memory != nil && p == Pane(r.memory) {
 		return r.activeTab == tabMemories
+	}
+	if r.ctxScan != nil && p == Pane(r.ctxScan) {
+		return r.activeTab == tabScan
 	}
 	if p == Pane(r.queue) {
 		return r.activeTab == tabItems
@@ -494,6 +521,9 @@ func (r *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "2":
 		r.switchTab(tabMemories)
 		return r, nil
+	case "3":
+		r.switchTab(tabScan)
+		return r, nil
 	}
 
 	if r.focus >= 0 && r.focus < len(r.panes) {
@@ -513,6 +543,13 @@ func (r *Root) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// HeadlessBar (wavetui-daemon, tasks.md [3.1]) owns its own
 			// one-key resume action — same concrete-type dispatch
 			// precedent as SessionsPane above.
+			p.HandleKey(msg)
+			return r, nil
+		case *ContextPane:
+			// ContextPane (wavetui-context-pane, tasks.md [3.1]) owns its
+			// own drill-down navigation ("j"/"k"/"enter"/"esc") and "r"
+			// refresh action — same concrete-type dispatch precedent as
+			// SessionsPane/HeadlessBar above.
 			p.HandleKey(msg)
 			return r, nil
 		}
@@ -596,6 +633,13 @@ func (r *Root) layout() {
 		r.memory.SetSize(contentWidth-paneFrame, tableHeight)
 	}
 
+	// Same "size unconditionally regardless of activeTab" convention as
+	// r.memory above — switching to the Context tab via "3" or a mouse
+	// click never needs a fresh tea.WindowSizeMsg to render at full size.
+	if r.ctxScan != nil {
+		r.ctxScan.SetSize(contentWidth-paneFrame, tableHeight)
+	}
+
 	// Size any Sizeable persistent extra pane to the same full content
 	// width the queue/detail row uses, and to its reserved row budget. A
 	// pane that doesn't implement Sizeable (most won't need to) is simply
@@ -625,20 +669,21 @@ func (r *Root) extraPanes() []Pane {
 	return r.panes[2:]
 }
 
-// persistentExtras returns extraPanes() minus the memory timeline pane —
-// the subset that still renders in the always-visible bottom strip (see
-// View()) now that memory is tab-exclusive content instead of a third
-// stacked row. Used by both layout()'s reserved-height math and View()'s
-// rendering loop so the two stay in lockstep (a pane sized here but not
-// rendered there, or vice versa, would silently desync the layout).
+// persistentExtras returns extraPanes() minus the memory timeline pane and
+// the context pane — the subset that still renders in the always-visible
+// bottom strip (see View()) now that both memory and context are
+// tab-exclusive content instead of a stacked row. Used by both layout()'s
+// reserved-height math and View()'s rendering loop so the two stay in
+// lockstep (a pane sized here but not rendered there, or vice versa, would
+// silently desync the layout).
 func (r *Root) persistentExtras() []Pane {
 	extras := r.extraPanes()
-	if r.memory == nil {
+	if r.memory == nil && r.ctxScan == nil {
 		return extras
 	}
 	out := make([]Pane, 0, len(extras))
 	for _, p := range extras {
-		if p == Pane(r.memory) {
+		if p == Pane(r.memory) || p == Pane(r.ctxScan) {
 			continue
 		}
 		out = append(out, p)
@@ -768,6 +813,10 @@ func (r *Root) renderTabContent() string {
 	if r.activeTab == tabMemories && r.memory != nil {
 		style := paneStyle(r.focus == indexOf(r.panes, Pane(r.memory)))
 		return style.Render(r.memory.View())
+	}
+	if r.activeTab == tabScan && r.ctxScan != nil {
+		style := paneStyle(r.focus == indexOf(r.panes, Pane(r.ctxScan)))
+		return style.Render(r.ctxScan.View())
 	}
 
 	queueStyle := paneStyle(r.focus == indexOf(r.panes, r.queue))

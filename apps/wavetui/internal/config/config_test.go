@@ -101,6 +101,41 @@ func TestLoadToleratesMalformedLines(t *testing.T) {
 	}
 }
 
+func TestLoadParsesCtxScanPollSeconds(t *testing.T) {
+	dir := t.TempDir()
+	content := "ctx_scan_poll_seconds = 30\n"
+	if err := os.WriteFile(filepath.Join(dir, FileName), []byte(content), 0o644); err != nil {
+		t.Fatalf("setup write failed: %v", err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.CtxScanPollSeconds != 30 {
+		t.Fatalf("CtxScanPollSeconds = %d, want 30", cfg.CtxScanPollSeconds)
+	}
+	// Additive: existing fields must be unaffected by the new key.
+	if cfg.ShowPlans || cfg.ShowAdvisorPlans || cfg.Flair.Enabled || cfg.HeadlessConcurrencyCap != 0 {
+		t.Fatalf("want other fields still default, got %+v", cfg)
+	}
+}
+
+func TestLoadMissingCtxScanPollSecondsDefaultsToZero(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	// Load's own raw round-trip leaves this at the zero value when unset —
+	// sources.NewCtxScanSource (not Load) is what applies the <=0 -> default
+	// 60 fallback, mirroring HeadlessConcurrencyCap/
+	// EffectiveHeadlessConcurrencyCap's split responsibility.
+	if cfg.CtxScanPollSeconds != 0 {
+		t.Fatalf("CtxScanPollSeconds = %d, want 0 (unset) on a missing config file", cfg.CtxScanPollSeconds)
+	}
+}
+
 func TestAtomicWriteFileWritesAndReplaces(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.txt")

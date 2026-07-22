@@ -51,6 +51,13 @@ type Config struct {
 	// resolves the value actually in effect (default 2 when this field is
 	// unset or <= 0).
 	HeadlessConcurrencyCap int
+	// CtxScanPollSeconds is CtxScanSource's poll interval (wavetui-
+	// context-pane's `ctx_scan_poll_seconds` knob, spec.md: "interval from
+	// the ctx_scan_poll_seconds config knob, default 60"). This raw field
+	// round-trips whatever the config file literally sets, same convention
+	// as HeadlessConcurrencyCap above — sources.NewCtxScanSource is what
+	// applies the <= 0 fallback to the default.
+	CtxScanPollSeconds int
 }
 
 // EffectiveHeadlessConcurrencyCap returns the concurrency cap
@@ -112,6 +119,7 @@ func Load(dir string) (Config, error) {
 		},
 		ForceOSC52:             values.bools["force_osc52"],
 		HeadlessConcurrencyCap: values.ints["headless_concurrency_cap"],
+		CtxScanPollSeconds:     values.ints["ctx_scan_poll_seconds"],
 	}, nil
 }
 

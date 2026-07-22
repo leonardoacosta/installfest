@@ -93,6 +93,12 @@ type Entry struct {
 	BeadID string
 	// Match records how confidently BeadID was matched to this entry.
 	Match MatchConfidence
+	// Actor is the operator who performed the action, when the underlying
+	// record carries one — populated for SourceBead entries from
+	// interactionRecord.Actor (beads_history.go); archive/journal-sourced
+	// entries have no equivalent field in their own source data and leave
+	// this empty. Empty means "not shown", never a placeholder.
+	Actor string
 }
 
 // Availability distinguishes an empty Result because a source's backing

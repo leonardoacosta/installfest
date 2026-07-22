@@ -251,6 +251,63 @@ func TestAdmissionHintAppearsInViewAndFlipsOnToggle(t *testing.T) {
 	}
 }
 
+// --- wavetui-context-pane (tasks.md [3.2]) tab wiring ----------------------
+
+// TestSwitchToContextTabNoopWithoutEnableContextPane mirrors switchTab's
+// existing tabMemories guard: pressing "3" before EnableContextPane has ever
+// been called (e.g. every pre-existing test in this package) must be a
+// silent no-op, never a nil-pointer panic.
+func TestSwitchToContextTabNoopWithoutEnableContextPane(t *testing.T) {
+	r := NewRoot(NewQueuePane(), NewDetailPane())
+	r.Update(tea.KeyPressMsg{Text: "3"})
+	if r.activeTab != tabItems {
+		t.Fatalf("activeTab = %d, want unchanged tabItems (0) when no ContextPane is wired", r.activeTab)
+	}
+}
+
+// TestContextTabSwitchesContentAndRoutesKeys is the E2E-level assertion
+// behind tasks.md [3.2]: pressing "3" renders the Context tab's own content
+// in place of the queue/detail row, and a subsequent keypress routes to
+// *ContextPane via Root's handleKey type-assertion (mirroring
+// TestAdmissionHintAppearsInViewAndFlipsOnToggle's real-dispatch-path
+// precedent for *HeadlessBar).
+func TestContextTabSwitchesContentAndRoutesKeys(t *testing.T) {
+	r := NewRoot(NewQueuePane(), NewDetailPane())
+	r.width, r.height = 100, 30
+	r.layout()
+
+	refreshed := 0
+	pane := NewContextPane(func() { refreshed++ })
+	r.EnableContextPane(pane)
+
+	r.Update(SnapshotMsg{Snapshot: store.Snapshot{
+		CtxScan: &store.CtxScanReport{
+			ProjectName: "fixture-proj",
+			Classes: []store.CtxScanClass{
+				{Class: "memory", Label: "Memory (MEMORY.md)", TotalTokens: 10, WorstBand: "GREEN"},
+			},
+		},
+	}})
+
+	r.Update(tea.KeyPressMsg{Text: "3"})
+	if r.activeTab != tabScan {
+		t.Fatalf("activeTab = %d, want tabScan (%d) after pressing 3", r.activeTab, tabScan)
+	}
+
+	view := r.View().Content
+	if !strings.Contains(view, "Memory (MEMORY.md)") {
+		t.Fatalf("want the Context tab's own class content in View(), got:\n%s", view)
+	}
+
+	// Focus is already on the ContextPane (switchTab moves it there) — a
+	// further keypress must route through Root.Update -> handleKey's
+	// *ContextPane case, not silently no-op.
+	r.Update(key("r"))
+	if refreshed != 1 {
+		t.Fatalf("want the ContextPane's injected refresh invoked once via Root's real key-dispatch path, got %d calls", refreshed)
+	}
+}
+
 // TestQuitKeySendsTeaQuit asserts the documented "q"/"ctrl+c" keybinding
 // actually produces a tea.Quit command, since that's what main.go depends
 // on to unwind the sources via cancel() once Program.Run() returns.

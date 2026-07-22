@@ -201,16 +201,29 @@ func (m *MemoryTimelinePane) unavailableBadges() string {
 	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("203")).Render(strings.Join(parts, "  "))
 }
 
-// renderTimelineEntry renders one Entry: its source tag (source=distilled
-// visually labeled "distilled change", per tasks.md [3.3]), its text, its
-// matched BeadID when present, and — for a MatchConfidenceTentative match —
-// a dimmed rendering with a trailing "?" marker (design.md § Journal-to-bead
+// renderTimelineEntry renders one Entry: an optional time-of-day prefix, its
+// source tag (source=distilled visually labeled "distilled change", per
+// tasks.md [3.3]), its text, its matched BeadID when present, an optional
+// trailing actor, and — for a MatchConfidenceTentative match — a dimmed
+// rendering with a trailing "?" marker (design.md § Journal-to-bead
 // matching: "renders visually tentative — dimmed text plus a '?' marker,
 // never asserted as certain").
+//
+// The time-of-day prefix only appears for e.Precision == PrecisionTimestamp
+// (wavetui-memory-timeline-richness proposal: an entry precise only to the
+// day has no time to show). The actor suffix only appears when e.Actor is
+// non-empty (archive/journal-sourced entries and bead records with no
+// recorded actor carry no placeholder).
 func renderTimelineEntry(e timeline.Entry) string {
 	line := fmt.Sprintf("[%s] %s", sourceTag(e.Source), e.Text)
 	if e.BeadID != "" {
 		line += " (" + e.BeadID + ")"
+	}
+	if e.Actor != "" {
+		line += " — " + e.Actor
+	}
+	if e.Precision == timeline.PrecisionTimestamp {
+		line = e.Time.Format("15:04") + " " + line
 	}
 
 	if e.Match == timeline.MatchConfidenceTentative {

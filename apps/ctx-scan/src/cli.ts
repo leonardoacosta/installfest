@@ -25,6 +25,8 @@ import { auditFleet, type AuditResult } from "./audit";
 import { writeRenderedFleet } from "./render";
 import { diffByName, formatTransition } from "./diff";
 import { startWatch } from "./watch";
+import { annotateFleetBands } from "./rubric";
+import { buildViewModel, type RenderViewModel } from "./render/view-model";
 
 /** Expand a leading `~` / `~/…` to the current user's home directory. */
 function expandHome(p: string): string {
@@ -355,6 +357,71 @@ async function runWatch(opts: WatchCliOptions): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// `view-model`
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ViewModelCliOptions {
+  root: string;
+  json?: string;
+}
+
+/**
+ * The `view-model` command's emitted JSON shape — wavetui-context-pane's
+ * ADDED "view-model subcommand emits the band-annotated view model as JSON"
+ * Requirement: "wrapped in an envelope carrying a schemaVersion field."
+ * `schemaVersion` here is this envelope's own version (currently always 1),
+ * independent of `viewModel.schemaVersion` (which mirrors the underlying
+ * Fleet's `model.ts` schemaVersion) — a consumer (wavetui's Go decoder)
+ * checks THIS field, since it is the one this command's own doc/spec names.
+ */
+interface ViewModelEnvelope {
+  schemaVersion: number;
+  viewModel: RenderViewModel;
+}
+
+/** Bump alongside any breaking change to ViewModelEnvelope's own shape (not `viewModel`'s internal shape, which is `model.ts`'s `schemaVersion`'s concern). */
+const VIEW_MODEL_ENVELOPE_SCHEMA_VERSION = 1;
+
+/**
+ * Build the Fleet for `--root` (hook probing disabled — same posture
+ * `audit`/`render` already use, since this command is a display-data query,
+ * not a permission to execute untrusted hook commands), band-annotate it
+ * (`annotateFleetBands` — mutates `fleet.*` Node.bands in place, the same
+ * call-site convention `audit.ts`/`render.ts` already establish), derive the
+ * display-ready view model (`buildViewModel`), and emit it wrapped in the
+ * schemaVersion envelope above. Purely filesystem reads plus in-memory
+ * derivation — no hook execution, no network I/O, matching the ADDED
+ * Requirement's "SHALL NOT execute hooks, probe telemetry, or perform any
+ * network I/O" clause. This is wavetui's ContextPane data source (see
+ * apps/wavetui/internal/sources/ctxscan.go) — never called with a fleet-wide
+ * `--root` in that caller (wavetui always passes its own repo root), but
+ * this command itself places no such restriction: any `--root` `scan`/`audit`
+ * would accept works here identically.
+ */
+async function runViewModel(opts: ViewModelCliOptions): Promise<void> {
+  // Never let an assembly failure surface as an unhandled-rejection stack
+  // trace on stderr — this command's sole consumer (wavetui's CtxScanSource,
+  // apps/wavetui/internal/sources/ctxscan.go) shells out on a poll timer and
+  // treats "clean non-zero exit" as its degrade-to-badge signal; a raw stack
+  // trace there is just noise on top of the same outcome. Matches runAudit's
+  // documented degrade contract above, adapted for exit-non-zero-on-failure
+  // (view-model's failure is a real command failure, not audit's in-place
+  // "succeeded with zero rows" degrade).
+  try {
+    const root = expandHome(opts.root);
+    const { fleet } = await buildFleet(root, { allowProbeHooks: false });
+    annotateFleetBands(fleet);
+    const viewModel = buildViewModel(fleet);
+    const envelope: ViewModelEnvelope = { schemaVersion: VIEW_MODEL_ENVELOPE_SCHEMA_VERSION, viewModel };
+    emitJson(envelope, opts.json);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`ctx-scan view-model: ${message}`);
+    process.exitCode = 1;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // `diff`
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -457,6 +524,15 @@ program
   )
   .option("--history <path>", "override the history.jsonl path (default: ~/.ctx-scan/history.jsonl)")
   .action((opts: WatchCliOptions) => runWatch(opts));
+
+program
+  .command("view-model")
+  .description(
+    "Emit the band-annotated, display-ready view model (fleet -> project -> class -> document) as JSON, wrapped in a schemaVersion envelope — wavetui's Context tab data source.",
+  )
+  .option("--root <path>", "root directory to scan", "~/dev")
+  .option("--json <path>", "write JSON to this file (default: stdout)")
+  .action((opts: ViewModelCliOptions) => runViewModel(opts));
 
 program
   .command("diff")

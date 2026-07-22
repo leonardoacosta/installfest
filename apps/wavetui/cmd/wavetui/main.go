@@ -141,6 +141,18 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 		memoryTimeline,
 	)
 
+	// wavetui-context-pane (UI batch task [3.3]): CtxScanSource shells out
+	// to `ctx-scan view-model --root <cwd>` on a poll ticker (config knob
+	// ctx_scan_poll_seconds, default 60) plus ContextPane's own "r"
+	// refresh trigger, publishing onto the same bus b every other source
+	// publishes onto — its own goroutine below joins the same errCh/cancel
+	// lifecycle. ContextPane is appended to Root's focus ring via
+	// EnableContextPane (append-only, mirrors EnableMemoryTimeline's own
+	// precedent) as the "[3] Context" tab.
+	ctxScanSrc := sources.NewCtxScanSource(cwd, b, cfg.CtxScanPollSeconds)
+	ctxScanPane := ui.NewContextPane(ctxScanSrc.TriggerRefresh)
+	root.EnableContextPane(ctxScanPane)
+
 	// wavetui-flair (task [3.2]): FlairManager and ToastOverlay are wired in
 	// via the additive decorator model in flair_wiring.go — root itself
 	// never gains a flair dependency. cfg.Flair defaults to
@@ -230,13 +242,14 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	transcriptSrc := sources.NewTranscriptSource(cwd, b)
 	transcriptSrc.SetPaneStateSource(tmuxSrc)
 
-	// All four sources run on their own ctx-derived goroutine; ctx
+	// All five sources run on their own ctx-derived goroutine; ctx
 	// cancellation is what stops them — see task 2.4.
-	errCh := make(chan error, 4)
+	errCh := make(chan error, 5)
 	go func() { errCh <- beadsSrc.Run(ctx) }()
 	go func() { errCh <- openspecSrc.Run(ctx) }()
 	go func() { errCh <- tmuxSrc.Run(ctx) }()
 	go func() { errCh <- transcriptSrc.Run(ctx) }()
+	go func() { errCh <- ctxScanSrc.Run(ctx) }()
 
 	_, runErr := program.Run()
 
@@ -247,7 +260,7 @@ func run(ctx context.Context, cancel context.CancelFunc) error {
 	cancel()
 
 	var firstErr error
-	for range 4 {
+	for range 5 {
 		if err := <-errCh; err != nil && !isExpectedShutdown(err) && firstErr == nil {
 			firstErr = err
 		}

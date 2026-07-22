@@ -96,6 +96,33 @@ func TestBeadsHistorySource_RecognizedKinds(t *testing.T) {
 		if e.Text != want[i] {
 			t.Errorf("Entries[%d].Text = %q, want %q", i, e.Text, want[i])
 		}
+		if e.Actor != "leo" {
+			t.Errorf("Entries[%d].Actor = %q, want %q (threaded from interactionRecord.Actor)", i, e.Actor, "leo")
+		}
+	}
+}
+
+// TestBeadsHistorySource_ActorEmptyWhenAbsent is the round-trip counterpart
+// to TestBeadsHistorySource_RecognizedKinds' actor assertion: a row with no
+// "actor" field must decode to Entry.Actor == "" (tolerant zero-value),
+// never a placeholder — wavetui-memory-timeline-richness proposal § Scope
+// ("no actor placeholder or blank label is shown").
+func TestBeadsHistorySource_ActorEmptyWhenAbsent(t *testing.T) {
+	root := t.TempDir()
+	writeInteractions(t, root, []string{
+		`{"id":"int-1","kind":"field_change","created_at":"2026-04-09T21:00:00Z","issue_id":"if-abc","extra":{"field":"status","old_value":"open","new_value":"in_progress"}}`,
+	})
+
+	s := NewBeadsHistorySource(root)
+	res, err := s.Query(context.Background(), "if-abc", nil)
+	if err != nil {
+		t.Fatalf("Query returned error: %v", err)
+	}
+	if len(res.Entries) != 1 {
+		t.Fatalf("Entries = %d, want 1: %+v", len(res.Entries), res.Entries)
+	}
+	if res.Entries[0].Actor != "" {
+		t.Fatalf("Actor = %q, want empty when the record carries no actor field", res.Entries[0].Actor)
 	}
 }
 

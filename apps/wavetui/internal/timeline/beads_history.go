@@ -50,6 +50,7 @@ type interactionRecord struct {
 	Kind      string           `json:"kind"`
 	CreatedAt string           `json:"created_at"`
 	IssueID   string           `json:"issue_id"`
+	Actor     string           `json:"actor"`
 	Extra     interactionExtra `json:"extra"`
 }
 
@@ -150,6 +151,7 @@ func beadEntryFrom(rec interactionRecord) Entry {
 		Precision: PrecisionTimestamp,
 		Text:      beadEntryText(rec),
 		BeadID:    rec.IssueID,
+		Actor:     rec.Actor,
 	}
 }
 

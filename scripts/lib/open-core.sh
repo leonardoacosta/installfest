@@ -353,10 +353,19 @@ end if
     *)      body="${chrome_block}${safari_block}" ;;
   esac
 
+  # theURL/urlPrefix cross a machine/trust boundary (filename-derived rel_path,
+  # Atlas JSON lookup) — never interpolate them as AppleScript string literals.
+  # Base64-encode here, decode inside AppleScript via `do shell script`, so the
+  # only bytes AppleScript ever parses as a literal are [A-Za-z0-9+/=]. Any
+  # future osascript-over-ssh call must follow the same pattern.
+  local url_b64 url_prefix_b64
+  url_b64="$(printf '%s' "$url" | base64 | tr -d '\n')"
+  url_prefix_b64="$(printf '%s' "$url_prefix" | base64 | tr -d '\n')"
+
   (
-    ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "$OPEN_MAC_HOST" "osascript -" <<APPLESCRIPT
-set theURL to "$url"
-set urlPrefix to "$url_prefix"
+    ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=accept-new "$OPEN_MAC_HOST" "osascript -" <<APPLESCRIPT
+set theURL to (do shell script "printf '%s' " & quoted form of "$url_b64" & " | base64 --decode")
+set urlPrefix to (do shell script "printf '%s' " & quoted form of "$url_prefix_b64" & " | base64 --decode")
 set tabFound to false
 $body
 APPLESCRIPT
