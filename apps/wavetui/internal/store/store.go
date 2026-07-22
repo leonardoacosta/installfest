@@ -112,6 +112,14 @@ type Item struct {
 // convention as Item's own doc comment above.
 type SessionLink struct {
 	SessionID string
+	// CWD is the linked session's own transcript `cwd` field — the same
+	// value SessionLinker.matchCWDTimestamp already matched against (see
+	// wavetui-session-cwd's spec.md "the matched cwd is available on the
+	// linked item's SessionLink" scenario). Empty string when the source
+	// transcript never recorded a cwd. Additive field: every existing
+	// caller that constructs a SessionLink without setting it gets the
+	// empty-string zero value, so no existing caller needs to change.
+	CWD string
 	// PaneID is "" when TmuxSource has no @cc-state match for this
 	// session's pane (not every session runs inside a cc-tmux-tracked
 	// pane) — absence here is expected, not a failure.

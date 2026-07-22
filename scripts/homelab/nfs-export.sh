@@ -42,13 +42,27 @@
 #    each bind-mounted subtree (they're separate mount points even though
 #    bind mounts of the same underlying filesystem).
 #
-# Client scope is restricted to the Tailscale CGNAT range (100.64.0.0/10),
-# never the general LAN — ufw is active on this host and this must not be
-# reachable from the wider home network.
+# Client scope: ufw (Step 5) opens the NFS ports to the whole Tailscale CGNAT
+# range (100.64.0.0/10), never the general LAN. But /etc/exports itself (Step
+# 3) is scoped tighter than that — rw only to specific named mesh peer IPs
+# (see NFS_PEERS below), not the whole /10 — since NFSv3 has no user auth and
+# any tailnet device reaching the open ports could otherwise mount rw.
 #
 # all_squash,anonuid=1000,anongid=1000 maps every remote client to nyaptor's
 # own uid/gid, sidestepping the Mac's leonardoacosta vs homelab's nyaptor UID
 # mismatch without idmapd configuration.
+#
+# CORRECTED 2026-07-22 (scope-homelab-nfs-export): /etc/exports was rw to the
+# entire 100.64.0.0/10 CGNAT range — any tailnet device (or a single
+# compromised one) could mount and write into these repos, which later
+# execute locally (hooks, deploy scripts, cron/systemd units) — a
+# supply-chain path. Operator decision (Option 2, decisions.jsonl): the Mac
+# genuinely writes over this mount (edit-on-Mac-save), so `ro` wasn't viable
+# — scoped rw to NFS_PEERS' named IPs instead of the whole CIDR. NOTE: `ssh-
+# mesh/README.md`'s documented Mac IP (100.91.88.16) was confirmed STALE
+# against live `tailscale status` (actual: 100.82.80.88, hostname
+# "macbook") — always re-verify via `tailscale status` before editing
+# NFS_PEERS, never trust the doc alone.
 #
 # Re-runs safely: /etc/exports and the systemd units are content-compared
 # before writing (exportfs/daemon-reload only run on change), nfs-server
@@ -65,6 +79,16 @@ DOTFILES="${DOTFILES:-$HOME/dev/personal/installfest}"
 
 EXPORT_ROOT="/srv/nfs-dev-export"
 TAILSCALE_CIDR="100.64.0.0/10"
+# Known mesh peers granted rw on the export — "ip|comment" pairs, one per
+# machine that actually mounts EXPORT_ROOT. Resolve/verify via `tailscale
+# status` (NOT ssh-mesh/README.md alone — its Mac IP was found stale
+# 2026-07-22). homelab itself is excluded (it's the server, not an NFS
+# client of its own export); cpc (CloudPC/Windows bastion) is excluded —
+# no NFS client wiring for it exists (see scripts/mac-autofs-dev.sh, the
+# only client-side script, macOS-only).
+NFS_PEERS=(
+    "100.82.80.88|mac (leo's MacBook — scripts/mac-autofs-dev.sh client)"
+)
 # Three fixed ports — rpcbind (111) and mountd (20048) are stable across
 # restarts on this system (confirmed via `rpcinfo -p localhost`), nfsd
 # (2049) always is. lockd/statd are deliberately NOT opened: the client
@@ -198,15 +222,29 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Step 3: /etc/exports (one export line for EXPORT_ROOT, Tailscale CIDR-scoped)
+# Step 3: /etc/exports (one export line per known mesh peer in NFS_PEERS,
+# rw scoped to those specific IPs — never the whole Tailscale CIDR)
 # ---------------------------------------------------------------------------
 
 configure_exports() {
+    local lines peer ip comment
+    if [[ ${#NFS_PEERS[@]} -eq 0 ]]; then
+        error "NFS_PEERS is empty — refusing to write /etc/exports (would silently unexport EXPORT_ROOT for everyone). Add at least one peer or fix the array."
+        exit 1
+    fi
+    lines=(
+        "# Managed by scripts/homelab/nfs-export.sh — do not hand-edit."
+        "# NFS export of a curated ~/dev root, rw scoped to named mesh peers only (see NFS_PEERS)."
+    )
+    for peer in "${NFS_PEERS[@]}"; do
+        ip="${peer%%|*}"
+        comment="${peer#*|}"
+        lines+=("# $comment")
+        lines+=("$EXPORT_ROOT $ip($EXPORT_OPTS)")
+    done
+
     local content
-    content=$(printf '%s\n' \
-        "# Managed by scripts/homelab/nfs-export.sh — do not hand-edit." \
-        "# NFS export of a curated ~/dev root, Tailscale mesh clients only." \
-        "$EXPORT_ROOT $TAILSCALE_CIDR($EXPORT_OPTS)")
+    content=$(printf '%s\n' "${lines[@]}")
 
     write_if_changed /etc/exports "$content"
     if [[ $? -eq 10 ]]; then

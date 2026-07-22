@@ -806,6 +806,7 @@ func (s *TranscriptSource) toStoreSessionLink(agg *sessionAgg) *store.SessionLin
 
 	return &store.SessionLink{
 		SessionID:        agg.sessionID,
+		CWD:              agg.cwd,
 		PaneID:           paneID,
 		ContextPct:       agg.contextPct(s.modelWindow),
 		LastActivity:     agg.lastActivity,

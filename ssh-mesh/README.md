@@ -22,7 +22,7 @@ A 3-machine SSH mesh allowing passwordless SSH between Mac, Homelab, and CloudPC
 │ User: leonardoacosta    │     │ User: nyaptor           │     │ User: leo               │
 ├─────────────────────────┤     ├─────────────────────────┤     ├─────────────────────────┤
 │ LAN: 192.168.1.50       │     │ LAN: 192.168.1.100      │     │ LAN: (remote only)      │
-│ TS:  100.91.88.16       │     │ TS:  100.73.182.4       │     │ TS:  100.83.148.5       │
+│ TS:  100.82.80.88       │     │ TS:  100.73.182.4       │     │ TS:  100.83.148.5       │
 └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@ A 3-machine SSH mesh allowing passwordless SSH between Mac, Homelab, and CloudPC
 - **SSH User:** `leonardoacosta`
 - **Tailscale:** Native app
 - **LAN IP:** `192.168.1.50`
-- **Tailscale IP:** `100.91.88.16`
+- **Tailscale IP:** `100.82.80.88` (hostname `macbook`; verify via `tailscale status` — this value drifted stale once already, caught 2026-07-22 by `scope-homelab-nfs-export`)
 - **Special:** Tailscale-only routing — ~/.ssh/config is chezmoi-managed (home/private_dot_ssh/config.tmpl); the old LAN probe was removed
 
 ### Homelab (homelab)

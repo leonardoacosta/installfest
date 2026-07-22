@@ -15,6 +15,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -131,9 +132,9 @@ func (s *SessionsPane) View() string {
 	var lines []string
 
 	if len(s.sessions) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("Sessions: none"))
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("Sessions linked to selected item: none"))
 	} else {
-		lines = append(lines, lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("Sessions (%d)", len(s.sessions))))
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("Sessions linked to selected item (%d)", len(s.sessions))))
 		for i, it := range s.sessions {
 			lines = append(lines, s.renderRow(i, it))
 		}
@@ -149,10 +150,17 @@ func (s *SessionsPane) View() string {
 // renderRow renders one session: a cursor marker, the item's title, its
 // tmux pane identity when TmuxSource resolved one (design.md's PaneID: ""
 // means "not every session runs inside a cc-tmux-tracked pane" — rendered
-// as "no pane", not a blank/misleading cell), the context-percent gauge
-// (bold+colored once it crosses sources.IsHandoffThreshold, the same 70%
-// constant transcript.go's own handoff badge uses — never re-declared
-// here), and the zombie badge plus its release keybinding hint.
+// as "no pane", not a blank/misleading cell), the linked session's own
+// reported cwd (wavetui-session-cwd's spec.md "a linked session's cwd is
+// visible on its row" scenario — rendered as "no cwd" when SessionLink.CWD
+// is empty, same fallback-text convention as pane above; the basename, not
+// the full path, guards against overflowing defaultSessionsWidth, reusing
+// truncateBadgeMessage's existing rune-safe ellipsis truncation
+// (root.go) rather than introducing a second truncation helper — see
+// proposal.md's Risks table), the context-percent gauge (bold+colored once
+// it crosses sources.IsHandoffThreshold, the same 70% constant
+// transcript.go's own handoff badge uses — never re-declared here), and the
+// zombie badge plus its release keybinding hint.
 func (s *SessionsPane) renderRow(i int, it store.Item) string {
 	marker := "  "
 	if i == s.cursor {
@@ -166,12 +174,17 @@ func (s *SessionsPane) renderRow(i int, it store.Item) string {
 		pane = "pane " + sl.PaneID
 	}
 
+	cwd := "no cwd"
+	if sl.CWD != "" {
+		cwd = truncateBadgeMessage(filepath.Base(sl.CWD))
+	}
+
 	ctxPct := fmt.Sprintf("%.0f%% ctx", sl.ContextPct)
 	if sources.IsHandoffThreshold(sl.ContextPct) {
 		ctxPct = lipgloss.NewStyle().Bold(true).Foreground(sessionZombieColor).Render(ctxPct)
 	}
 
-	row := fmt.Sprintf("%s%s  %s  %s", marker, it.Title, pane, ctxPct)
+	row := fmt.Sprintf("%s%s  %s  %s  %s", marker, it.Title, pane, cwd, ctxPct)
 
 	if sl.Zombie {
 		row += "  " + lipgloss.NewStyle().Bold(true).Foreground(sessionZombieColor).

@@ -261,6 +261,28 @@ func TestSnapshotDeepCopiesSessionLinkMapAndSlice(t *testing.T) {
 	}
 }
 
+// TestSnapshotRoundTripsSessionLinkCWD is wavetui-session-cwd's tasks.md
+// [4.1]: SessionLink.CWD (additive field, see this proposal's spec.md "the
+// matched cwd is available on the linked item's SessionLink" scenario) must
+// survive a Snapshot round-trip unchanged, and — following
+// TestSnapshotDeepCopiesSessionLinkMapAndSlice's precedent immediately
+// above — a plain string field needs no deep-copy proof beyond cloneItem's
+// existing `sl := *item.Session` value copy, but it still must actually
+// reach the Snapshot's Items, which is the regression this test guards.
+func TestSnapshotRoundTripsSessionLinkCWD(t *testing.T) {
+	s := New()
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a", Kind: KindBead, Title: "A"}})
+	s.Apply(SessionLinkEvent{ItemID: "a", Session: &SessionLink{
+		SessionID: "sess-1",
+		CWD:       "/home/nyaptor/dev/personal/installfest",
+	}})
+
+	snap := s.Snapshot()
+	if snap.Items[0].Session == nil || snap.Items[0].Session.CWD != "/home/nyaptor/dev/personal/installfest" {
+		t.Fatalf("expected Session.CWD to round-trip through Snapshot, got %+v", snap.Items[0].Session)
+	}
+}
+
 // TestSnapshotDeepCopiesRateLimitBanner covers Snapshot.RateLimitBanner —
 // a whole-snapshot pointer field independent of any single Item, so it
 // needs its own copy-on-write proof distinct from cloneItem's coverage.

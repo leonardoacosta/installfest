@@ -532,6 +532,38 @@ func TestTranscriptSourceLinksViaExactApplyReference(t *testing.T) {
 	})
 }
 
+// TestTranscriptSourceThreadsCWDIntoSessionLink is wavetui-session-cwd's
+// tasks.md [2.1]/[4.2]: toStoreSessionLink's output CWD must carry the same
+// agg.cwd value resolveLink already matched against — see this proposal's
+// spec.md "the matched cwd is available on the linked item's SessionLink"
+// scenario.
+func TestTranscriptSourceThreadsCWDIntoSessionLink(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b, st := newWiredStore(t, ctx)
+	src, dir := newTestTranscriptSource(t, b)
+
+	b.Publish(store.ItemUpsertEvent{Item: store.Item{ID: "if-abc12", Kind: store.KindBead, Title: "thing"}})
+
+	path := filepath.Join(dir, "sess-6.jsonl")
+	dispatchContent, err := json.Marshal("<command-message>apply</command-message>\n<command-name>/apply</command-name>\n<command-args>if-abc12</command-args>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, `{"type":"user","sessionId":"sess-6","cwd":"/home/nyaptor/dev/personal/installfest","message":{"role":"user","content":`+string(dispatchContent)+`}}`+"\n")
+
+	src.tailAll(ctx)
+
+	eventually(t, time.Second, func() bool {
+		for _, item := range st.Snapshot().Items {
+			if item.ID == "if-abc12" && item.Session != nil && item.Session.CWD == "/home/nyaptor/dev/personal/installfest" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // --- flattenProjectDir ------------------------------------------------------
 
 func TestFlattenProjectDir(t *testing.T) {
