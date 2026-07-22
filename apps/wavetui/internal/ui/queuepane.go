@@ -460,6 +460,19 @@ func (q *QueuePane) SetSize(width, height int) {
 	q.table.SetHeight(height)
 }
 
+// MoveCursor moves the table's cursor by delta rows (negative = up,
+// positive = down) — a thin wrapper over bubbles/v2 table's own
+// MoveUp/MoveDown, exposed so root.go's mouse-wheel handling can move the
+// cursor the same way an up/down keypress already does via HandleKey,
+// without HandleKey's tea.KeyPressMsg-typed signature standing in the way.
+func (q *QueuePane) MoveCursor(delta int) {
+	if delta < 0 {
+		q.table.MoveUp(-delta)
+		return
+	}
+	q.table.MoveDown(delta)
+}
+
 // HandleKey handles this pane's own wavetui-dispatch AND wavetui-
 // decision-lanes actions (tasks.md [3.1]/[3.2]) — "enter" (Start), "space"
 // (toggle wave-builder selection), "w" (finalize the wave), "esc" (clear

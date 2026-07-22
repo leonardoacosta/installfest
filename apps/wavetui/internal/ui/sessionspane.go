@@ -115,7 +115,13 @@ func (s *SessionsPane) Update(snap store.Snapshot) Pane {
 	return s
 }
 
-// View implements Pane.
+// View implements Pane. Deliberately compact — this pane sits in the
+// always-visible bottom strip alongside KPIBar/HeadlessBar (see root.go),
+// and the empty case ("no linked sessions") is the common case in most
+// runs, not worth a dedicated header line + separate body line every time.
+// A populated pane still gets one header line naming the count (useful,
+// not decorative) plus one row per session — only the EMPTY case collapses
+// to a single line.
 func (s *SessionsPane) View() string {
 	width := s.width
 	if width <= 0 {
@@ -123,18 +129,18 @@ func (s *SessionsPane) View() string {
 	}
 
 	var lines []string
-	lines = append(lines, lipgloss.NewStyle().Bold(true).Render("Sessions"))
 
 	if len(s.sessions) == 0 {
-		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("No linked Claude Code sessions."))
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render("Sessions: none"))
 	} else {
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("Sessions (%d)", len(s.sessions))))
 		for i, it := range s.sessions {
 			lines = append(lines, s.renderRow(i, it))
 		}
 	}
 
 	if s.lastAction != "" {
-		lines = append(lines, "", lipgloss.NewStyle().Faint(true).Render(s.lastAction))
+		lines = append(lines, lipgloss.NewStyle().Faint(true).Render(s.lastAction))
 	}
 
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
