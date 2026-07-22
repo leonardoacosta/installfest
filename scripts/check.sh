@@ -4,7 +4,9 @@
 # Runs static checks that a broken `chezmoi apply` on a fresh machine would
 # otherwise only surface at apply time: zsh syntax, POSIX/bash syntax, chezmoi
 # template render (+ bash -n on rendered *.sh.tmpl), shellcheck (error severity),
-# and — when initialized — `terraform validate`.
+# and — when initialized — `terraform validate`. Also runs each apps/* suite
+# (wavetui go test, ctx-scan/daily-brief bun test, cc-tmux self-test), each
+# skipped with a warning when its toolchain is absent.
 #
 # Intentionally NOT `set -e`: every section must run and report so one failure
 # does not hide the rest. Sections whose tool is absent are skipped with a warning.
@@ -17,8 +19,11 @@ Usage: scripts/check.sh   (or: npm run check)
 
 One-command verification baseline for this dotfiles repo: zsh syntax,
 POSIX/bash syntax, chezmoi template render (+ bash -n on rendered
-*.sh.tmpl), shellcheck (error severity), and terraform validate when
-initialized. Every section runs and reports even if an earlier one fails.
+*.sh.tmpl), shellcheck (error severity), terraform validate when
+initialized, and each apps/* suite (wavetui go test, ctx-scan/daily-brief
+bun test, cc-tmux self-test — each skipped with a warning when its
+toolchain is absent). Every section runs and reports even if an earlier
+one fails.
 
 Exit: 0 all pass, 1 any fail.
 EOF
