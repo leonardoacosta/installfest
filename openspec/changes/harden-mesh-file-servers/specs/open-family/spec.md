@@ -9,7 +9,7 @@ only where intended, authenticate requests where the bind is reachable beyond lo
 only vetted directories, and never let an untrusted filename or file body execute as HTML/JS in
 the viewer's browser.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: ropen-server binds to a scoped interface and gates requests behind a token
 `scripts/ropen-server.py` SHALL bind to the interface named by the `ROPEN_BIND` environment
@@ -42,11 +42,10 @@ URL so normal usage is unaffected by the gate.
   token gate existed
 
 ### Requirement: ropen-server escapes untrusted names in generated HTML
-Every filename, path, and mount identifier that `scripts/ropen-server.py` interpolates into
-generated HTML (the mount index, the per-directory listing, and the listing title) SHALL be
-passed through `html.escape(...)` (or an equivalent HTML-entity escape) before being written
-into the response body, matching the existing pattern already used in
-`scripts/file-server.py:239`.
+`scripts/ropen-server.py` SHALL pass every filename, path, and mount identifier it interpolates
+into generated HTML (the mount index, the per-directory listing, and the listing title) through
+`html.escape(...)` (or an equivalent HTML-entity escape) before writing it into the response
+body, matching the existing pattern already used in `scripts/file-server.py:239`.
 
 #### Scenario: a filename containing markup renders escaped, not executed
 - Given: a directory mounted by `ropen-server.py` containing a file literally named

@@ -1,0 +1,2 @@
+{"task": "1.1", "action": "answer", "by": "leo", "verdict": "Scope rw to specific peer IPs", "reason": null, "resurface_when": null, "run": "apply-2026-07-22-002", "ask_ref": "scope-homelab-nfs-export#1.1", "ts": "2026-07-22T21:04:25Z"}
+{"task": "triage-sweep", "action": "answer", "by": "leo", "verdict": "approved (blanket, via /apply:all RUN POLICY kickoff)", "reason": null, "resurface_when": null, "run": "apply-2026-07-22-002", "ask_ref": "scope-homelab-nfs-export#triage-sweep", "ts": "2026-07-22T21:18:52Z"}

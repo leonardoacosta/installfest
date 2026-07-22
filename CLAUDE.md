@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Personal dotfiles and development environment configuration for macOS, Arch Linux, and Windows (cloudpc bastion via `platform/windows/`). Cross-platform shell setup with SSH mesh networking between machines.
 
-Top-level layout: `home/` (chezmoi source, deployed via `.chezmoiroot`), `scripts/` (repo-root tooling), `packages/` (workspace command-center package), `shared/` (cross-platform helpers), `infra/` (Terraform modules), `platform/` (per-OS integrations: `homebrew/`, `raycast-scripts/`, `windows/`), `apps/` (standalone tools, e.g. `ctx-scan`), `ssh-mesh/` (mesh topology + docs), `openspec/` (change proposals + specs), `docs/` (plans, audits, reference).
+Top-level layout: `home/` (chezmoi source, deployed via `.chezmoiroot`), `scripts/` (repo-root tooling), `packages/` (workspace command-center package), `shared/` (cross-platform helpers), `infra/` (Terraform modules), `platform/` (per-OS integrations: `homebrew/`, `raycast-scripts/`, `windows/`), `apps/` (standalone tools, e.g. `ctx-scan`), `ssh-mesh/` (mesh topology + docs), `openspec/` (change proposals + specs — `openspec/specs/` is the per-capability doc surface), `docs/` (plans, audits, reference).
 
 ## Key Concepts
 

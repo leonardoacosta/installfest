@@ -3,7 +3,9 @@
 Every executable script under `scripts/`, `platform/`, and `home/dot_local/bin/`
 (51 files total), what it does, and whether it currently supports `--help`/`-h`.
 `platform/raycast-scripts/**` (generated Raycast launchers) is excluded — see
-§ Raycast Scripts below for why.
+§ Raycast Scripts below for why. `apps/*` expose their own binaries
+(`wavetui`, `ctx-scan`, `daily-brief`, `cc-tmux`), documented in each app's
+own README rather than indexed here.
 
 Generated 2026-07-19 for bead `if-7cce.3`. Backfilled `--help` on 20 scripts
 in the same pass (see § Backfill Summary); the remainder are documented

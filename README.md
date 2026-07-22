@@ -110,9 +110,25 @@ if/                                     # repo root (~/dev/personal/installfest)
 │   ├── generate-raycast.sh             #   Generate Raycast scripts from projects.toml
 │   ├── cmux-workspaces.sh              #   Generate cmux workspace launchers
 │   └── mux-remote.sh                   #   SSH remote tmux sessions
+├── apps/                               # Standalone first-party tools + 2 vendored submodules
+│   ├── wavetui/                        #   Go/bubbletea TUI dashboard (openspec/specs/wavetui/)
+│   ├── ctx-scan/                       #   Bun/TS fleet context scanner (openspec/specs/ctx-scan/)
+│   ├── daily-brief/                    #   Bun/TS + ink daily briefing widget (openspec/specs/daily-brief/)
+│   ├── cc-tmux/                        #   Python tmux plugin for Claude Code sessions
+│   ├── kontroll/                       #   (vendored submodule — zsa/kontroll, pinned upstream)
+│   └── zsa-voyager-keymap/             #   (vendored submodule — pinned upstream, see .gitmodules)
+├── packages/                           # Workspace command-center package (repo-only)
+├── shared/                             # Cross-platform helpers (repo-only)
+├── infra/                              # Terraform modules (repo-only)
+├── openspec/                           # Change proposals (openspec/changes/) + capability specs (openspec/specs/)
 ├── ssh-mesh/                           # Multi-machine SSH setup (repo-only)
 └── docs/                               # Documentation (repo-only)
 ```
+
+Per-capability behavior (wavetui, ctx-scan, daily-brief, cc-tmux, ssh-mesh, and
+the rest) is specified in `openspec/specs/<capability>/spec.md` — that is the
+doc surface to check for "what does X actually guarantee," as distinct from
+`openspec/changes/`, which holds in-flight change proposals.
 
 **Naming convention:** `dot_foo` deploys to `~/.foo`. Files ending in `.tmpl` are Go templates processed by chezmoi. The `.chezmoiroot` file redirects chezmoi to read source from `home/` — all chezmoi commands work transparently.
 

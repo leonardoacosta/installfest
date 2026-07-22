@@ -8,7 +8,8 @@
   },
   "scripts": {
     "collect": "bun run src/index.tsx collect",
-    "view": "bun run src/index.tsx view"
+    "view": "bun run src/index.tsx view",
+    "test": "bun test"
   },
   "dependencies": {
     "ink": "^7.1.1",

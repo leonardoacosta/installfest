@@ -3,12 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: External titles are stripped of control characters before rendering
-Every title or location string that originates from an external, untrusted source (mx-gateway
-triage items, calendar events — `src/sources/mx.ts`'s `TriageCore.title`/`CalendarEvent.title`
-and `location`) SHALL have its C0 (`\x00-\x1F`) and C1 (`\x7F-\x9F`) control characters stripped
-before it reaches either render path (`view --plain`'s `plainRender.ts` or the ink render). The
-strip MUST happen at a single shared choke point — not duplicated per render site — so a new
-render surface consuming the same shaped data cannot forget to sanitize.
+The system SHALL strip C0 (`\x00-\x1F`) and C1 (`\x7F-\x9F`) control characters from every title or location string that originates from an external, untrusted source (mx-gateway triage items, calendar events — `src/sources/mx.ts`'s `TriageCore.title`/`CalendarEvent.title` and `location`) before it reaches either render path (`view --plain`'s `plainRender.ts` or the ink render). The strip MUST happen at a single shared choke point — not duplicated per render site — so a new render surface consuming the same shaped data cannot forget to sanitize.
 
 #### Scenario: a title containing an ANSI escape sequence renders clean in --plain mode
 - **WHEN** a radar item, meeting, or open-item title contains an ANSI escape sequence (e.g.

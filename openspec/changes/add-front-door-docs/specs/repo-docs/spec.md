@@ -7,17 +7,10 @@ vendored submodules), the `openspec/specs/` capability-spec surface, and which e
 the entry-level documentation surface (`README.md`, `CLAUDE.md`, per-app READMEs) rather than
 any runtime behavior.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: The root README surfaces the apps/ layer and the openspec capability-spec surface
-The root `README.md` directory map SHALL list `apps/`, `packages/`, `shared/`, `infra/`, and
-`openspec/` alongside the existing `home/`, `platform/`, `scripts/`, `ssh-mesh/`, and `docs/`
-entries, following the same fenced-tree, one-line-per-entry annotation style already used for
-the `home/` block. The README SHALL also state that per-capability behavior is specified under
-`openspec/specs/<capability>/spec.md`, either as a dedicated subsection or a line in an existing
-"where things are documented" spot. `CLAUDE.md` SHALL carry the equivalent
-`openspec/specs/`-as-doc-surface pointer as a single added clause on its existing directory-layout
-sentence — no other CLAUDE.md content is added or restructured by this requirement.
+The root `README.md` directory map SHALL list `apps/`, `packages/`, `shared/`, `infra/`, and `openspec/` alongside the existing `home/`, `platform/`, `scripts/`, `ssh-mesh/`, and `docs/` entries, following the same fenced-tree, one-line-per-entry annotation style already used for the `home/` block, and SHALL also state that per-capability behavior is specified under `openspec/specs/<capability>/spec.md` (as a dedicated subsection or a line in an existing "where things are documented" spot); `CLAUDE.md` SHALL carry the equivalent `openspec/specs/`-as-doc-surface pointer as a single added clause on its existing directory-layout sentence, with no other CLAUDE.md content added or restructured by this requirement.
 
 #### Scenario: apps/ appears in the README directory map
 - Given: `README.md`'s fenced directory tree
@@ -31,13 +24,7 @@ sentence — no other CLAUDE.md content is added or restructured by this require
 - Then: both files contain a hit pointing at `openspec/specs/` as the per-capability doc surface
 
 ### Requirement: Each active first-party app has a README naming its build/test command and entry point
-Every active first-party app under `apps/` that is not a vendored submodule — currently
-`cc-tmux` (existing), `wavetui`, `ctx-scan`, and `daily-brief` — SHALL have an
-`apps/<name>/README.md` stating, at minimum: a one-paragraph description of what the app is
-(drawn from its actual code and its `openspec/specs/<name>/spec.md`, never invented), its build
-command, its test command, its entry point, and a pointer to its own
-`openspec/specs/<name>/spec.md` where one exists. Each README SHALL stay short (target: under
-~40 lines) and SHALL NOT document aspirational behavior the code does not implement.
+Every active first-party app under `apps/` that is not a vendored submodule — currently `cc-tmux` (existing), `wavetui`, `ctx-scan`, and `daily-brief` — SHALL have an `apps/<name>/README.md` stating, at minimum, a one-paragraph description of what the app is (drawn from its actual code and its `openspec/specs/<name>/spec.md`, never invented), its build command, its test command, its entry point, and a pointer to its own `openspec/specs/<name>/spec.md` where one exists; each README SHALL stay short (target: under ~40 lines) and SHALL NOT document aspirational behavior the code does not implement.
 
 #### Scenario: wavetui's README names its Go build/test commands
 - Given: `apps/wavetui/README.md`
@@ -53,11 +40,7 @@ command, its test command, its entry point, and a pointer to its own
   as the test command, and points at its own `openspec/specs/<name>/spec.md`
 
 ### Requirement: Vendored submodules are marked distinctly from first-party code
-The repo SHALL carry one clear, discoverable marker distinguishing vendored git submodules
-under `apps/` (`kontroll`, `zsa-voyager-keymap`) from first-party apps — either a dedicated
-`apps/README.md` or an equivalent apps subsection in the root README — stating that these
-entries are pinned upstream submodules that should be bumped, not edited. This requirement
-covers documentation only; it does not restructure `.gitmodules` or move any submodule path.
+The repo SHALL carry one clear, discoverable marker distinguishing vendored git submodules under `apps/` (`kontroll`, `zsa-voyager-keymap`) from first-party apps — either a dedicated `apps/README.md` or an equivalent apps subsection in the root README — stating that these entries are pinned upstream submodules that should be bumped, not edited; this requirement covers documentation only and does not restructure `.gitmodules` or move any submodule path.
 
 #### Scenario: a reader checks whether an apps/ entry is safe to edit
 - Given: `apps/README.md` (or the README's apps subsection)

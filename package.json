@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "check": "./scripts/check.sh",
-    "tf": "./infra/scripts/tf.sh"
+    "tf": "./infra/scripts/tf.sh",
+    "test": "./scripts/check.sh"
   }
 }

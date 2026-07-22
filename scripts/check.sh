@@ -165,12 +165,56 @@ section_terraform() {
     fi
 }
 
+# --- Section 6: apps/wavetui go test -----------------------------------------
+section_apps_go() {
+    if ! command -v go >/dev/null 2>&1; then
+        warning "SKIP: go not installed (apps/wavetui untested)"; return 0
+    fi
+    if (cd "$ROOT/apps/wavetui" && go test ./... >"$TMP_ERR" 2>&1); then
+        success "PASS: wavetui go test"
+    else
+        error "FAIL: wavetui go test"; sed 's/^/    /' "$TMP_ERR"; FAIL=1
+    fi
+}
+
+# --- Section 7: apps/ctx-scan + apps/daily-brief bun test --------------------
+section_apps_bun() {
+    if ! command -v bun >/dev/null 2>&1; then
+        warning "SKIP: bun not installed (apps/ctx-scan, apps/daily-brief untested)"; return 0
+    fi
+    if (cd "$ROOT/apps/ctx-scan" && bun test >"$TMP_ERR" 2>&1); then
+        success "PASS: ctx-scan bun test"
+    else
+        error "FAIL: ctx-scan bun test"; sed 's/^/    /' "$TMP_ERR"; FAIL=1
+    fi
+    if (cd "$ROOT/apps/daily-brief" && bun test >"$TMP_ERR" 2>&1); then
+        success "PASS: daily-brief bun test"
+    else
+        error "FAIL: daily-brief bun test"; sed 's/^/    /' "$TMP_ERR"; FAIL=1
+    fi
+}
+
+# --- Section 8: apps/cc-tmux self-test ---------------------------------------
+section_apps_cctmux() {
+    if ! command -v cc-tmux >/dev/null 2>&1; then
+        warning "SKIP: cc-tmux not installed (apps/cc-tmux untested)"; return 0
+    fi
+    if cc-tmux self-test >"$TMP_ERR" 2>&1; then
+        success "PASS: cc-tmux self-test"
+    else
+        error "FAIL: cc-tmux self-test"; sed 's/^/    /' "$TMP_ERR"; FAIL=1
+    fi
+}
+
 info "check.sh — verifying repo (root: $ROOT)"
 section_zsh
 section_sh
 section_template
 section_shellcheck
 section_terraform
+section_apps_go
+section_apps_bun
+section_apps_cctmux
 
 if [ "$FAIL" -eq 0 ]; then success "ALL CHECKS PASSED"; else error "CHECKS FAILED"; fi
 exit "$FAIL"

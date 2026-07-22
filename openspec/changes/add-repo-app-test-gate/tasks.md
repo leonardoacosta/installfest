@@ -8,26 +8,26 @@ stack: t3
 
 ## API Batch
 
-- [ ] [1.1] Add `section_apps_go` to `scripts/check.sh` (placed after `section_terraform`'s
+- [x] [1.1] Add `section_apps_go` to `scripts/check.sh` (placed after `section_terraform`'s
   definition, before the invocation block): guard on `command -v go >/dev/null 2>&1 ||`
   skip-with-warning (`"SKIP: go not installed (apps/wavetui untested)"`); run
   `(cd "$ROOT/apps/wavetui" && go test ./... >"$TMP_ERR" 2>&1)`; report `PASS: wavetui go test` /
   `FAIL: wavetui go test` (indented output, `FAIL=1`) per plans/001-app-test-gate.md step 1.
   [type:config]
-- [ ] [1.2] Add `section_apps_bun` to `scripts/check.sh`: guard on `command -v bun`; run
+- [x] [1.2] Add `section_apps_bun` to `scripts/check.sh`: guard on `command -v bun`; run
   `bun test` in `apps/ctx-scan` and `apps/daily-brief` as two separately reported results
   (`PASS: ctx-scan bun test`, `PASS: daily-brief bun test`), same `TMP_ERR`/indent/`FAIL=1`
   pattern as `section_apps_go`, per plans/001-app-test-gate.md step 2. [type:config]
-- [ ] [1.3] Add `section_apps_cctmux` to `scripts/check.sh`: guard on `command -v cc-tmux`
+- [x] [1.3] Add `section_apps_cctmux` to `scripts/check.sh`: guard on `command -v cc-tmux`
   (skip-with-warning if absent — do NOT invoke it via python directly); run `cc-tmux self-test`,
   same reporting pattern; per plans/001-app-test-gate.md step 3. [type:config]
-- [ ] [1.4] Register all three new sections in the invocation block after `section_terraform`,
+- [x] [1.4] Register all three new sections in the invocation block after `section_terraform`,
   ordered `section_apps_go` → `section_apps_bun` → `section_apps_cctmux` (slowest last), per
   plans/001-app-test-gate.md step 4. [type:config]
-- [ ] [1.5] Add `"test": "bun test"` to the `scripts` object in `apps/daily-brief/package.json`
+- [x] [1.5] Add `"test": "bun test"` to the `scripts` object in `apps/daily-brief/package.json`
   (currently has none), making its 3-test suite discoverable standalone, per
   plans/001-app-test-gate.md step 5. [type:config]
-- [ ] [1.6] Add `"test": "./scripts/check.sh"` to the `scripts` object in the root `package.json`
+- [x] [1.6] Add `"test": "./scripts/check.sh"` to the `scripts` object in the root `package.json`
   (currently only `check` and `tf`) so `npm run test` invokes the full gate — do not create a
   Makefile/justfile, per plans/001-app-test-gate.md step 6. [type:config]
 
