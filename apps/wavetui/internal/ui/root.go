@@ -703,6 +703,13 @@ func (r *Root) View() tea.View {
 	if badges := r.unavailableBadges(); badges != "" {
 		statusLine = badges + "  " + help
 	}
+	// The admission hint is appended to this always-rendered status line —
+	// not to the persistentExtras() loop above — specifically so it stays
+	// visible regardless of HeadlessBar.View()'s own empty-string common
+	// case (see admissionHint's doc comment and HeadlessBar.AdmissionHint).
+	if hint := r.admissionHint(); hint != "" {
+		statusLine = hint + "\n" + statusLine
+	}
 
 	body = body + "\n" + statusLine
 
@@ -822,6 +829,26 @@ func truncateBadgeMessage(msg string) string {
 		return msg
 	}
 	return string(r[:badgeMessageMaxLen-1]) + "…"
+}
+
+// admissionHint locates the *HeadlessBar pane (appended via AppendPane in
+// cmd/wavetui/main.go — see NewHeadlessBar there) and returns its
+// AdmissionHint() text, or "" when no HeadlessBar has ever been appended
+// (e.g. every pre-existing test in this package, which constructs a bare
+// Root via NewRoot and never calls AppendPane at all) — the same
+// "render unchanged when the wiring doesn't exist" convention persistentExtras
+// and paneVisible already follow for r.memory. A plain scan of r.panes
+// rather than a typed Root field, mirroring handleKey's own *HeadlessBar
+// type-assertion precedent, so wavetui-headless-discoverability's scope
+// (headlessbar.go/root.go/queuepane.go only) never needs to touch main.go's
+// existing AppendPane call site.
+func (r *Root) admissionHint() string {
+	for _, p := range r.panes {
+		if hb, ok := p.(*HeadlessBar); ok {
+			return hb.AdmissionHint()
+		}
+	}
+	return ""
 }
 
 func indexOf(panes []Pane, p Pane) int {

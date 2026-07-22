@@ -11,16 +11,16 @@ stack: t3
 
 ## UI Batch
 
-- [ ] [1.1] Add a method to `apps/wavetui/internal/ui/headlessbar.go` (e.g. [beads:if-f6e5]
+- [x] [1.1] Add a method to `apps/wavetui/internal/ui/headlessbar.go` (e.g. [beads:if-f6e5]
   `AdmissionHint() string`) that renders "a: headless dispatch (off)"/"(on)" from
   `Controller.AdmissionEnabled()`, independent of `View()`'s existing empty-common-case
   contract — per this proposal's `specs/wavetui/spec.md` MODIFIED "An operator keybinding
   enables/disables headless admission" Requirement's new scenario
-- [ ] [1.2] Append `HeadlessBar.AdmissionHint()`'s output to the persistent strip in [beads:if-thdk]
+- [x] [1.2] Append `HeadlessBar.AdmissionHint()`'s output to the persistent strip in [beads:if-thdk]
   `apps/wavetui/internal/ui/root.go`'s `View()`, always rendered regardless of
   `HeadlessBar.View()`'s own empty/non-empty state
   - depends on: 1.1
-- [ ] [1.3] Add a dispatch-mechanism fallback to `apps/wavetui/internal/ui/queuepane.go`'s [beads:if-3zqc]
+- [x] [1.3] Add a dispatch-mechanism fallback to `apps/wavetui/internal/ui/queuepane.go`'s [beads:if-3zqc]
   `renderBlockerCell`: when no dispatch badge, lane badge, or blocker badge applies, render
   "tmux" if `item.Session != nil && item.Session.PaneID != ""`, else "clipboard" — per spec.md's
   "an unblocked item with no other badge shows its dispatch mechanism" / "an item with no

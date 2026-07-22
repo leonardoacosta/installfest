@@ -1092,10 +1092,14 @@ var conflictWarningStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Co
 // (the pre-existing rationale this doc comment already documented); next,
 // an active lane (q.lanes) renders its own badge instead of the plain
 // blockerBadge, since a lane is strictly more informative than the raw
-// "blocked:<type>" text once decision-lanes is wired in. Falls straight
-// through to the unchanged blockerBadge whenever neither map has an entry
-// for it.ID — the same "render unchanged when the map is empty" contract
-// renderTitleCell already follows for its own additive overlay maps.
+// "blocked:<type>" text once decision-lanes is wired in. Falls through to
+// the unchanged blockerBadge whenever neither map has an entry for it.ID —
+// the same "render unchanged when the map is empty" contract renderTitleCell
+// already follows for its own additive overlay maps — and, when blockerBadge
+// itself returns "" (unblocked and fresh, this proposal's own lowest-
+// precedence case), falls through further to dispatchMechanismTag
+// (wavetui-headless-discoverability, tasks.md [1.3]) so an otherwise-blank
+// cell instead names which mechanism an "enter" press would use.
 func (q *QueuePane) renderBlockerCell(it store.Item) string {
 	if badge, ok := q.dispatchBadges[it.ID]; ok {
 		return badge
@@ -1103,7 +1107,10 @@ func (q *QueuePane) renderBlockerCell(it store.Item) string {
 	if ls, ok := q.lanes[it.ID]; ok {
 		return q.renderLaneBadge(it, ls)
 	}
-	return blockerBadge(it)
+	if badge := blockerBadge(it); badge != "" {
+		return badge
+	}
+	return dispatchMechanismTag(it)
 }
 
 // renderLaneBadge renders the Blocker/Stale column's lane-specific state for
@@ -1145,4 +1152,20 @@ func blockerBadge(it store.Item) string {
 	default:
 		return ""
 	}
+}
+
+// dispatchMechanismTag renders the Blocker/Stale column's fallback content
+// (wavetui-headless-discoverability, tasks.md [1.3]) for an item with no
+// dispatch badge, lane badge, or blocker/stale badge occupying that cell —
+// naming which mechanism an "enter" press (startSelected) would actually
+// use: "tmux" when the item already has a linked pane (item.Session.PaneID,
+// which dispatch.TmuxDispatcher.resolveTarget itself prefers first per that
+// function's own doc comment), else "clipboard". A labeled approximation of
+// resolveTarget's full best-guess scoring, not a byte-exact preview — see
+// this proposal's Risks section for why a real preview API is out of scope.
+func dispatchMechanismTag(it store.Item) string {
+	if it.Session != nil && it.Session.PaneID != "" {
+		return "tmux"
+	}
+	return "clipboard"
 }

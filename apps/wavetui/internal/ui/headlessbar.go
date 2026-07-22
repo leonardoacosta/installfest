@@ -147,6 +147,25 @@ func (h *HeadlessBar) View() string {
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
+// AdmissionHint renders a one-line admission-state hint —
+// "a: headless dispatch (off)" when disabled, "(on)" when enabled — for
+// root.go's always-visible persistent strip (wavetui-headless-
+// discoverability, tasks.md [1.1]). Deliberately independent of View()'s
+// own empty-common-case contract above: View() renders nothing until
+// admission is toggled on or the queue is paused, but this hint's entire
+// point is to be visible on every run regardless of that state, so an
+// operator who has never pressed admissionToggleKey can still discover it
+// exists. Reads Controller.AdmissionEnabled() directly (no local mirror),
+// the same no-drift convention View()'s own indicator above already
+// establishes.
+func (h *HeadlessBar) AdmissionHint() string {
+	state := "off"
+	if h.ctrl.AdmissionEnabled() {
+		state = "on"
+	}
+	return fmt.Sprintf("%s: headless dispatch (%s)", admissionToggleKey, state)
+}
+
 // Focusable implements Pane. HeadlessBar joins the focus ring (design.md §
 // Pane implementation precedent every appended pane follows) — the resume
 // action below requires this pane to be focused, the same
