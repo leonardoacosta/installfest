@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# run_onchange_mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv4
+# run_onchange_mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv3
 #
 # Re-runs whenever the backing script or this wrapper changes.
 # Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/mac-autofs-dev.sh")) | trim }}
 #
-# Client side of home/run_onchange_dev-nfs-export.sh.tmpl (the homelab NFSv4
+# Client side of home/run_onchange_dev-nfs-export.sh.tmpl (the homelab NFSv3
 # export). Wires macOS's native automountd to lazy-mount /Volumes/dev-* on
 # first access via Tailscale MagicDNS — no third-party software.
 #

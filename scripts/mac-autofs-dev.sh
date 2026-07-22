@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv4 (idempotent).
+# scripts/mac-autofs-dev.sh - macOS autofs mount of homelab's ~/dev over NFSv3 (idempotent).
 #
 # Client side of the "mount ~/dev as a network drive" feature. Uses macOS's
 # native automountd (autofs) — no third-party software — via a dedicated
@@ -30,19 +30,30 @@
 # raw IP, so this keeps working regardless of whether Tailscale is currently
 # negotiating direct-LAN or relaying via DERP.
 #
-# vers=4 is load-bearing, not cosmetic: nfs-export.sh exports NFSv4-only (no
-# rpcbind/portmapper on the server), so a default mount_nfs negotiation that
-# falls back to v3 would fail outright without it.
+# CORRECTED 2026-07-22: vers=4 was the original design (single-port NFS
+# server, 2049 only) but live-tested against the real Mac + a real homelab
+# reboot, it consistently failed with "RPC prog. not avail" — root-caused to
+# a kernel-level lockd/nfsdctl issue on homelab's exact kernel version (see
+# nfs-export.sh's header for the full diagnostic trail). NFSv3 mounted
+# successfully on first try against the same exports, no server-side change
+# needed for the protocol switch itself.
+#
+# locallocks is load-bearing, not cosmetic: it keeps all file-locking
+# operations client-side, so the mount never depends on lockd/statd being
+# reachable over the network at all — those run on unstable DYNAMIC ports
+# that change every nfs-server restart, which would otherwise make the
+# firewall rules go stale after every homelab reboot. nolocks (the more
+# obvious-looking option) is documented as NFSv2/v3-only too, but it fully
+# DISABLES locking rather than keeping it local — locallocks is the
+# strictly better choice for a mount real editors/tools will touch.
 #
 # Re-runs safely: /etc/auto_dev is content-compared before writing;
 # /etc/auto_master (a shared system file with pre-existing entries) gets one
 # grep-guarded append, never a wholesale rewrite; automount -vc reloads only
 # when something actually changed.
 #
-# NOT verified end-to-end from this session — homelab has no macOS shell
-# access. Written correct-by-inspection against documented autofs/auto_master
-# syntax; the real "cd /Volumes/dev-personal" mount test is a pending manual
-# step for a Mac-side session (see chezmoi apply + this script's own output).
+# Verified end-to-end 2026-07-22 via SSH to the real Mac: mount, directory
+# listing, and a write test all succeeded with these exact options.
 
 set -uo pipefail
 
@@ -56,14 +67,7 @@ DEV_ROOT="/home/nyaptor/dev"
 MAP_FILE="/etc/auto_dev"
 MASTER_FILE="/etc/auto_master"
 MOUNT_PREFIX="/Volumes"
-# nolocks is load-bearing, not cosmetic: macOS's mount_nfs still tries to
-# register with the NFS lock manager (NLM/statd) over rpcbind by default,
-# even for a pure NFSv4 mount — and homelab's export is NFSv4-only with no
-# rpcbind running at all (by design, see nfs-export.sh). Without nolocks
-# the mount fails at the RPC layer ("rPC prog. not avail"), confirmed live
-# 2026-07-22 against the real Mac after the indirect-map fix started
-# triggering correctly.
-MOUNT_OPTS="fstype=nfs,vers=4,resvport,nosuid,intr,nolocks"
+MOUNT_OPTS="fstype=nfs,vers=3,resvport,nosuid,intr,locallocks"
 EXPORT_DIRS=(personal priceless cc central-planning)
 
 # ---------------------------------------------------------------------------
@@ -110,7 +114,7 @@ write_if_changed() {
 configure_auto_dev_map() {
     local lines=(
         "# Managed by scripts/mac-autofs-dev.sh — do not hand-edit."
-        "# Indirect-map mounts of homelab's ~/dev subtrees (NFSv4 over Tailscale)."
+        "# Indirect-map mounts of homelab's ~/dev subtrees (NFSv3 over Tailscale)."
         "# Mounted under ${MOUNT_PREFIX}, keyed by name — see auto_master's"
         "# '${MOUNT_PREFIX} auto_dev' line."
     )
@@ -165,7 +169,7 @@ reload_automount() {
 
 main() {
     info "========================================"
-    info "  autofs mount of homelab ~/dev (Tailscale + NFSv4)"
+    info "  autofs mount of homelab ~/dev (Tailscale + NFSv3)"
     info "========================================"
 
     assert_macos

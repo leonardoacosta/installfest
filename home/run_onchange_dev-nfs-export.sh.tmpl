@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# run_onchange_dev-nfs-export.sh - homelab NFSv4 export of ~/dev subtrees
+# run_onchange_dev-nfs-export.sh - homelab NFSv3 export of ~/dev subtrees
 #
 # Re-runs whenever the backing script or this wrapper changes.
 # Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/homelab/nfs-export.sh")) | trim }}
 #
 # Exports 4 top-level ~/dev directories (personal, priceless, cc,
-# central-planning) over NFSv4, Tailscale-CIDR-scoped, for the Mac's autofs
+# central-planning) over NFSv3, Tailscale-CIDR-scoped, for the Mac's autofs
 # mount (home/run_onchange_mac-autofs-dev.sh.tmpl) to lazy-mount.
 #
 # Gated on .machine == "homelab" (see home/.chezmoi.toml.tmpl). On mac/cloudpc
