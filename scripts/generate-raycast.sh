@@ -18,9 +18,10 @@
 # {code}.sh in the 3 output dirs above whose code is no longer a projects.toml
 # key for that dir's tier — registry.sh's registry_orphan_codes() does the
 # diff, so a removed project's stale launcher never lingers. --dry-run prints
-# "Would prune: <path>" instead of deleting. Two hand-maintained root-dir
-# scripts (img.sh, paste-image.sh) are explicitly excluded — see the
-# NON_REGISTRY_SCRIPTS block below.
+# "Would prune: <path>" instead of deleting. One hand-maintained root-dir
+# script (img.sh) is explicitly excluded — see the NON_REGISTRY_SCRIPTS block
+# below. (paste-image.sh deleted 2026-07-22: repo-destination screenshots
+# retired; img.sh's fixed ~/screenshots sink replaced it.)
 #
 # Editor migration (2026-07-08): reverted Mac/homelab editor from Zed back to
 # Cursor — the 2026-04-26 one-week Zed trial ran its course. To try Zed again,
@@ -310,16 +311,17 @@ PYTHON_SCRIPT
 #     is the dir gen_remote_script() + the "remote"-tier dropdown picker write
 #     to; it is NOT a 4th tier of its own, so "remote" is the correct diff key.
 #
-# root/ ALSO holds a couple of genuinely hand-maintained, non-registry Raycast
-# scripts (img.sh, paste-image.sh — clipboard/image-paste helpers). They are
-# never written by this generator (confirmed: their body doesn't match any
-# gen_*_script() template, and git history shows independent hand-edits), so a
-# naive registry-diff would treat them as orphans and delete real files the
-# first time this prune pass runs. scripts/audit-projects.sh's own orphan
-# check (section 3, section_raycast) sidesteps this by never scanning root/ at
-# all — only local/ and cloudpc/. This prune pass DOES scan root/ (the spec
-# requires it), so it must exclude these names explicitly instead.
-NON_REGISTRY_SCRIPTS=(img paste-image)
+# root/ ALSO holds a genuinely hand-maintained, non-registry Raycast script
+# (img.sh — clipboard-image helper). It is never written by this generator
+# (its body doesn't match any gen_*_script() template, and git history shows
+# independent hand-edits), so a naive registry-diff would treat it as an
+# orphan and delete a real file the first time this prune pass runs.
+# scripts/audit-projects.sh's own orphan check (section 3, section_raycast)
+# sidesteps this by never scanning root/ at all — only local/ and cloudpc/.
+# This prune pass DOES scan root/ (the spec requires it), so it must exclude
+# the name explicitly instead. (paste-image.sh removed from this list
+# 2026-07-22 — file deleted, see img.sh header.)
+NON_REGISTRY_SCRIPTS=(img)
 
 _is_non_registry_script() {
   local code="$1" x
