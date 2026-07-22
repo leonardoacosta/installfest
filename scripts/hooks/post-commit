@@ -61,4 +61,11 @@ if [ -n "$REPO_ROOT" ]; then
     fi
 fi
 
+# --- wavetui (self-gating on apps/wavetui diff, backgrounded) -----------
+REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+if [ -n "$REPO_ROOT" ] && [ -x "$REPO_ROOT/scripts/hooks/wavetui-build.sh" ]; then
+    REPO_ROOT="$REPO_ROOT" nohup "$REPO_ROOT/scripts/hooks/wavetui-build.sh" </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+fi
+
 exit 0
