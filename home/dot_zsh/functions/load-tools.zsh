@@ -64,8 +64,8 @@ fi
 # eza (better ls)
 if command -v eza &>/dev/null; then
   alias ls="eza --icons --grid --group-directories-first"
-  alias la="eza -la --icons --git --group-directories-first"
-  alias lt="eza --tree --level=2 --icons"
+  alias la="eza -la --icons --git --group-directories-first --hyperlink"
+  alias lt="eza --tree --level=2 --icons --hyperlink"
 fi
 
 # tree (colored tree view, default depth 1; override with e.g. `ll -L 3`)
