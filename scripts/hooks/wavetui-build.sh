@@ -1,11 +1,16 @@
 #!/bin/sh
 #
-# wavetui-build.sh — rebuild apps/wavetui's binary whenever a commit or
+# wavetui-build.sh — reinstall apps/wavetui's binary whenever a commit or
 # merge actually touches its source tree. Mirrors zsa-firmware-build.sh's
 # state-file gating idiom: record the last commit SHA we built from, diff
 # apps/wavetui's paths between that SHA and HEAD, and only rebuild when
 # something changed. Runs on any machine with `go` installed (plain local
 # build — no Homelab-only gate like the firmware pipeline needs).
+#
+# Uses `go install` (not `go build -o`) so the single global-PATH copy at
+# $(go env GOPATH)/bin/wavetui (~/go/bin, already on PATH — see
+# dot_zshenv.tmpl's Go section) is the only artifact and it self-updates on
+# every relevant commit — no separate local binary to drift out of sync.
 
 set +e
 
@@ -53,8 +58,10 @@ fi
 {
     echo "--- wavetui-build $(date -u +%FT%TZ) ---"
     echo "rebuilding: ${LAST_SHA:-<none>} -> $CURRENT_SHA"
-    if (cd "$WAVETUI_DIR" && go build -o wavetui ./cmd/wavetui) 2>&1; then
-        echo "built: $WAVETUI_DIR/wavetui"
+    if (cd "$WAVETUI_DIR" && go install ./cmd/wavetui) 2>&1; then
+        GOBIN_DIR=$(go env GOBIN)
+        [ -z "$GOBIN_DIR" ] && GOBIN_DIR="$(go env GOPATH)/bin"
+        echo "installed: $GOBIN_DIR/wavetui"
         jq -n --arg s "$CURRENT_SHA" --arg t "$(date -u +%FT%TZ)" \
             '{built_sha: $s, built_at: $t}' > "$STATE_FILE" 2>/dev/null
     else
