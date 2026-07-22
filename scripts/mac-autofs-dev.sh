@@ -3,8 +3,19 @@
 #
 # Client side of the "mount ~/dev as a network drive" feature. Uses macOS's
 # native automountd (autofs) — no third-party software — via a dedicated
-# direct map, so this never collides with the built-in "/-  -static" fstab
-# map already present in /etc/auto_master.
+# INDIRECT map mounted under /Volumes, keyed by name (dev-personal, etc.).
+#
+# CORRECTED 2026-07-22: an earlier version of this script used a second
+# "/-" DIRECT-map line in /etc/auto_master, intending to avoid colliding
+# with the built-in "/-  -static" fstab-backed map already present there.
+# That was wrong, not just risky — macOS's auto_master only honors ONE "/-"
+# (direct map) entry; a second one is silently ignored by automountd, which
+# is exactly why "cd /Volumes/dev-personal" returned a plain "no such file
+# or directory" instead of an NFS-layer error on first live test. The fix
+# is an indirect map under /Volumes instead: it never touches the existing
+# "/-  -static" line, and the final mounted paths (/Volumes/dev-personal
+# etc.) are unchanged from what was originally designed. See
+# configure_auto_master_entry() below for the stale-line migration.
 #
 # Server side: scripts/homelab/nfs-export.sh.
 #
@@ -44,6 +55,7 @@ NFS_HOST="homelab.tail296462.ts.net"
 DEV_ROOT="/home/nyaptor/dev"
 MAP_FILE="/etc/auto_dev"
 MASTER_FILE="/etc/auto_master"
+MOUNT_PREFIX="/Volumes"
 MOUNT_OPTS="fstype=nfs,vers=4,resvport,nosuid,intr"
 EXPORT_DIRS=(personal priceless cc central-planning)
 
@@ -85,17 +97,19 @@ write_if_changed() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1: /etc/auto_dev — direct map, one line per exported ~/dev subtree
+# Step 1: /etc/auto_dev — indirect map, one line per exported ~/dev subtree
 # ---------------------------------------------------------------------------
 
 configure_auto_dev_map() {
     local lines=(
         "# Managed by scripts/mac-autofs-dev.sh — do not hand-edit."
-        "# Direct-map mounts of homelab's ~/dev subtrees (NFSv4 over Tailscale)."
+        "# Indirect-map mounts of homelab's ~/dev subtrees (NFSv4 over Tailscale)."
+        "# Mounted under ${MOUNT_PREFIX}, keyed by name — see auto_master's"
+        "# '${MOUNT_PREFIX} auto_dev' line."
     )
     local d
     for d in "${EXPORT_DIRS[@]}"; do
-        lines+=("/Volumes/dev-$d -${MOUNT_OPTS} ${NFS_HOST}:${DEV_ROOT}/$d")
+        lines+=("dev-$d -${MOUNT_OPTS} ${NFS_HOST}:${DEV_ROOT}/$d")
     done
     local content
     content=$(printf '%s\n' "${lines[@]}")
@@ -103,16 +117,27 @@ configure_auto_dev_map() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2: /etc/auto_master — append the direct-map reference once
+# Step 2: /etc/auto_master — append the indirect-map reference once
 # ---------------------------------------------------------------------------
 
 configure_auto_master_entry() {
+    # Migrate a stale DIRECT-map line from the earlier, broken version of
+    # this script (see the header comment) — macOS only honors one "/-"
+    # entry, and the built-in "/-  -static" line already occupies it. A
+    # leftover second "/-  auto_dev" line is dead weight at best; remove it
+    # before adding the correct indirect-map line.
     if [[ -f "$MASTER_FILE" ]] && grep -qE '^[[:space:]]*/-[[:space:]]+auto_dev([[:space:]]|$)' "$MASTER_FILE" 2>/dev/null; then
-        success "$MASTER_FILE already references auto_dev"
+        info "removing stale direct-map auto_dev line (collided with the built-in /- -static line)"
+        sudo sed -i '' -E '/^[[:space:]]*\/-[[:space:]]+auto_dev([[:space:]]|$)/d' "$MASTER_FILE" \
+            || { error "failed to remove stale auto_master line"; exit 1; }
+    fi
+
+    if [[ -f "$MASTER_FILE" ]] && grep -qE "^[[:space:]]*${MOUNT_PREFIX//\//\\/}[[:space:]]+auto_dev([[:space:]]|\$)" "$MASTER_FILE" 2>/dev/null; then
+        success "$MASTER_FILE already references auto_dev under $MOUNT_PREFIX"
         return 0
     fi
-    info "appending auto_dev direct-map entry to $MASTER_FILE"
-    printf '%s\n' "/-			auto_dev	-nosuid" | sudo tee -a "$MASTER_FILE" >/dev/null \
+    info "appending auto_dev indirect-map entry to $MASTER_FILE"
+    printf '%s\n' "${MOUNT_PREFIX}		auto_dev	-nosuid" | sudo tee -a "$MASTER_FILE" >/dev/null \
         || { error "failed to append to $MASTER_FILE"; exit 1; }
     success "appended auto_dev entry to $MASTER_FILE"
     return 10
