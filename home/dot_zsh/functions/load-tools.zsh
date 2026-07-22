@@ -61,15 +61,12 @@ if command -v bat &>/dev/null; then
   alias catp="bat"  # With paging
 fi
 
-# eza (better ls)
-if command -v eza &>/dev/null; then
-  alias ls="eza --icons --grid --group-directories-first"
-  alias la="eza -la --icons --git --group-directories-first --hyperlink"
-  alias lt="eza --tree --level=2 --icons --hyperlink"
-fi
-
-# lsd (tree view w/ icons + hyperlinks, default depth 1; override with e.g. `ll --depth=3`)
+# lsd (better ls: icons + hyperlinks + colors)
 if command -v lsd &>/dev/null; then
+  alias ls="lsd --icon=auto --hyperlink=auto --group-directories-first"
+  alias la="lsd -la --icon=auto --hyperlink=auto --group-directories-first --git"
+  alias lt="lsd --tree --depth=2 --icon=auto --hyperlink=auto --group-directories-first"
+  # tree view, default depth 1; override with e.g. `ll --depth=3`
   alias ll='lsd -la --tree --depth=1 --icon=auto --hyperlink=auto --group-directories-first --blocks=name,date,size --date="+%a %m/%d/%y %I:%M %p"'
 fi
 
