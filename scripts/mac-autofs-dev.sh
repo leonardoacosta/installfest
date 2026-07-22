@@ -56,7 +56,14 @@ DEV_ROOT="/home/nyaptor/dev"
 MAP_FILE="/etc/auto_dev"
 MASTER_FILE="/etc/auto_master"
 MOUNT_PREFIX="/Volumes"
-MOUNT_OPTS="fstype=nfs,vers=4,resvport,nosuid,intr"
+# nolocks is load-bearing, not cosmetic: macOS's mount_nfs still tries to
+# register with the NFS lock manager (NLM/statd) over rpcbind by default,
+# even for a pure NFSv4 mount — and homelab's export is NFSv4-only with no
+# rpcbind running at all (by design, see nfs-export.sh). Without nolocks
+# the mount fails at the RPC layer ("rPC prog. not avail"), confirmed live
+# 2026-07-22 against the real Mac after the indirect-map fix started
+# triggering correctly.
+MOUNT_OPTS="fstype=nfs,vers=4,resvport,nosuid,intr,nolocks"
 EXPORT_DIRS=(personal priceless cc central-planning)
 
 # ---------------------------------------------------------------------------

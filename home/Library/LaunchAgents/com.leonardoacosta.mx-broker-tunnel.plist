@@ -25,11 +25,15 @@
     <key>RunAtLoad</key>
     <true/>
 
+    <!-- Unconditional restart-on-exit (was NetworkState-only, which never
+         retries after a DNS-resolution race at boot -- confirmed live
+         2026-07-22: the tunnel died with "Could not resolve hostname
+         homelab.tail296462.ts.net" (Tailscale MagicDNS not ready yet at
+         RunAtLoad time) and sat dead until manually kickstarted, since the
+         network state genuinely never changed afterward. ThrottleInterval
+         below prevents a tight crash loop while DNS/network settles. -->
     <key>KeepAlive</key>
-    <dict>
-        <key>NetworkState</key>
-        <true/>
-    </dict>
+    <true/>
 
     <key>ThrottleInterval</key>
     <integer>10</integer>
