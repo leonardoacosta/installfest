@@ -70,7 +70,7 @@ fi
 
 # tree (colored tree view, default depth 1; override with e.g. `ll -L 3`)
 if command -v tree &>/dev/null; then
-  alias ll="tree -C -L 1 -NQhDA"
+  alias ll="tree -C -L 1 -NhDA"
 fi
 
 # ripgrep config
