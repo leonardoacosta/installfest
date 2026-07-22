@@ -128,6 +128,12 @@ export PNPM_HOME="$HOME/.local/share/pnpm"
 [[ -d "/usr/local/go/bin" ]] && export PATH="$PATH:/usr/local/go/bin"
 [[ -d "$HOME/go/bin" ]] && export PATH="$PATH:$HOME/go/bin"
 
+# Bun global installs/links (bin dir location differs by install method: official
+# installer defaults to ~/.bun/bin; XDG-respecting packages, e.g. Arch's pacman
+# build, honor XDG_CACHE_HOME and write to <cache>/.bun/bin instead — check both).
+[[ -d "$HOME/.bun/bin" ]] && export PATH="$PATH:$HOME/.bun/bin"
+[[ -d "${XDG_CACHE_HOME:-$HOME/.cache}/.bun/bin" ]] && export PATH="$PATH:${XDG_CACHE_HOME:-$HOME/.cache}/.bun/bin"
+
 # .NET (DOTNET_ROOT lets the host resolve SDKs/runtimes; tools dir hosts `dotnet tool install -g`)
 {{ if eq .chezmoi.os "darwin" -}}
 [[ -d "/usr/local/share/dotnet" ]] && export DOTNET_ROOT="/usr/local/share/dotnet"
