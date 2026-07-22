@@ -26,6 +26,16 @@ import type { CalendarEvent, TriageItem } from "../sources/mx";
  * only one that can occur. */
 const HYGIENE_OK_STATUSES = new Set(["ok", "success", "clean", "healthy"]);
 
+/** Strips C0 (`\x00-\x1F`, including tab) and C1 (`\x7F-\x9F`) control
+ * characters from an untrusted external string (email subjects, GitHub
+ * titles, calendar event titles from mx-gateway) before it reaches either
+ * renderer — an unstripped ANSI escape sequence in a title can manipulate
+ * the terminal on render (cursor moves, line clears, output spoofing). Pure
+ * function, no I/O. */
+export function stripControlChars(s: string): string {
+  return s.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+}
+
 /** Humanizes an ISO timestamp as "Xm/Xh/Xd ago" relative to `nowMs`
  * (defaults to `Date.now()`). Returns the raw string unchanged if it does
  * not parse as a date. */
@@ -79,8 +89,8 @@ export function formatMeetingsSummary(meetings: MeetingsSection): MeetingsSummar
     .filter((line): line is string => line !== null);
   const eventLines = meetings.events.map((event) => ({
     time: formatEventTime(event),
-    title: event.title,
-    location: event.location,
+    title: stripControlChars(event.title),
+    location: event.location === null ? null : stripControlChars(event.location),
   }));
   return { staleBanners, eventLines };
 }
@@ -101,7 +111,7 @@ export interface RadarGroupFormatted {
 function toRadarRows(items: TriageItem[]): RadarRow[] {
   return items.map((item) => ({
     id: item.core.id,
-    title: item.core.title,
+    title: stripControlChars(item.core.title),
     source: item.core.source,
     url: item.core.url,
     lastActivityAt: item.core.lastActivityAt,
@@ -145,7 +155,7 @@ export function formatOpenItemsRepos(openItems: OpenItemsScan): OpenItemsRepoLin
     total_open: repo.summary.total_open,
     blocked: repo.bucket_counts["blocked"] ?? 0,
     human_only: repo.bucket_counts["human_only"] ?? 0,
-    top_items: repo.top_items,
+    top_items: repo.top_items.map((item) => ({ ...item, title: stripControlChars(item.title) })),
   }));
 }
 

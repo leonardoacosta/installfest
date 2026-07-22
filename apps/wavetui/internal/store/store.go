@@ -92,6 +92,16 @@ type Item struct {
 	// DetectLane takes a plain string rather than a store.Item or
 	// *BlockerNote, avoiding an import cycle between the two packages.
 	LaneState *lanes.LaneState
+	// Description is the item's descriptive body text — a bead's own
+	// `description` field (BeadsSource) or a proposal's `## Summary`
+	// section body (OpenSpecSource) — see wavetui-item-description's
+	// design/spec.md MODIFIED "Store derives normalized queue state..."
+	// Requirement. Empty string (not nil) when the backing source has no
+	// such content; DetailPane treats empty as "render nothing," not a
+	// placeholder. Additive field: every existing source that predates
+	// this proposal leaves this at the empty-string zero value, so no
+	// existing caller needs to change.
+	Description string
 }
 
 // SessionLink is one claimed item's linked-session state, derived by

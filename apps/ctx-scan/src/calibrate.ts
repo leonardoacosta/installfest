@@ -158,7 +158,7 @@ function measureClaudeMdChainChars(projectRoot: string): { ok: true; chars: numb
   } catch (err) {
     return { ok: false, reason: `failed to read root CLAUDE.md: ${errMsg(err)}` };
   }
-  for (const imp of resolveImportChain(rootClaudeMd)) {
+  for (const imp of resolveImportChain(rootClaudeMd, projectRoot)) {
     try {
       chars += readFileSync(imp.path, "utf8").length;
     } catch {

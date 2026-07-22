@@ -26,7 +26,7 @@
  *     origin rather than duplicating its private logic per project.
  */
 import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from "node:fs";
-import { join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import type { Node, NodeClass, NodeOrigin, Surface } from "./model";
 import { resolveImportChain } from "./imports";
 import {
@@ -118,7 +118,9 @@ function claudeMdChainNodes(rootClaudeMdPath: string, origin: NodeOrigin): Node[
 
   const out: Node[] = [makeUnTruncatedNode(rootClaudeMdPath, "claude-md-chain", 1, rootContent.length, origin)];
 
-  for (const imp of resolveImportChain(rootClaudeMdPath)) {
+  // rootClaudeMdPath is always `<projectRoot>/CLAUDE.md` — its dirname IS the
+  // project root, which is what @import resolution must stay confined to.
+  for (const imp of resolveImportChain(rootClaudeMdPath, dirname(rootClaudeMdPath))) {
     let content: string;
     try {
       content = readFileSync(imp.path, "utf8");

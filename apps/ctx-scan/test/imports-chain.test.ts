@@ -13,7 +13,10 @@
  * just a mutation of these fixtures — would fail this test.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { buildFleet } from "../src/cli";
+import { resolveImportChain } from "../src/imports";
 import { cleanup, dir, file, tmpRoot } from "./helpers/tree";
 
 const roots: string[] = [];
@@ -100,4 +103,50 @@ describe("@import chain + nested CLAUDE.md — hand-computed totals [4.1]", () =
     },
     15_000,
   );
+});
+
+describe("resolveImportChain — containment (harden-ctx-scan-fs-boundaries [1.3])", () => {
+  test("an @import escaping the project root is skipped; an in-project @import still resolves", () => {
+    const root = tmp("ctx-scan-imports-traversal-");
+    const projectRoot = join(root, "proj");
+
+    file(
+      root,
+      "proj/CLAUDE.md",
+      ["# Root", "", "@docs/legit.md", "", "@../outside.md", ""].join("\n"),
+    );
+    file(root, "proj/docs/legit.md", "# Legit — inside the project root\n");
+    file(root, "outside.md", "# Outside the project root — must never resolve\n");
+
+    const resolved = resolveImportChain(join(projectRoot, "CLAUDE.md"), projectRoot);
+
+    expect(resolved.map((r) => r.path)).toEqual([join(projectRoot, "docs/legit.md")]);
+    expect(resolved.some((r) => r.path.includes("outside.md"))).toBe(false);
+  });
+
+  test("an @import whose lexical path is in-project but whose target is a symlink escaping the root is skipped (gate-failure regression, wave 2 post-wave review)", () => {
+    const root = tmp("ctx-scan-imports-symlink-escape-");
+    const projectRoot = join(root, "proj");
+
+    file(root, "outside-secret.md", "# Secret content living outside the project root\n");
+    file(
+      root,
+      "proj/CLAUDE.md",
+      ["# Root", "", "@docs/legit.md", "", "@docs/leaked.md", ""].join("\n"),
+    );
+    file(root, "proj/docs/legit.md", "# Legit — inside the project root\n");
+    dir(root, "proj/docs");
+    // The import LINE names an in-project-looking path ("docs/leaked.md"),
+    // but the file at that path is a symlink whose TARGET is outside
+    // projectRoot — a lexical-only containment check (comparing the joined
+    // path string, never resolving the symlink) would incorrectly treat
+    // this as in-project and let the next hop's readFileSync follow the
+    // symlink and leak the outside file's content.
+    symlinkSync(join(root, "outside-secret.md"), join(projectRoot, "docs/leaked.md"));
+
+    const resolved = resolveImportChain(join(projectRoot, "CLAUDE.md"), projectRoot);
+
+    expect(resolved.map((r) => r.path)).toEqual([join(projectRoot, "docs/legit.md")]);
+    expect(resolved.some((r) => r.path.includes("leaked"))).toBe(false);
+  });
 });

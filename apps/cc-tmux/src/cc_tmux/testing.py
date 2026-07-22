@@ -3437,6 +3437,55 @@ def _test_conductor_wait_for_pane_ready() -> None:
     _check(ok is False, "never-ready pane must time out False")
 
 
+def _test_conductor_prompt_seed_load_buffer_not_send_keys_l() -> None:
+    """cctmux-loadbuffer-seeding: an embedded newline in the prompt must never
+    reach the pane via `send-keys -l` (which would submit at the newline and
+    inject the text after it as a separate, unintended command). Prompt text
+    must be delivered through `load-buffer` stdin + bracketed `paste-buffer
+    -p`, with exactly one `send-keys Enter` to submit."""
+    prompt = "line1\n/quit\nline3"
+    calls: List[Tuple[List[str], Optional[str]]] = []
+
+    def fake_run(args: List[str], *, check_available: bool = True, input_text: Optional[str] = None):
+        calls.append((list(args), input_text))
+        return ""  # every call "succeeds" (non-None, _run_tmux's contract)
+
+    saved = tmux._run_tmux
+    tmux._run_tmux = fake_run  # type: ignore[assignment]
+    try:
+        ok = conductor._seed_prompt("%42", prompt)
+        _check(ok is True, "seeding must report success when every step succeeds")
+    finally:
+        tmux._run_tmux = saved  # type: ignore[assignment]
+
+    # (a) prompt text went through load-buffer stdin, not send-keys -l — and
+    # the newline-strip defense-in-depth guard already flattened it before
+    # delivery (belt-and-suspenders, ahead of the bracketed-paste primary fix).
+    load_calls = [c for c in calls if c[0][:1] == ["load-buffer"]]
+    _check(len(load_calls) == 1, f"expected exactly one load-buffer call, got {len(load_calls)}")
+    load_args, load_input = load_calls[0]
+    _check(load_args[:2] == ["load-buffer", "-b"], f"load-buffer args wrong: {load_args}")
+    _check(load_input == "line1 /quit line3", f"prompt bytes wrong on load-buffer stdin: {load_input!r}")
+    _check("\n" not in (load_input or ""), "newline-strip guard must flatten embedded newlines")
+
+    # (b) delivered via bracketed paste-buffer to the target pane.
+    paste_calls = [c for c in calls if c[0][:1] == ["paste-buffer"]]
+    _check(len(paste_calls) == 1, f"expected exactly one paste-buffer call, got {len(paste_calls)}")
+    _check("-p" in paste_calls[0][0], f"paste-buffer must use bracketed paste: {paste_calls[0][0]}")
+    _check("%42" in paste_calls[0][0], f"paste-buffer must target the pane: {paste_calls[0][0]}")
+
+    # (c) exactly one send-keys Enter follows, and no send-keys -l is ever used.
+    send_keys_calls = [c[0] for c in calls if c[0][:1] == ["send-keys"]]
+    enter_calls = [a for a in send_keys_calls if a[-1] == "Enter"]
+    _check(len(enter_calls) == 1, f"expected exactly one send-keys Enter, got {len(enter_calls)}")
+    literal_calls = [a for a in send_keys_calls if "-l" in a]
+    _check(not literal_calls, f"send-keys -l must never be used for prompt delivery: {literal_calls}")
+
+    # (d) buffer cleanup happened.
+    delete_calls = [c for c in calls if c[0][:1] == ["delete-buffer"]]
+    _check(len(delete_calls) == 1, f"expected exactly one delete-buffer call, got {len(delete_calls)}")
+
+
 def _test_cli_evaluate_plugin_listing() -> None:
     raw = ('[{"id": "cc-tmux@cc-tmux", "version": "0.1.1", '
            '"enabled": true, "installPath": "/snap/0.1.1"}]')
@@ -4591,6 +4640,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("conductor.worktree_slot", _test_conductor_worktree_slot),
     ("conductor.pane_ready", _test_conductor_pane_ready),
     ("conductor.wait_for_pane_ready", _test_conductor_wait_for_pane_ready),
+    ("conductor.prompt_seed_load_buffer", _test_conductor_prompt_seed_load_buffer_not_send_keys_l),
     ("tmux.subagent_fg_increment_decrement", _test_tmux_subagent_fg_increment_decrement),
     ("tmux.subagent_bg_append", _test_tmux_subagent_bg_append),
     ("cli.prune_background_entries", _test_cli_prune_background_entries),

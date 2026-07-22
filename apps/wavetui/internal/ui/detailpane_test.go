@@ -55,6 +55,33 @@ func TestDetailPaneRendersBlockerAndTaskProgress(t *testing.T) {
 	}
 }
 
+// TestDetailPaneRendersDescription covers wavetui-item-description's spec.md
+// "an item with a description shows it in the detail pane" scenario.
+func TestDetailPaneRendersDescription(t *testing.T) {
+	d := NewDetailPane()
+	d.SetSelected(store.Item{
+		ID:          "if-1",
+		Title:       "Add thing",
+		Description: "This is what the item is about.",
+	}, true)
+
+	if got := d.View(); !strings.Contains(got, "This is what the item is about.") {
+		t.Fatalf("DetailPane.View() missing Description text, got:\n%s", got)
+	}
+}
+
+// TestDetailPaneNoDescriptionShowsNoExtraSection covers spec.md's "an item
+// with no description shows no extra section" scenario — absence renders as
+// nothing, not a blank placeholder label.
+func TestDetailPaneNoDescriptionShowsNoExtraSection(t *testing.T) {
+	d := NewDetailPane()
+	d.SetSelected(store.Item{ID: "a", Title: "Clean item"}, true)
+
+	if got := d.View(); strings.Contains(strings.ToLower(got), "description") {
+		t.Fatalf("want no description label/placeholder for an item with empty Description, got:\n%s", got)
+	}
+}
+
 func TestDetailPaneUnblockedRendersUnblocked(t *testing.T) {
 	d := NewDetailPane()
 	d.SetSelected(store.Item{ID: "a", Title: "Clean item"}, true)

@@ -66,7 +66,7 @@ function isProjectRoot(dir: string): boolean {
   return MARKERS.some((m) => existsSync(join(dir, m)));
 }
 
-function safeRealpath(p: string): string | null {
+export function safeRealpath(p: string): string | null {
   try {
     return realpathSync(p);
   } catch {
@@ -74,8 +74,15 @@ function safeRealpath(p: string): string | null {
   }
 }
 
-/** True when `child` is `parent` or lives beneath it. */
-function isWithin(child: string, parent: string): boolean {
+/**
+ * True when `child` is `parent` or lives beneath it. Canonical containment
+ * check — any filesystem-walking feature in ctx-scan (discovery's own walk,
+ * `imports.ts`'s `@import` chain resolution, and any future walker) must use
+ * this, never a second implementation. Callers are responsible for resolving
+ * symlinks (`safeRealpath`) before comparing when symlink-escape matters —
+ * this function itself does plain string comparison.
+ */
+export function isWithin(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent + sep);
 }
 
@@ -161,7 +168,14 @@ export function discoverProjects(
       if (!isDirLike(entry, dir)) continue;
       const name = entry.name;
       if (nameExcluded(name) || pathExcluded(parentName, name)) continue;
-      walk(join(dir, name), name);
+      const child = join(dir, name);
+      // Containment check (harden-ctx-scan-fs-boundaries): a symlink pointing
+      // outside `--root` must never be descended into or discovered as a
+      // project. The `visited` cycle guard above is a separate concern (loop
+      // termination) — this stops escape, not cycles.
+      const childReal = safeRealpath(child);
+      if (!childReal || !isWithin(childReal, rootReal)) continue;
+      walk(child, name);
     }
   }
 

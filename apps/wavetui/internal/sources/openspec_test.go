@@ -274,6 +274,80 @@ func TestParseProposalsSkipsArchiveAndDotfiles(t *testing.T) {
 	}
 }
 
+// --- if-m66z: `## Summary` section extraction into Item.Description -----
+
+func TestParseOneProposalSummaryIsExtracted(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "with-summary",
+		"# Proposal: with-summary — a thing\n\n"+
+			"## Summary\n"+
+			"This proposal adds a thing that does the thing.\n"+
+			"It spans multiple lines.\n\n"+
+			"## Context\n- nothing blocking\n",
+		"")
+
+	item := parseOneProposal(changesDir, "with-summary")
+
+	want := "This proposal adds a thing that does the thing.\nIt spans multiple lines."
+	if item.Description != want {
+		t.Fatalf("Description = %q, want %q", item.Description, want)
+	}
+}
+
+func TestParseOneProposalNoSummarySectionLeavesDescriptionEmpty(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "no-summary",
+		"# Proposal: no-summary — a thing\n\n## Context\n- nothing blocking\n",
+		"")
+
+	item := parseOneProposal(changesDir, "no-summary")
+
+	if item.Description != "" {
+		t.Fatalf("Description = %q, want empty string (no ## Summary section present)", item.Description)
+	}
+}
+
+func TestParseOneProposalSummaryAtEndOfFileIsExtracted(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "summary-last",
+		"# Proposal: summary-last — a thing\n\n## Summary\nTrailing section, no heading follows.\n",
+		"")
+
+	item := parseOneProposal(changesDir, "summary-last")
+
+	want := "Trailing section, no heading follows."
+	if item.Description != want {
+		t.Fatalf("Description = %q, want %q (Summary bounded by end-of-file)", item.Description, want)
+	}
+}
+
+// TestParseOneProposalSummaryBoundedByNextHeading is the boundary-detection
+// case named in this proposal's own Risks table: a Summary section whose
+// body happens to mention "## Summary" inline (inside backticks, not at the
+// start of a line) must not falsely re-trigger or extend the match, and the
+// section must stop at the next real "## " heading rather than swallowing
+// the rest of the document.
+func TestParseOneProposalSummaryBoundedByNextHeading(t *testing.T) {
+	dir := t.TempDir()
+	changesDir := filepath.Join(dir, "openspec", "changes")
+	makeProposal(t, changesDir, "nested-mention",
+		"# Proposal: nested-mention — a thing\n\n"+
+			"## Summary\n"+
+			"Adds a `## Summary` section extractor.\n\n"+
+			"## Context\n- this text must not leak into Description\n",
+		"")
+
+	item := parseOneProposal(changesDir, "nested-mention")
+
+	want := "Adds a `## Summary` section extractor."
+	if item.Description != want {
+		t.Fatalf("Description = %q, want %q (must stop at next ## heading, not swallow Context)", item.Description, want)
+	}
+}
+
 // --- if-tkva.1: `- touches:` parsing into Item.TouchedFiles -------------
 
 func TestParseOneProposalTouchesLineParsesIntoTouchedFiles(t *testing.T) {

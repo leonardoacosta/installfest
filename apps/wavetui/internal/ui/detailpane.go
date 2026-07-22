@@ -15,9 +15,11 @@ import (
 // predictable regardless of terminal size.
 const detailWidth = 44
 
-// DetailPane renders notes, blocker reason, and task progress for whichever
-// item is currently selected in QueuePane — see design.md § Architecture and
-// tasks.md [3.3]. Selection itself is driven by QueuePane's cursor, not by
+// DetailPane renders notes, blocker reason, task progress, and description
+// for whichever item is currently selected in QueuePane — see design.md §
+// Architecture, tasks.md [3.3], and wavetui-item-description's spec.md
+// MODIFIED "DetailPane renders full detail..." Requirement. Selection itself
+// is driven by QueuePane's cursor, not by
 // this pane's own Update: SetSelected (outside the Pane interface, see
 // root.go's Root doc comment) is Root's wiring hook, called every time
 // QueuePane's cursor moves or a fresh Snapshot lands.
@@ -59,6 +61,12 @@ func (d *DetailPane) View() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", lipgloss.NewStyle().Bold(true).Render(d.selected.Title))
 	fmt.Fprintf(&b, "ID: %s   Kind: %s\n", d.selected.ID, d.selected.Kind)
+
+	if d.selected.Description != "" {
+		b.WriteString("\n")
+		b.WriteString(d.selected.Description)
+		b.WriteString("\n")
+	}
 
 	if d.selected.Blocker != nil {
 		b.WriteString("\n")

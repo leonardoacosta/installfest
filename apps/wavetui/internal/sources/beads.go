@@ -86,6 +86,10 @@ type beadRecord struct {
 	Title  string `json:"title"`
 	Status string `json:"status"`
 	Notes  string `json:"notes"`
+	// Description is bd's own `description` field, threaded verbatim into
+	// Item.Description — see wavetui-item-description's spec.md "a bead's
+	// description is threaded through from bd's own output" scenario.
+	Description string `json:"description"`
 	// CreatedAt is RFC3339 text on the wire; parsed tolerantly in toItem
 	// (an unparsable or absent value just leaves Item.CreatedAt zero).
 	CreatedAt string `json:"created_at"`
@@ -330,9 +334,10 @@ func (s *BeadsSource) requeryOnce(ctx context.Context) bool {
 // worked, not "ready to start") and must not be mislabeled blocked.
 func toItem(rec beadRecord, ready map[string]bool) store.Item {
 	item := store.Item{
-		ID:    rec.ID,
-		Kind:  store.KindBead,
-		Title: rec.Title,
+		ID:          rec.ID,
+		Kind:        store.KindBead,
+		Title:       rec.Title,
+		Description: rec.Description,
 	}
 
 	if t, err := time.Parse(time.RFC3339, rec.CreatedAt); err == nil {

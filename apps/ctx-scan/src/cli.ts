@@ -114,6 +114,12 @@ export async function buildFleet(
 
 async function runScan(opts: ScanOptions): Promise<void> {
   const root = expandHome(opts.root);
+  if (opts.probeHooks) {
+    process.stderr.write(
+      "[ctx-scan] --probe-hooks: executing the `hook` shell command from each discovered project's own " +
+        "untrusted .claude/settings.json — only use on a root containing solely trusted repositories.\n",
+    );
+  }
   const { fleet } = await buildFleet(root, { allowProbeHooks: opts.probeHooks ?? false });
   emitJson(fleet, opts.json);
 }
@@ -399,7 +405,11 @@ program
   .description("Discover projects under --root and emit the Fleet document with real per-Node content.")
   .option("--root <path>", "root directory to scan", "~/dev")
   .option("--json <path>", "write JSON to this file (default: stdout)")
-  .option("--probe-hooks", "execute hooks with no telemetry sample to measure stdout size (bounded by a timeout)", false)
+  .option(
+    "--probe-hooks",
+    "execute the `hook` shell command from each discovered project's own untrusted .claude/settings.json to measure stdout size (bounded by a timeout) — only use on a root containing solely trusted repositories",
+    false,
+  )
   .action((opts: ScanOptions) => runScan(opts));
 
 program
@@ -440,7 +450,11 @@ program
   )
   .option("--root <path>", "root directory to discover projects under", "~/dev")
   .option("--debounce-ms <ms>", "debounce window (ms) per project before a settled change triggers a re-scan", "400")
-  .option("--probe-hooks", "execute hooks with no telemetry sample to measure stdout size (bounded by a timeout)", false)
+  .option(
+    "--probe-hooks",
+    "execute the `hook` shell command from each discovered project's own untrusted .claude/settings.json to measure stdout size (bounded by a timeout) — only use on a root containing solely trusted repositories",
+    false,
+  )
   .option("--history <path>", "override the history.jsonl path (default: ~/.ctx-scan/history.jsonl)")
   .action((opts: WatchCliOptions) => runWatch(opts));
 

@@ -183,17 +183,24 @@ def tmux_available() -> bool:
     return shutil.which("tmux") is not None
 
 
-def _run_tmux(args: List[str], *, check_available: bool = True) -> Optional[str]:
+def _run_tmux(
+    args: List[str], *, check_available: bool = True, input_text: Optional[str] = None
+) -> Optional[str]:
     """Run ``tmux <args>`` and return stripped stdout, or ``None`` on any failure.
 
     Fail-open: returns ``None`` (never raises) when tmux is unavailable or the
     command errors. This is the single choke point tests monkeypatch.
+
+    ``input_text``, when given, is piped to the subprocess's stdin (e.g.
+    ``load-buffer -b <name> -``) instead of the default no-stdin invocation —
+    see :func:`load_buffer`, the seeding-security fix's stdin delivery path.
     """
     if check_available and not tmux_available():
         return None
     try:
         proc = subprocess.run(
             ["tmux", *args],
+            input=input_text,
             capture_output=True,
             text=True,
             timeout=5,
@@ -205,6 +212,43 @@ def _run_tmux(args: List[str], *, check_available: bool = True) -> Optional[str]
         log.debug("tmux %s rc=%s stderr=%s", " ".join(args), proc.returncode, proc.stderr.strip())
         return None
     return proc.stdout.rstrip("\n")
+
+
+# ---------------------------------------------------------------------------
+# Buffer-based prompt seeding (cctmux-loadbuffer-seeding)
+# ---------------------------------------------------------------------------
+#
+# `send-keys -l <text>` delivers text as literal keystrokes: an embedded
+# newline in untrusted text submits right there in the pane's REPL, and
+# everything after it is typed as a NEW, unintended command/prompt. These
+# three helpers deliver text through tmux's buffer mechanism instead — the
+# pattern wavetui's Go dispatch package already proves correct
+# (internal/dispatch/tmux.go) — so a caller never sends variable text via
+# `-l`. See conductor._seed_prompt for the composed load -> paste -> delete ->
+# Enter sequence both cc-tmux seeding sites use.
+
+def load_buffer(buf_name: str, data: str) -> Optional[str]:
+    """Load ``data`` into tmux buffer ``buf_name`` via stdin (``load-buffer -b <name> -``).
+
+    Same fail-open contract as :func:`_run_tmux` (returns ``None`` on any
+    failure, never raises).
+    """
+    return _run_tmux(["load-buffer", "-b", buf_name, "-"], input_text=data)
+
+
+def paste_buffer(buf_name: str, target: str) -> Optional[str]:
+    """Paste buffer ``buf_name`` into pane ``target`` using bracketed paste (``-p``).
+
+    Bracketed paste delivers the buffer's text to the target as one block
+    rather than as keystrokes the pane's REPL could act on line-by-line (e.g.
+    submitting at an embedded newline).
+    """
+    return _run_tmux(["paste-buffer", "-b", buf_name, "-p", "-t", target])
+
+
+def delete_buffer(buf_name: str) -> Optional[str]:
+    """Delete tmux buffer ``buf_name`` (cleanup after :func:`paste_buffer`)."""
+    return _run_tmux(["delete-buffer", "-b", buf_name])
 
 
 # ---------------------------------------------------------------------------

@@ -14,15 +14,57 @@ Args:
   sys.argv[1] = port (int)
   sys.argv[2] = mounts.json path (str)
 """
-import sys, os, time, pathlib, mimetypes, json
+import sys, os, time, pathlib, mimetypes, json, html, hmac, secrets
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qs
 
 port = int(sys.argv[1])
 mounts_path = sys.argv[2]
 
+# Bind scope — mesh-wide access must be opted into explicitly by the
+# launcher; loopback-only is the safe default (harden-mesh-file-servers).
+ROPEN_BIND = os.environ.get('ROPEN_BIND', '127.0.0.1')
+
 DOTFILES = pathlib.Path(os.environ.get('DOTFILES', str(pathlib.Path.home() / 'dev' / 'personal' / 'installfest')))
 REGISTRY_PATH = DOTFILES / 'home' / 'projects.toml'
+
+# Auth token — ports file-server.py's TOKEN_FILE mechanism (0600, generated
+# on first run). Required on every request via ?token= or X-Token.
+TOKEN_FILE = pathlib.Path(
+    os.environ.get('ROPEN_TOKEN_FILE', str(pathlib.Path.home() / '.local' / 'state' / 'ropen-server.token'))
+)
+
+
+def load_or_create_token() -> str:
+    """Read the shared auth token, generating one (0600) on first run."""
+    if TOKEN_FILE.exists():
+        return TOKEN_FILE.read_text().strip()
+    token = secrets.token_hex(16)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Create with 0600 from the start — no world-readable window (secret file).
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write(token)
+    print(f'ropen-server: generated new auth token at {TOKEN_FILE}', file=sys.stderr)
+    return token
+
+
+TOKEN = load_or_create_token()
+
+
+def _is_trusted_html(path: pathlib.Path) -> bool:
+    """True only for self-generated recon/report HTML (docs/recon/*.html) —
+    the narrow, deliberately-named trust boundary for serving a full <html>
+    document live. "Under ~/dev" is NOT sufficient here: every ropen mount
+    is itself a curated ~/dev subtree (personal/priceless/cc/central-
+    planning/brown), each holding arbitrary cloned third-party repos whose
+    HTML must never be trusted just because it's reachable via a mount."""
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    return resolved.parent.name == 'recon' and resolved.parent.parent.name == 'docs'
+
 
 def load_registry():
     """Load registered projects from home/projects.toml. Returns list of
@@ -123,7 +165,8 @@ MD_TEMPLATE = """\
   // Defense in depth: if markdown-it CDN didn't load (offline, firewall, etc.),
   // fall back to <pre>-formatted raw markdown so the user always sees content.
   const mount = '##MOUNT##';
-  const rawUrl = window.location.pathname + '?raw=1';
+  const token = '##TOKEN##';
+  const rawUrl = window.location.pathname + '?raw=1&token=' + encodeURIComponent(token);
   const content = document.getElementById('content');
 
   function showError(msg) {
@@ -196,7 +239,7 @@ MD_TEMPLATE = """\
   const ind = document.getElementById('live-indicator');
   function connect() {
     try {
-      const es = new EventSource('/__sse/' + mount);
+      const es = new EventSource('/__sse/' + mount + '?token=' + encodeURIComponent(token));
       es.onmessage = function() { location.reload(); };
       es.onerror = function() {
         ind.classList.add('disconnected');
@@ -216,8 +259,9 @@ MD_TEMPLATE = """\
 def render_md_shell(path, mount):
     """Emit HTML wrapper that fetches the raw .md and renders client-side."""
     return (MD_TEMPLATE
-            .replace('##TITLE##', path.name)
+            .replace('##TITLE##', html.escape(path.name))
             .replace('##MOUNT##', mount)
+            .replace('##TOKEN##', TOKEN)
            ).encode('utf-8')
 
 INDEX_HTML = """\
@@ -243,6 +287,17 @@ INDEX_HTML = """\
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # Auth gate — every request must carry a valid token (query param or
+        # header) before any file content or listing is returned.
+        query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
+        supplied = query.get('token', [None])[0]
+        header_token = self.headers.get('X-Token')
+        via_param = supplied is not None and hmac.compare_digest(supplied, TOKEN)
+        via_header = header_token is not None and hmac.compare_digest(header_token, TOKEN)
+        if not (via_param or via_header):
+            self.send_error(403, 'Missing or invalid token')
+            return
+
         mounts, sentinels, registry = load_state()
 
         if self.path == '/__mounts':
@@ -288,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
             sections = []
             if mounts:
                 items = '<ul>' + ''.join(
-                    f'<li><a href="/{k}/">{k}</a><div class="path">{v}</div></li>'
+                    f'<li><a href="/{html.escape(k)}/?token={TOKEN}">{html.escape(k)}</a><div class="path">{html.escape(str(v))}</div></li>'
                     for k, v in sorted(mounts.items())
                 ) + '</ul>'
                 sections.append('<h1>Active mounts</h1>' + items)
@@ -298,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
             registry_unique = [r for r in registry if str(r['path']) not in active_paths]
             if registry_unique:
                 items = '<ul>' + ''.join(
-                    f'<li><a href="/{r["code"]}/">{r["code"]}</a> <span style="color:#7d8590">{r["name"]}</span><div class="path">{r["path"]}</div></li>'
+                    f'<li><a href="/{html.escape(r["code"])}/?token={TOKEN}">{html.escape(r["code"])}</a> <span style="color:#7d8590">{html.escape(r["name"])}</span><div class="path">{html.escape(str(r["path"]))}</div></li>'
                     for r in sorted(registry_unique, key=lambda r: r['code'])
                 ) + '</ul>'
                 heading = '<h1>Registered projects</h1>' if not mounts else '<h2 style="margin-top:2rem;color:#f0f6fc;font-size:18px;font-weight:600">Registered projects</h2>'
@@ -363,15 +418,16 @@ class Handler(BaseHTTPRequestHandler):
                 rel_str = str(rel) if str(rel) != '.' else ''
                 items = []
                 if rel_str:
-                    parent_url = '../'
+                    parent_url = f'../?token={TOKEN}'
                     items.append(f'<li><a href="{parent_url}">../</a></li>')
                 for child in children:
                     if child.name.startswith('.'):
                         continue
                     suffix = '/' if child.is_dir() else ''
-                    items.append(f'<li><a href="{child.name}{suffix}">{child.name}{suffix}</a></li>')
+                    name_esc = html.escape(child.name)
+                    items.append(f'<li><a href="{name_esc}{suffix}?token={TOKEN}">{name_esc}{suffix}</a></li>')
                 title = f'{mount}/{rel_str}' if rel_str else mount
-                listing = f'<h1 style="font-family:ui-monospace,monospace;font-size:16px">{title}</h1><ul>' + ''.join(items) + '</ul>'
+                listing = f'<h1 style="font-family:ui-monospace,monospace;font-size:16px">{html.escape(title)}</h1><ul>' + ''.join(items) + '</ul>'
                 body = INDEX_HTML.replace('##LIST##', listing).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -409,6 +465,19 @@ class Handler(BaseHTTPRequestHandler):
                 import traceback
                 tb = traceback.format_exc()
                 self.send_error(500, f"{e}\n\n{tb}")
+        elif target.suffix.lower() in ('.html', '.htm'):
+            # Only self-generated recon/report HTML (docs/recon/*.html) is
+            # trusted to render live — every other full HTML document is
+            # untrusted and MUST serve inert as text/plain. Every ropen mount
+            # is itself a curated ~/dev subtree holding arbitrary cloned
+            # repos, so "is it under ~/dev" is not a real trust boundary.
+            data = target.read_bytes()
+            ctype = 'text/html; charset=utf-8' if _is_trusted_html(target) else 'text/plain; charset=utf-8'
+            self.send_response(200)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         else:
             ctype, _ = mimetypes.guess_type(str(target))
             data = target.read_bytes()
@@ -422,5 +491,5 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 if __name__ == '__main__':
-    print(f'ropen-server listening on :{port} (mounts={mounts_path})', file=sys.stderr, flush=True)
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+    print(f'ropen-server listening on {ROPEN_BIND}:{port} (mounts={mounts_path})', file=sys.stderr, flush=True)
+    ThreadingHTTPServer((ROPEN_BIND, port), Handler).serve_forever()

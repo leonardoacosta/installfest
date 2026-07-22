@@ -71,6 +71,17 @@ var (
 	titleRe    = regexp.MustCompile(`(?m)^#\s+Proposal:\s*(.+)$`)
 	checkboxRe = regexp.MustCompile(`(?m)^\s*-\s*\[([ xX])\]`)
 
+	// summaryRe extracts the body of a "## Summary" section, bounded to the
+	// next "## " heading or end-of-file — see wavetui-item-description's
+	// spec.md "a proposal's Summary section is extracted" scenario. (?s)
+	// makes "." match newlines so the capture spans the whole section body;
+	// the lazy ".*?" plus the "\n## |\z" alternation is what stops it at the
+	// next heading rather than swallowing the rest of the document. Matched
+	// against the whole proposal.md content (not scoped to "## Context" like
+	// parseProposalBlocker/parseProposalTouches), since Summary is its own
+	// top-level section, not a sub-bullet of Context.
+	summaryRe = regexp.MustCompile(`(?ms)^## Summary\s*\n(.*?)(?:\n## |\z)`)
+
 	// touchesLineRe recognizes a `- touches: <value>` bullet line (the label
 	// is mandatory; the leading `-` and its surrounding space are optional,
 	// mirroring scripts/bin/wave-plan-build's parse_proposal_paths regex
@@ -154,6 +165,7 @@ func parseOneProposal(changesDir, slug string) store.Item {
 			item.Blocker = note
 		}
 		item.TouchedFiles = parseProposalTouches(content)
+		item.Description = parseProposalSummary(content)
 	}
 
 	if info, err := os.Stat(proposalPath); err == nil {
@@ -189,6 +201,20 @@ func parseProposalBlocker(proposalMD string) (*store.BlockerNote, bool) {
 		}
 	}
 	return nil, false
+}
+
+// parseProposalSummary extracts the "## Summary" section's body text, or ""
+// if the proposal has no such section — see wavetui-item-description's
+// spec.md "a proposal's Summary section is extracted" / "an item with no
+// description source has an empty Description" scenarios. Whitespace at the
+// start/end of the captured body is trimmed so a trailing blank line before
+// the next heading (or EOF) does not leak into Item.Description.
+func parseProposalSummary(proposalMD string) string {
+	m := summaryRe.FindStringSubmatch(proposalMD)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
 }
 
 // parseProposalTouches extracts the file paths a proposal's own author

@@ -90,26 +90,50 @@ loopback_port() {
     | grep -oE '[0-9]{2,5}$' | head -1
 }
 
-# Start the reserved-port file server if it isn't already serving. Bound to the
-# Tailscale IP (tailnet-only), self-reaped by `timeout` after FILE_TTL.
+# Reuse-probe sentinel — a marker file under FILE_ROOT naming the reserved
+# port, containing the served root. Lets ensure_file_server tell "our server,
+# already serving the right root" apart from "something else is on this
+# port" (a bare liveness curl can't distinguish those).
+FILE_SENTINEL_NAME=".mac-open-sentinel-${FILE_PORT}"
+
+# Start the reserved-port file server if it isn't already serving OUR content.
+# Bound to the Tailscale IP (tailnet-only), self-reaped by `timeout` after
+# FILE_TTL. Never silently reuses a foreign server already bound to the
+# reserved port — sentinel mismatch (or 404) fails loudly instead.
 ensure_file_server() {
   local ip="$1"
+  local sentinel_url="http://${ip}:${FILE_PORT}/${FILE_SENTINEL_NAME}"
   if [ -n "$DRYRUN" ]; then
     echo "[dryrun] ensure server: timeout $FILE_TTL python3 -m http.server $FILE_PORT --bind $ip --directory $FILE_ROOT"
+    echo "[dryrun] sentinel check: $sentinel_url expect body == $FILE_ROOT"
     return 0
   fi
-  if curl -s -o /dev/null --max-time 1 "http://${ip}:${FILE_PORT}/" 2>/dev/null; then
-    return 0   # already serving — reuse
+
+  local body
+  body="$(curl -s --max-time 1 "$sentinel_url" 2>/dev/null)"
+  if [ -n "$body" ] && [ "$body" = "$FILE_ROOT" ]; then
+    return 0   # our server, already serving the right root — reuse
   fi
+  if curl -s -o /dev/null --max-time 1 "http://${ip}:${FILE_PORT}/" 2>/dev/null; then
+    echo "mac-open: port $FILE_PORT is already in use by a server that isn't ours (sentinel missing/mismatched) — refusing to reuse it" >&2
+    return 1
+  fi
+
+  printf '%s' "$FILE_ROOT" > "${FILE_ROOT}/${FILE_SENTINEL_NAME}" 2>/dev/null || {
+    echo "mac-open: cannot write sentinel under $FILE_ROOT — check permissions" >&2
+    return 1
+  }
   setsid bash -c "timeout '$FILE_TTL' python3 -m http.server '$FILE_PORT' --bind '$ip' --directory '$FILE_ROOT'" \
     >/dev/null 2>&1 < /dev/null &
   disown 2>/dev/null || true
   local i=0
   while [ $i -lt 10 ]; do
-    curl -s -o /dev/null --max-time 1 "http://${ip}:${FILE_PORT}/" 2>/dev/null && return 0
+    body="$(curl -s --max-time 1 "$sentinel_url" 2>/dev/null)"
+    [ -n "$body" ] && [ "$body" = "$FILE_ROOT" ] && return 0
     i=$((i + 1)); sleep 0.1
   done
-  return 0
+  echo "mac-open: file server did not come up with a valid sentinel after spawn on port $FILE_PORT" >&2
+  return 1
 }
 
 # --- Resolve the target into a URL the Mac can open --------------------------
@@ -147,7 +171,10 @@ resolve_target() {
       esac
       ip="$(ts_ip)"
       [ -z "$ip" ] && { echo "mac-open: no Tailscale IP — cannot serve files" >&2; exit 1; }
-      ensure_file_server "$ip"
+      if ! ensure_file_server "$ip"; then
+        echo "mac-open: cannot start or reuse the file server on port $FILE_PORT" >&2
+        exit 1
+      fi
       open_url="http://${ip}:${FILE_PORT}/${rel}"
       ;;
   esac

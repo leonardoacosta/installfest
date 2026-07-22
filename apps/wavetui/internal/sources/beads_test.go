@@ -262,6 +262,26 @@ func TestToItemBlockerPrecedenceAndTolerantDecode(t *testing.T) {
 	}
 }
 
+// --- if-yijz: Description threading -------------------------------------
+
+func TestToItemThreadsDescriptionVerbatim(t *testing.T) {
+	ready := map[string]bool{}
+
+	withDesc := toItem(beadRecord{
+		ID:          "if-1",
+		Title:       "one",
+		Description: "This bead tracks the thing that needs doing.",
+	}, ready)
+	if withDesc.Description != "This bead tracks the thing that needs doing." {
+		t.Fatalf("Description = %q, want the beadRecord's description verbatim", withDesc.Description)
+	}
+
+	noDesc := toItem(beadRecord{ID: "if-2", Title: "two"}, ready)
+	if noDesc.Description != "" {
+		t.Fatalf("Description = %q, want empty string for a bead with no description", noDesc.Description)
+	}
+}
+
 func TestBeadsSourceUnknownJSONFieldsIgnored(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

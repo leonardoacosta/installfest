@@ -6,6 +6,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Resolve the live Tailscale IPv4 address fresh on every start (handles address
+# changes across reboots/reconnects) and write it to a runtime-dir EnvironmentFile
+# — ropen-server.py defaults ROPEN_BIND to 127.0.0.1 (harden-mesh-file-servers),
+# so this is what makes cross-machine ropen/gopen/sopen/mopen/iopen actually
+# reach the server again. Falls back to 127.0.0.1 (loopback-only, same as the
+# script's own default) if tailscale is down/unreachable at start — fails safe,
+# never re-widens to 0.0.0.0.
+ExecStartPre=/bin/sh -c 'echo "ROPEN_BIND=$(tailscale ip -4 2>/dev/null || echo 127.0.0.1)" > %t/ropen-bind.env'
+EnvironmentFile=%t/ropen-bind.env
 ExecStart=%h/.local/bin/ropen --serve
 Restart=always
 RestartSec=5

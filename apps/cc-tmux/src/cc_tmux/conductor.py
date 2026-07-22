@@ -337,6 +337,50 @@ def _context() -> int:
 # Dispatch modes
 # ---------------------------------------------------------------------------
 
+def _prepare_prompt(prompt: str) -> str:
+    """Belt-and-suspenders defense-in-depth: flatten embedded newlines to spaces.
+
+    The load-buffer + bracketed-paste sequence in :func:`_seed_prompt` is the
+    real fix (a REPL honoring bracketed paste treats the whole buffer as one
+    block regardless of embedded newlines). This guard only matters if the
+    target REPL does NOT honor bracketed paste, in which case a raw newline
+    would still submit early and let the text after it be typed as a
+    separate, unintended command.
+    # ponytail: secondary defense — load-buffer/paste-buffer above is primary.
+    """
+    if "\n" in prompt:
+        log.warn("conductor: prompt has embedded newline(s); flattening to spaces before seeding")
+        return prompt.replace("\n", " ")
+    return prompt
+
+
+def _seed_prompt(target: str, prompt: str) -> bool:
+    """Deliver ``prompt`` into pane ``target``: load-buffer -> paste-buffer -> delete-buffer -> Enter.
+
+    Replaces literal-keystroke delivery via the ``-l`` send-keys flag: text
+    sent that way submits at the first embedded newline, so untrusted text
+    (task/title/branch text supplied by a caller) with a newline in it would
+    have everything after that newline typed as a new, unintended command.
+    tmux's buffer mechanism +
+    bracketed paste (``-p``) delivers the text as one block instead; a single
+    ``send-keys Enter`` submits it once. The buffer name is unique per seed
+    (pid + monotonic clock) so concurrent seeds never collide. Returns
+    ``True`` only if every step succeeded. Any future seed site should route
+    through this helper rather than re-deriving the sequence.
+    """
+    safe_prompt = _prepare_prompt(prompt)
+    buf_name = f"cc-tmux-seed-{os.getpid()}-{time.monotonic_ns()}"
+    loaded = tmux.load_buffer(buf_name, safe_prompt)
+    if loaded is None:
+        return False
+    pasted = tmux.paste_buffer(buf_name, target)
+    tmux.delete_buffer(buf_name)  # best-effort cleanup regardless of paste outcome
+    if pasted is None:
+        return False
+    entered = tmux._run_tmux(["send-keys", "-t", target, "Enter"])
+    return entered is not None
+
+
 def _pane_state(pane_id: str) -> Optional[str]:
     """Current tracked state of a pane among the dispatchable set, or ``None``."""
     for p in _dispatchable_panes():
@@ -389,12 +433,11 @@ def _dispatch_send_prompt(target: Optional[str], prompt: Optional[str], force: b
         return 1
     # Residual TOCTOU: the state above was read through a reconciled snapshot
     # moments ago, but the pane can still die between that read and the
-    # send-keys below. Reconciling shrinks the stale window from unbounded to
+    # seed below. Reconciling shrinks the stale window from unbounded to
     # seconds; it cannot eliminate it. Accepted residual risk.
-    # -l sends the text literally, then a separate Enter submits it.
-    sent = tmux._run_tmux(["send-keys", "-t", target, "-l", prompt])
-    entered = tmux._run_tmux(["send-keys", "-t", target, "Enter"])
-    if sent is None or entered is None:
+    # load-buffer -> paste-buffer -> delete-buffer -> Enter (never send-keys
+    # -l): see _seed_prompt for why literal keystroke delivery is unsafe here.
+    if not _seed_prompt(target, prompt):
         sys.stderr.write(f"cc-tmux conductor: send-keys to pane {target} failed.\n")
         return 1
     return 0
@@ -476,9 +519,9 @@ def _open_window(cwd: str, prompt: Optional[str]) -> int:
         if not _wait_for_pane_ready(new_pane):
             log.warn("conductor: pane %s not ready after %.1fs; seeding anyway", new_pane, _READY_TIMEOUT)
         time.sleep(_READY_GRACE)
-        sent = tmux._run_tmux(["send-keys", "-t", new_pane, "-l", prompt])
-        entered = tmux._run_tmux(["send-keys", "-t", new_pane, "Enter"])
-        if sent is None or entered is None:
+        # load-buffer -> paste-buffer -> delete-buffer -> Enter, never literal
+        # keystrokes — see _seed_prompt for why raw delivery is unsafe here.
+        if not _seed_prompt(new_pane, prompt):
             sys.stderr.write(
                 f"cc-tmux conductor: window opened ({new_pane}) but seeding "
                 "the prompt failed; paste it manually.\n"

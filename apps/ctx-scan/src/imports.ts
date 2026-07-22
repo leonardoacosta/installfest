@@ -11,6 +11,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isWithin, safeRealpath } from "./discovery";
 
 const MAX_HOPS = 4;
 
@@ -72,10 +73,21 @@ function extractImportPaths(content: string): string[] {
  * Returns every resolved import in traversal order. A missing target file is
  * silently skipped (not an error — a dangling @import shouldn't crash the
  * scan), and a cycle is guarded via a visited-path set.
+ *
+ * `projectRoot` (harden-ctx-scan-fs-boundaries) confines resolution: any
+ * joined import path that is not within `projectRoot` is skipped the same
+ * way a dangling import is — never pushed, never followed further — so a
+ * `CLAUDE.md` containing `@../../../etc/hosts` cannot pull ctx-scan outside
+ * the project it's scanning. The containment check resolves symlinks first
+ * (`safeRealpath`, per `isWithin`'s own doc contract) so an in-project
+ * symlink pointing outside `projectRoot` is caught too — a lexical-only
+ * check would pass a symlink whose PATH is in-project but whose TARGET
+ * (what `readFileSync` actually reads on the next hop) is not.
  */
-export function resolveImportChain(rootPath: string): ResolvedImport[] {
+export function resolveImportChain(rootPath: string, projectRoot: string): ResolvedImport[] {
   const resolved: ResolvedImport[] = [];
   const visited = new Set<string>([rootPath]);
+  const projectRootReal = safeRealpath(projectRoot) ?? projectRoot;
 
   let frontier: string[] = [rootPath];
   for (let depth = 1; depth <= MAX_HOPS && frontier.length > 0; depth++) {
@@ -94,6 +106,12 @@ export function resolveImportChain(rootPath: string): ResolvedImport[] {
         const abs = join(baseDir, rel);
         if (visited.has(abs)) continue; // cycle guard
         visited.add(abs);
+        // containment — resolve symlinks before comparing (isWithin's own
+        // contract); a dangling import (no realpath) is caught by the
+        // existsSync check at the top of the next hop, so falling back to
+        // the lexical path here is safe, not a bypass.
+        const absReal = safeRealpath(abs) ?? abs;
+        if (!isWithin(absReal, projectRootReal)) continue; // silent skip, same contract as a dangling import
         resolved.push({ path: abs, depth, importedFrom: filePath });
         next.push(abs);
       }

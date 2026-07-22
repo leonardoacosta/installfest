@@ -11,7 +11,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { symlink } from "node:fs/promises";
 import { join } from "node:path";
-import { discoverProjects, getGlobalLayer } from "../src/discovery";
+import { discoverProjects, getGlobalLayer, isWithin } from "../src/discovery";
 import { cleanup, dir, file, tmpRoot } from "./helpers/tree";
 
 const roots: string[] = [];
@@ -74,6 +74,35 @@ describe("discoverProjects — hard exclusions applied at descent time [4.1]", (
     // Must terminate (test itself would hang/timeout if it didn't) and must
     // not report the cyclic path as a second project.
     expect(found).toHaveLength(1);
+  });
+});
+
+describe("isWithin — canonical containment check (harden-ctx-scan-fs-boundaries [1.1])", () => {
+  test("a descendant path is within its parent; a sibling path is not", () => {
+    expect(isWithin("/a/b/c", "/a/b")).toBe(true);
+    expect(isWithin("/a/b", "/a/b")).toBe(true); // the root itself counts as within
+    expect(isWithin("/a/x", "/a/b")).toBe(false);
+    expect(isWithin("/a/bx", "/a/b")).toBe(false); // prefix-match without a separator must not count
+  });
+});
+
+describe("discoverProjects — containment: symlink escape (harden-ctx-scan-fs-boundaries [1.2])", () => {
+  test("a symlink pointing outside --root is never discovered as a project", async () => {
+    const outsideRoot = tmp("ctx-scan-discovery-outside-");
+    dir(outsideRoot, "escaped-project/.git");
+    file(outsideRoot, "escaped-project/CLAUDE.md", "# escaped\n");
+
+    const root = tmp("ctx-scan-discovery-escape-");
+    dir(root, "real-project/.git");
+    file(root, "real-project/CLAUDE.md", "# real\n");
+
+    // A symlink inside root pointing at a directory OUTSIDE root.
+    await symlink(join(outsideRoot, "escaped-project"), join(root, "escape-link"));
+
+    const found = discoverProjects(root, { globalPath: "/nonexistent-global-sentinel" });
+
+    expect(found.map((p) => p.name)).toEqual(["real-project"]);
+    expect(found.some((p) => p.name === "escaped-project")).toBe(false);
   });
 });
 

@@ -311,7 +311,11 @@ function findGroupedReferenceFiles(root: string, origin: NodeOrigin): RawCandida
 
 function findUnimportedRulesFiles(rootClaudeMdPath: string, rulesDir: string, origin: NodeOrigin): RawCandidate[] {
   if (!existsSync(rulesDir)) return [];
-  const imported = new Set(existsSync(rootClaudeMdPath) ? resolveImportChain(rootClaudeMdPath).map((i) => i.path) : []);
+  // rootClaudeMdPath is always `<projectRoot>/CLAUDE.md` — its dirname IS the
+  // project root, which is what @import resolution must stay confined to.
+  const imported = new Set(
+    existsSync(rootClaudeMdPath) ? resolveImportChain(rootClaudeMdPath, dirname(rootClaudeMdPath)).map((i) => i.path) : [],
+  );
   const rulesFiles = directMdFiles(rulesDir);
   const citing = existsSync(rootClaudeMdPath) ? [rootClaudeMdPath, ...rulesFiles] : [...rulesFiles];
   const out: RawCandidate[] = [];

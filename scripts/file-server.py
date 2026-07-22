@@ -25,8 +25,6 @@ BIND = os.environ.get("FILE_SERVER_BIND", "0.0.0.0")
 
 ALLOWED_ROOTS = [
     Path.home() / "dev",
-    Path.home() / ".claude",
-    Path("/tmp"),
 ]
 
 TOKEN_FILE = Path(
@@ -94,6 +92,16 @@ marked.setOptions({{
     return hljs.highlightAuto(code).value;
   }}
 }});
+// Disable raw-HTML passthrough (matches ropen-server's markdown-it({{html:false}})) —
+// untrusted markdown must never execute an embedded <script>/<tag>.
+marked.use({{
+  renderer: {{
+    html(token) {{
+      const raw = typeof token === 'string' ? token : ((token && (token.raw || token.text)) || '');
+      return raw.replace(/</g, '&lt;');
+    }}
+  }}
+}});
 document.getElementById('content').innerHTML = marked.parse({content_json});
 </script>
 </body></html>"""
@@ -138,6 +146,19 @@ def is_allowed(path: Path) -> bool:
     """Check path is under an allowed root."""
     resolved = path.resolve()
     return any(resolved.is_relative_to(root.resolve()) for root in ALLOWED_ROOTS)
+
+
+def _is_trusted_html(path: Path) -> bool:
+    """True only for self-generated recon/report HTML (docs/recon/*.html) —
+    the narrow, deliberately-named trust boundary for serving a full <html>
+    document live. Being under an ALLOWED_ROOTS entry (~/dev) is NOT
+    sufficient — that directory holds arbitrary cloned third-party repos
+    whose HTML must never be trusted just because it's reachable."""
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    return resolved.parent.name == "recon" and resolved.parent.parent.name == "docs"
 
 
 class FileHandler(http.server.BaseHTTPRequestHandler):
@@ -205,9 +226,20 @@ class FileHandler(http.server.BaseHTTPRequestHandler):
 
     def _serve_html(self, path: Path):
         content = path.read_text(errors="replace")
-        # If it's a full HTML doc, serve as-is; otherwise wrap it
+        # If it's a full HTML doc, serve as-is ONLY when it's self-generated
+        # recon/report output we trust (docs/recon/*.html); anything else
+        # full-HTML is untrusted — serve inert as text/plain rather than let
+        # the browser execute it. NOTE: "under ~/dev" alone is NOT a trust
+        # boundary here — ALLOWED_ROOTS already confines every servable path
+        # to ~/dev (harden-mesh-file-servers task 1.6), which itself holds
+        # numerous cloned third-party repos; a broader "is it under ~/dev"
+        # check would make this branch always-true and serve arbitrary HTML
+        # from those repos live.
         if "<html" in content.lower()[:500]:
-            self._respond(200, "text/html", content.encode())
+            if _is_trusted_html(path):
+                self._respond(200, "text/html", content.encode())
+            else:
+                self._respond(200, "text/plain", content.encode())
         else:
             body = HTML_WRAPPER.format(
                 title=html.escape(path.name),
