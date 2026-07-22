@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# run_onchange_mac-autofs-remount.sh - install the boot-time autofs-remount
+# LaunchDaemon on the Mac.
+#
+# Re-runs whenever either backing script (or this wrapper) changes.
+# Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/mac-autofs-remount.sh")) | trim }}
+# Hash: {{ output "sh" "-c" (printf "sha256sum < %q | awk '{print $1}'" (joinPath .chezmoi.workingTree "scripts/mac-autofs-remount-install.sh")) | trim }}
+#
+# Companion to home/run_onchange_mac-autofs-dev.sh.tmpl: that wrapper installs
+# the /Volumes/dev autofs map; THIS one installs the LaunchDaemon that
+# re-registers the map after every reboot (once Tailscale is up), closing the
+# cold-boot race where automountd starts before Tailscale connectivity and
+# /Volumes/dev never gets set up. Full rationale: scripts/mac-autofs-remount.sh.
+#
+# Gated on .machine == "mac" (see home/.chezmoi.toml.tmpl). On homelab/cloudpc
+# this file expands to a no-op stub and exits immediately.
+#
+# The live logic lives in scripts/mac-autofs-remount-install.sh so it is
+# readable outside the template layer and runnable ad-hoc — same convention as
+# scripts/mac-autofs-dev.sh + scripts/homelab/harden.sh.
+
+{{ if ne .machine "mac" -}}
+# Non-mac machine ({{ .machine }}) — nothing to do.
+exit 0
+{{- else -}}
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+export DOTFILES
+
+# Double-check at runtime in case hostname was resolved optimistically.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "mac-autofs-remount: not Darwin, skipping (machine={{ .machine }})" >&2
+    exit 0
+fi
+
+INSTALL_SCRIPT="$DOTFILES/scripts/mac-autofs-remount-install.sh"
+if [[ ! -x "$INSTALL_SCRIPT" ]]; then
+    if [[ -f "$INSTALL_SCRIPT" ]]; then
+        chmod +x "$INSTALL_SCRIPT"
+    else
+        echo "mac-autofs-remount: $INSTALL_SCRIPT not found" >&2
+        exit 1
+    fi
+fi
+
+exec "$INSTALL_SCRIPT"
+{{- end }}
+{{- /* trailing newline */}}
