@@ -32,6 +32,7 @@ install_arch_packages() {
         bat
         glow
         eza
+        lsd
         ripgrep
         fd
         shellcheck        # static analysis for shell scripts (scripts/check.sh)

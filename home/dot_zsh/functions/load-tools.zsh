@@ -68,9 +68,9 @@ if command -v eza &>/dev/null; then
   alias lt="eza --tree --level=2 --icons --hyperlink"
 fi
 
-# tree (colored tree view, default depth 1; override with e.g. `ll -L 3`)
-if command -v tree &>/dev/null; then
-  alias ll="tree -C -L 1 -NhDA"
+# lsd (tree view w/ icons + hyperlinks, default depth 1; override with e.g. `ll --depth=3`)
+if command -v lsd &>/dev/null; then
+  alias ll="lsd -la --tree --depth=1 --icon=auto --hyperlink=auto --group-directories-first"
 fi
 
 # ripgrep config
