@@ -45,7 +45,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [2.1] Run the done-criteria greps and confirm each passes: `rg "apps/" README.md`,
+- [x] [2.1] Run the done-criteria greps and confirm each passes: `rg "apps/" README.md`,
   `rg "openspec/specs" README.md CLAUDE.md`, `ls apps/wavetui/README.md
   apps/ctx-scan/README.md apps/daily-brief/README.md`, `rg -i "vendored|submodule"
   apps/README.md`. Confirm `git diff --name-only` shows only `.md` files touched. Note: at

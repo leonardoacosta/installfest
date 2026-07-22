@@ -33,13 +33,13 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [2.1] Run the full gate: `scripts/check.sh` from the repo root. Confirm all pre-existing
+- [x] [2.1] Run the full gate: `scripts/check.sh` from the repo root. Confirm all pre-existing
   sections still PASS, plus PASS lines (or explicit SKIP warnings on a machine missing a
   toolchain) for wavetui go test, ctx-scan bun test, daily-brief bun test, and cc-tmux self-test.
   Confirm exit code 0. Also confirm `cd apps/daily-brief && bun run test` runs its 3 test files
   and `npm run test` at repo root invokes the gate. Paste terminal output as evidence per
   plans/001-app-test-gate.md step 7 and the Done criteria. [type:test]
-- [ ] [2.2] Deliberate-red-test negative check: intentionally break a Go test in `apps/wavetui`
+- [x] [2.2] Deliberate-red-test negative check: intentionally break a Go test in `apps/wavetui`
   locally (do NOT commit it), run `scripts/check.sh`, confirm it exits 1 with
   `FAIL: wavetui go test`, then revert the break — per plans/001-app-test-gate.md step 8 / Done
   criteria and this proposal's `repo-verification` spec's "a failing app test suite fails the
