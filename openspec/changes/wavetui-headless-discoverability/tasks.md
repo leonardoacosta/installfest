@@ -28,7 +28,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] [2.1] `go test` for all three touched files: confirm existing tests pass unmodified, plus [beads:if-khwy]
+- [x] [2.1] `go test` for all three touched files: confirm existing tests pass unmodified, plus [beads:if-khwy]
   new coverage for the admission hint's off/on text and the dispatch-mechanism tag's
   precedence-vs-existing-badges behavior, and a runtime pty verification pass (build
   `apps/wavetui/cmd/wavetui`, run in a real pty, paste terminal output showing the

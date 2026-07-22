@@ -96,6 +96,40 @@ func TestHeadlessBarUnrelatedKeyDoesNotToggleAdmission(t *testing.T) {
 	}
 }
 
+// --- wavetui-headless-discoverability (tasks.md [2.1]) AdmissionHint -------
+
+// TestHeadlessBarAdmissionHintOffByDefault asserts the always-visible hint
+// (independent of View()'s own empty-common-case contract) reads "(off)"
+// before the admissionToggleKey has ever been pressed.
+func TestHeadlessBarAdmissionHintOffByDefault(t *testing.T) {
+	h, ctrl := newTestHeadlessBar()
+
+	if ctrl.AdmissionEnabled() {
+		t.Fatal("setup: admission must default to false")
+	}
+	if got := h.AdmissionHint(); got != "a: headless dispatch (off)" {
+		t.Fatalf("AdmissionHint() before any toggle = %q, want %q", got, "a: headless dispatch (off)")
+	}
+}
+
+// TestHeadlessBarAdmissionHintFlipsOnToggle asserts the hint's text tracks
+// Controller.AdmissionEnabled() directly across both toggle directions — the
+// same on/off keypress sequence TestHeadlessBarTogglesAdmissionOffOnSecondKeypress
+// already exercises against View(), applied to AdmissionHint() instead.
+func TestHeadlessBarAdmissionHintFlipsOnToggle(t *testing.T) {
+	h, _ := newTestHeadlessBar()
+
+	h.HandleKey(tea.KeyPressMsg{Text: admissionToggleKey})
+	if got := h.AdmissionHint(); got != "a: headless dispatch (on)" {
+		t.Fatalf("AdmissionHint() after one toggle = %q, want %q", got, "a: headless dispatch (on)")
+	}
+
+	h.HandleKey(tea.KeyPressMsg{Text: admissionToggleKey})
+	if got := h.AdmissionHint(); got != "a: headless dispatch (off)" {
+		t.Fatalf("AdmissionHint() after a second toggle = %q, want %q", got, "a: headless dispatch (off)")
+	}
+}
+
 func TestHeadlessBarResumeStillWorksAlongsideAdmissionToggle(t *testing.T) {
 	h, ctrl := newTestHeadlessBar()
 	h.Update(store.Snapshot{

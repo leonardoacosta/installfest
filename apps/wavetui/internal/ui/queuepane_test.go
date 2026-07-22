@@ -12,6 +12,7 @@ import (
 
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/dispatch"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/flair"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/lanes"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
 
@@ -318,6 +319,88 @@ func TestBlockerBadge(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- wavetui-headless-discoverability (tasks.md [1.3]/[2.1]) mechanism tag -
+
+// TestDispatchMechanismTag asserts the fallback tag names "tmux" only when
+// the item has a linked pane (item.Session.PaneID != ""), and "clipboard"
+// otherwise — including the no-Session and empty-PaneID-with-a-Session
+// cases, per dispatchMechanismTag's own doc comment.
+func TestDispatchMechanismTag(t *testing.T) {
+	cases := []struct {
+		name string
+		item store.Item
+		want string
+	}{
+		{"no session at all", store.Item{}, "clipboard"},
+		{"session with no linked pane", store.Item{Session: &store.SessionLink{}}, "clipboard"},
+		{"session with a linked pane", store.Item{Session: &store.SessionLink{PaneID: "%3"}}, "tmux"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := dispatchMechanismTag(c.item); got != c.want {
+				t.Fatalf("want %q, got %q", c.want, got)
+			}
+		})
+	}
+}
+
+// TestRenderBlockerCellMechanismTagOnlyWhenNoOtherBadgeApplies is
+// renderBlockerCell's own documented precedence (dispatch badge > lane badge
+// > blocker/stale badge > mechanism tag): the mechanism tag must render for
+// an unblocked, fresh item with no dispatch/lane badge, but must NOT
+// override any of the three existing badges — even when that same item's
+// Session would otherwise qualify it for the "tmux" tag.
+func TestRenderBlockerCellMechanismTagOnlyWhenNoOtherBadgeApplies(t *testing.T) {
+	tmuxItem := store.Item{ID: "a", Session: &store.SessionLink{PaneID: "%1"}}
+	clipboardItem := store.Item{ID: "b"}
+
+	t.Run("unblocked with linked pane falls through to tmux tag", func(t *testing.T) {
+		q := NewQueuePane()
+		if got := q.renderBlockerCell(tmuxItem); got != "tmux" {
+			t.Fatalf("want %q, got %q", "tmux", got)
+		}
+	})
+
+	t.Run("unblocked with no linked pane falls through to clipboard tag", func(t *testing.T) {
+		q := NewQueuePane()
+		if got := q.renderBlockerCell(clipboardItem); got != "clipboard" {
+			t.Fatalf("want %q, got %q", "clipboard", got)
+		}
+	})
+
+	t.Run("dispatch badge wins over the mechanism tag", func(t *testing.T) {
+		q := NewQueuePane()
+		q.dispatchBadges = map[string]string{"a": "failed: boom"}
+		if got := q.renderBlockerCell(tmuxItem); got != "failed: boom" {
+			t.Fatalf("want the dispatch badge to win, got %q", got)
+		}
+	})
+
+	t.Run("lane badge wins over the mechanism tag", func(t *testing.T) {
+		q := NewQueuePane()
+		q.lanes = map[string]*lanes.LaneState{"a": {Type: "decision"}}
+		if got := q.renderBlockerCell(tmuxItem); got != "lane:decision (s)" {
+			t.Fatalf("want the lane badge to win, got %q", got)
+		}
+	})
+
+	t.Run("blocker badge wins over the mechanism tag", func(t *testing.T) {
+		q := NewQueuePane()
+		blocked := store.Item{ID: "a", Blocker: &store.BlockerNote{Type: "dependency"}, Session: &store.SessionLink{PaneID: "%1"}}
+		if got := q.renderBlockerCell(blocked); got != "blocked:dependency" {
+			t.Fatalf("want the blocker badge to win, got %q", got)
+		}
+	})
+
+	t.Run("stale badge wins over the mechanism tag", func(t *testing.T) {
+		q := NewQueuePane()
+		stale := store.Item{ID: "a", Stale: true, Session: &store.SessionLink{PaneID: "%1"}}
+		if got := q.renderBlockerCell(stale); got != "stale" {
+			t.Fatalf("want the stale badge to win, got %q", got)
+		}
+	})
 }
 
 // --- wavetui-dispatch (tasks.md [3.1]) Start action ---------------------

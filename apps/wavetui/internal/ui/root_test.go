@@ -7,6 +7,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/bus"
+	"github.com/leonardoacosta/installfest/apps/wavetui/internal/daemon"
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/store"
 )
 
@@ -194,6 +196,58 @@ func TestUnavailableBadgeDistinguishesMissingDirFromTransientFailure(t *testing.
 	}
 	if !strings.Contains(transient, "beads") || !strings.Contains(transient, "connection refused") {
 		t.Fatalf("want the real failure message surfaced, got %q", transient)
+	}
+}
+
+// --- wavetui-headless-discoverability (tasks.md [2.1]) admission hint -----
+
+// TestAdmissionHintEmptyWithoutHeadlessBar asserts admissionHint() returns ""
+// when no HeadlessBar has ever been appended (e.g. every pre-existing test
+// in this package, which constructs a bare Root via NewRoot) — the "render
+// unchanged when the wiring doesn't exist" convention this method's own doc
+// comment documents.
+func TestAdmissionHintEmptyWithoutHeadlessBar(t *testing.T) {
+	r := NewRoot(NewQueuePane(), NewDetailPane())
+	if got := r.admissionHint(); got != "" {
+		t.Fatalf("admissionHint() with no HeadlessBar appended = %q, want empty string", got)
+	}
+}
+
+// TestAdmissionHintAppearsInViewAndFlipsOnToggle is the E2E-level assertion
+// behind tasks.md [1.1]/[1.2]: once a HeadlessBar is appended, its
+// AdmissionHint() text is always present in Root.View()'s rendered content
+// (regardless of HeadlessBar.View()'s own empty-common-case contract), and
+// that text flips immediately after the admissionToggleKey is pressed on the
+// focused HeadlessBar — the same live-flip behavior
+// TestHeadlessBarAdmissionHintFlipsOnToggle asserts at the HeadlessBar level,
+// exercised here through Root's own View()/handleKey wiring.
+func TestAdmissionHintAppearsInViewAndFlipsOnToggle(t *testing.T) {
+	r := NewRoot(NewQueuePane(), NewDetailPane())
+	r.width, r.height = 100, 30
+	r.layout()
+
+	ctrl := daemon.NewController(daemon.NewHeadlessDispatcher(2, bus.New()))
+	hb := NewHeadlessBar(ctrl)
+	r.AppendPane(hb)
+
+	view := r.View().Content
+	if !strings.Contains(view, "a: headless dispatch (off)") {
+		t.Fatalf("want the off-state admission hint in a fresh Root's View(), got:\n%s", view)
+	}
+
+	// Focus the HeadlessBar pane so handleKey's *HeadlessBar type-assertion
+	// branch (root.go) routes the keypress to it, then press the toggle key
+	// through Root's own Update — not HeadlessBar.HandleKey directly — so
+	// this exercises the real dispatch path an operator's keypress travels.
+	r.focus = indexOf(r.panes, Pane(hb))
+	r.Update(tea.KeyPressMsg{Text: admissionToggleKey})
+
+	view = r.View().Content
+	if !strings.Contains(view, "a: headless dispatch (on)") {
+		t.Fatalf("want the on-state admission hint after pressing %q, got:\n%s", admissionToggleKey, view)
+	}
+	if strings.Contains(view, "a: headless dispatch (off)") {
+		t.Fatalf("off-state hint text must not still be present after toggling on, got:\n%s", view)
 	}
 }
 
