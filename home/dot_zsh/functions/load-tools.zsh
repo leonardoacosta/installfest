@@ -70,7 +70,7 @@ fi
 
 # lsd (tree view w/ icons + hyperlinks, default depth 1; override with e.g. `ll --depth=3`)
 if command -v lsd &>/dev/null; then
-  alias ll="lsd -la --tree --depth=1 --icon=auto --hyperlink=auto --group-directories-first"
+  alias ll="lsd -la --tree --depth=1 --icon=auto --hyperlink=auto --group-directories-first --blocks=size,date,name"
 fi
 
 # ripgrep config
