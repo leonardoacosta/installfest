@@ -3313,6 +3313,36 @@ def _test_render_session_bar_row2_countdown() -> None:
     _check(past == no_reset, f"past five_h_reset -> segment unchanged: {past!r}")
 
 
+def _test_render_session_bar_handoff_signal() -> None:
+    """render_session_bar (mechanize-session-boundaries task 2.4): the SES
+    label grows a RED ``!handoff:/workflow:handoff`` suffix once ``ses_pct``
+    is at/above :data:`render._SES_HANDOFF_THRESHOLD` (0.63); below threshold
+    or with ``ses_pct=None`` the label is byte-identical to before this
+    feature."""
+    threshold = render._SES_HANDOFF_THRESHOLD
+
+    at_threshold = render.render_session_bar("O", "if", "main", threshold, 0.5, 0.35)
+    _check(
+        f"!handoff:/workflow:handoff#[default]" in at_threshold,
+        f"at threshold -> handoff suffix present (boundary inclusive): {at_threshold!r}",
+    )
+    _check(
+        f"#[fg={render.RED}] !handoff" in at_threshold,
+        f"handoff suffix rendered in RED: {at_threshold!r}",
+    )
+
+    above_threshold = render.render_session_bar("O", "if", "main", threshold + 0.10, 0.5, 0.35)
+    _check("!handoff" in above_threshold, f"above threshold -> handoff suffix present: {above_threshold!r}")
+
+    below_threshold = render.render_session_bar("O", "if", "main", threshold - 0.01, 0.5, 0.35)
+    _check("!handoff" not in below_threshold, f"below threshold -> no handoff suffix: {below_threshold!r}")
+
+    baseline = render.render_session_bar("O", "if", "main", None, 0.5, 0.35)
+    no_pct = render.render_session_bar("O", "if", "main", None, 0.5, 0.35)
+    _check(no_pct == baseline, f"ses_pct=None -> byte-identical, no handoff suffix: {no_pct!r}")
+    _check("!handoff" not in no_pct, f"ses_pct=None -> no handoff suffix: {no_pct!r}")
+
+
 def _test_conductor_attach_command() -> None:
     import shlex as _shlex
 
@@ -4547,6 +4577,7 @@ _TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("render.row2_countdown_formatting", _test_render_row2_countdown_formatting),
     ("render.row2_countdown_gate", _test_render_row2_countdown_gate),
     ("render.session_bar_row2_countdown", _test_render_session_bar_row2_countdown),
+    ("render.session_bar_handoff_signal", _test_render_session_bar_handoff_signal),
     ("cli.evaluate_plugin_listing", _test_cli_evaluate_plugin_listing),
     ("cli.evaluate_plugin_listing_degraded", _test_cli_evaluate_plugin_listing_degraded),
     ("cli.evaluate_hook_liveness", _test_cli_evaluate_hook_liveness),

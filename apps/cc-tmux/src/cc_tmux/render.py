@@ -605,6 +605,18 @@ _MODEL_LETTER_COLORS: Dict[str, str] = {
 # call (below 80% the info is in the accounts popup, not row 2).
 _ROW2_COUNTDOWN_THRESHOLD = 0.80
 
+# mechanize-session-boundaries (cc, task 2.4): SES handoff signal fires at
+# 70% of cc's CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (default 90, cc `settings.json`)
+# so the human has runway before the 90%-of-window autocompact fire — 0.70 *
+# 0.90 = 0.63 of the raw context window, expressed here as a `ses_pct` ratio
+# (0..1) since that's what compaction itself keys off, not an absolute token
+# count. Hardcoded rather than read from cc's env: cc-tmux runs as a tmux
+# plugin/hook shim with no guaranteed access to cc's CLAUDE_AUTOCOMPACT_PCT_
+# OVERRIDE env var at render time (same constraint that keeps
+# _ROW2_COUNTDOWN_THRESHOLD a literal above). If cc's override value ever
+# changes from 90, this constant needs a matching manual update.
+_SES_HANDOFF_THRESHOLD = 0.63
+
 
 def _format_row2_countdown(remaining_secs: float) -> str:
     """``47m`` (under 60 min) or ``1h12m`` (at/above 60 min) compact countdown.
@@ -712,6 +724,15 @@ def render_session_bar(
     to before this parameter existed (fail-open). ``now`` defaults to
     ``time.time()`` when omitted; injectable for self-test determinism.
 
+    ``ses_pct`` (mechanize-session-boundaries task 2.4) ALSO gates a handoff
+    signal on the SES label itself: at/above :data:`_SES_HANDOFF_THRESHOLD`
+    (0.63 — 70% of cc's ``CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`` default of 90),
+    the label grows a RED `` !handoff:/workflow:handoff`` suffix naming the
+    escape hatch by name (start a fresh session via ``/workflow:handoff``)
+    rather than relying on colour alone. Below threshold, or when ``ses_pct``
+    is ``None`` (context data unavailable), the label is byte-identical to
+    before this feature (fail-open).
+
     Pure function of its inputs (no tmux/subprocess). Empty model_letter /
     project / branch fields drop out of the left side (fail-open).
     """
@@ -754,6 +775,15 @@ def render_session_bar(
     ses_label = format_context_tokens(raw_tokens)
     ses_color, _ = _context_color_pair(raw_tokens)
     usage_glyph = render_usage_glyph(ses_pct, five_h_pct, seven_d_pct, n=20)
+    # mechanize-session-boundaries task 2.4: past _SES_HANDOFF_THRESHOLD, the
+    # SES label grows a DIM-RED "!handoff" suffix naming the escape hatch
+    # explicitly (a colour swap alone doesn't tell the reader WHAT to do).
+    # Fail-open to "" — byte-identical to the pre-existing render — whenever
+    # `ses_pct` is unavailable or below threshold, same convention as the 5H
+    # countdown suffix below.
+    handoff_hint = ""
+    if ses_pct is not None and ses_pct >= _SES_HANDOFF_THRESHOLD:
+        handoff_hint = f"#[fg={RED}] !handoff:/workflow:handoff#[default]"
     # Right side: SES label, then 5H, then 7D, then the combined usage glyph
     # LAST (design.md § Decision 2). The account-identity segment + its
     # #[range=user|accounts] click marker moved off this row to row 3
@@ -770,7 +800,7 @@ def render_session_bar(
         five_h_segment += f"#[fg={DIM}]·{countdown}"
     five_h_segment += "#[default]"
     right = (
-        f"#[fg={ses_color}]{ses_label}#[default] "
+        f"#[fg={ses_color}]{ses_label}#[default]{handoff_hint} "
         f"{five_h_segment} "
         f"#[fg={DIM}]7D:#[fg={c7}]{p7}#[default] {usage_glyph}"
     )
