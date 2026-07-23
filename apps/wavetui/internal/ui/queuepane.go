@@ -20,8 +20,13 @@ import (
 	"github.com/leonardoacosta/installfest/apps/wavetui/internal/wave"
 )
 
-// queueColumns matches tasks.md [3.2]'s required column set: item / type /
-// created-at / blocker-badge / fan-out-score.
+// queueColumns matches wavetui-table-detail-polish's spec.md "QueuePane
+// renders the live queue..." Requirement's column set: a single merged Item
+// column (kind glyph + MM-dd date prefix + title — see renderItemLabel),
+// blocker-badge, and fan-out-score. The separate Type and Created columns
+// this table used to carry are folded into Item (task 2.1/2.2) — Item's
+// width absorbs both former columns' combined budget (32+10+12=54) so the
+// table's total rendered width is unchanged.
 // Blocker is 24 wide, not 18 — tasks.md [3.1]'s ErrSessionStreaming refusal
 // renders the literal design.md phrase "queued — session busy" (21 runes)
 // into this same column (see renderBlockerCell); 18 would silently
@@ -31,9 +36,7 @@ import (
 // (spawned)" at 23 runes, "stale — x:cleanup" at 17) were sized to fit this
 // same 24-wide budget rather than widening the column further.
 var queueColumns = []table.Column{
-	{Title: "Item", Width: 32},
-	{Title: "Type", Width: 10},
-	{Title: "Created", Width: 12},
+	{Title: "Item", Width: 54},
 	{Title: "Blocker", Width: 24},
 	{Title: "Fan-out", Width: 8},
 }
@@ -317,8 +320,6 @@ func (q *QueuePane) rebuildRows() {
 	for _, it := range q.items {
 		rows = append(rows, table.Row{
 			q.renderTitleCell(it),
-			string(it.Kind),
-			formatCreatedAt(it.CreatedAt),
 			q.renderBlockerCell(it),
 			fmt.Sprintf("%d", it.FanOutScore),
 		})
@@ -372,17 +373,22 @@ func (q *QueuePane) rebuildLanes() {
 	}
 }
 
-// View implements Pane. Beyond the underlying table, it appends the
-// ambiguous-target picker (if-7mq2.1, see renderAmbiguousPicker) when a Start
-// dispatch is currently tied on a candidate pane, then the wave-builder's
-// transient status lines (selection summary, ConflictsFor warnings, last
-// finalize outcome) when there is anything to show — see waveStatusLines. A
-// QueuePane with no picker open, no selection, and no wave activity yet
-// renders byte-for-byte identically to before either feature existed
-// (renderAmbiguousPicker/waveStatusLines both return "" in that case, and
-// each "\n"+"" append is skipped entirely).
+// View implements Pane. Beyond the underlying table, it appends an overflow
+// indicator (task 2.3, see renderOverflowIndicator) when more items exist
+// than the table's visible height can show, the ambiguous-target picker
+// (if-7mq2.1, see renderAmbiguousPicker) when a Start dispatch is currently
+// tied on a candidate pane, then the wave-builder's transient status lines
+// (selection summary, ConflictsFor warnings, last finalize outcome) when
+// there is anything to show — see waveStatusLines. A QueuePane with no
+// overflow, no picker open, no selection, and no wave activity yet renders
+// byte-for-byte identically to before any of these features existed (each
+// helper returns "" in that case, and each "\n"+"" append is skipped
+// entirely).
 func (q *QueuePane) View() string {
 	view := q.table.View()
+	if overflow := q.renderOverflowIndicator(); overflow != "" {
+		view += "\n" + overflow
+	}
 	if picker := q.renderAmbiguousPicker(); picker != "" {
 		view += "\n" + picker
 	}
@@ -392,14 +398,32 @@ func (q *QueuePane) View() string {
 	return view
 }
 
+// renderOverflowIndicator names how many additional items exist below the
+// table's visible height (task 2.3) — spec.md's "the item count exceeds the
+// visible table height" scenario. Reuses table.Model's existing Rows()/
+// Height() accessors (Height() returns the viewport's visible row count,
+// excluding the header — see bubbles/v2 table.Model.SetHeight/Height) rather
+// than tracking a second, parallel count. Returns "" when every row already
+// fits, so View()'s "\n"+"" append is skipped — the same "render nothing
+// extra when there is nothing to show" contract renderAmbiguousPicker/
+// waveStatusLines already follow.
+func (q *QueuePane) renderOverflowIndicator() string {
+	total := len(q.table.Rows())
+	visible := q.table.Height()
+	if total <= visible {
+		return ""
+	}
+	return lipgloss.NewStyle().Faint(true).Render(fmt.Sprintf("%d more below", total-visible))
+}
+
 // SetHighlights installs the current per-item highlight map wavetui-flair
 // computed for this frame (task [3.1]). A nil or empty map — flair
 // disabled, compiled out, or simply no event mid-flight for any visible row
 // right now — leaves QueuePane's rendering byte-for-byte identical to how it
 // rendered before this method existed: Update's row-building loop only
 // consults q.highlights through renderTitleCell below, never inline in the
-// pre-existing renderItemTitle/blockerBadge/formatCreatedAt path, which this
-// task does not touch.
+// pre-existing renderItemTitle/blockerBadge path, which this task does not
+// touch.
 func (q *QueuePane) SetHighlights(highlights map[string]flair.HighlightState) {
 	q.highlights = highlights
 }
@@ -996,18 +1020,6 @@ func indexOfItemID(items []store.Item, id string) int {
 	return -1
 }
 
-// formatCreatedAt renders Item.CreatedAt for the table's Created column. A
-// zero time.Time (source didn't have/couldn't parse a created-at value — see
-// sources/beads.go's toItem and sources/openspec.go's parseOneProposal) is
-// tolerated per wavetui's decode-everywhere convention: it renders as "-"
-// rather than the zero-value's misleading "0001-01-01".
-func formatCreatedAt(t time.Time) string {
-	if t.IsZero() {
-		return "-"
-	}
-	return t.Format("2006-01-02")
-}
-
 // secondClassStyle dims an Item.SecondClass row's title — spec.md's
 // visibility-gate Requirement: a plans/advisor-plans-sourced item "SHALL...
 // be rendered as visually second-class when enabled", never identically to
@@ -1024,14 +1036,53 @@ var secondClassStyle = lipgloss.NewStyle().Faint(true)
 // prefix) rather than introducing a non-ASCII marker.
 const waveSelectMarker = "[x] "
 
+// itemKindGlyph maps an ItemKind to its queue-row glyph (task 2.1) — 🧿 for
+// a bead, 📃 for a proposal — see spec.md's "a bead renders its glyph" / "a
+// proposal renders its glyph" scenarios. Any other (future) kind renders
+// "?" rather than a blank cell, matching this package's tolerant-unknown-
+// value convention (badgeText, blockerBadge's own default branches).
+func itemKindGlyph(kind store.ItemKind) string {
+	switch kind {
+	case store.KindBead:
+		return "🧿"
+	case store.KindProposal:
+		return "📃"
+	default:
+		return "?"
+	}
+}
+
+// formatCreatedAtShort renders Item.CreatedAt as the merged Item column's
+// leading "MM-dd " date prefix (task 2.2) — spec.md's "a single merged Item
+// column" Requirement. A zero time.Time (source didn't have/couldn't parse a
+// created-at value) renders as "-----", the same fixed 5-rune width as a
+// real "MM-dd" so columns still align — "-" is this package's established
+// convention for an unknown/zero date.
+func formatCreatedAtShort(t time.Time) string {
+	if t.IsZero() {
+		return "-----"
+	}
+	return t.Format("01-02")
+}
+
+// renderItemLabel composes the merged Item column's full content — kind
+// glyph, then MM-dd date, then title (task 2.1/2.2) — the single reusable
+// building block both renderItemTitle's plain path and renderTitleCell's
+// flair-highlighted path render on top of, so the glyph+date prefix appears
+// identically in both cases.
+func renderItemLabel(it store.Item) string {
+	return itemKindGlyph(it.Kind) + " " + formatCreatedAtShort(it.CreatedAt) + " " + it.Title
+}
+
 // renderItemTitle renders the queue's Item column: prefix (the wave-select
 // marker, or "" when the item isn't selected — see renderTitleCell) plus the
-// plain title for a real bead/proposal, or a dimmed rendering for a
-// SecondClass item (see secondClassStyle). prefix is applied BEFORE the
-// SecondClass dimming so a selected SecondClass item still renders dimmed
-// with its marker visible, rather than the marker escaping the dim style.
+// glyph+date+title label (renderItemLabel) for a real bead/proposal, or a
+// dimmed rendering for a SecondClass item (see secondClassStyle). prefix is
+// applied BEFORE the SecondClass dimming so a selected SecondClass item
+// still renders dimmed with its marker visible, rather than the marker
+// escaping the dim style.
 func renderItemTitle(it store.Item, prefix string) string {
-	text := prefix + it.Title
+	text := prefix + renderItemLabel(it)
 	if it.SecondClass {
 		return secondClassStyle.Render(text)
 	}
@@ -1069,7 +1120,7 @@ func (q *QueuePane) renderTitleCell(it store.Item) string {
 	if it.SecondClass {
 		style = style.Faint(true)
 	}
-	text := prefix + it.Title
+	text := prefix + renderItemLabel(it)
 	if hl.Glyph != "" {
 		text = hl.Glyph + " " + text
 	}

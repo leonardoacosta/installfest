@@ -363,6 +363,50 @@ func TestItemUpsertRepublishPreservesExistingSessionLink(t *testing.T) {
 	}
 }
 
+// TestSnapshotOrdersByFanOutScoreThenCreatedAtThenID is
+// wavetui-table-detail-polish's tasks.md [3.1]/[1.1] regression test: items
+// with unequal FanOutScore sort descending regardless of creation order, and
+// equal-FanOutScore items fall back to CreatedAt ascending, then ID as a
+// final deterministic tiebreak when both FanOutScore and CreatedAt tie.
+func TestSnapshotOrdersByFanOutScoreThenCreatedAtThenID(t *testing.T) {
+	s := New()
+	day1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+
+	// Mixed fanout+date case: "old" was created first but has a lower
+	// fan-out score, so it must still sort AFTER "new" (higher fanout wins).
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "old", Kind: KindBead, Title: "Old", CreatedAt: day1}})
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "new", Kind: KindBead, Title: "New", CreatedAt: day2}, Deps: []string{"old"}})
+
+	// Equal-fanout tiebreak case: "z-tied" and "a-tied" both have FanOutScore
+	// 0 and the same CreatedAt — ID ascending is the final tiebreaker.
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "z-tied", Kind: KindBead, Title: "Z", CreatedAt: day1}})
+	s.Apply(ItemUpsertEvent{Item: Item{ID: "a-tied", Kind: KindBead, Title: "A", CreatedAt: day1}})
+
+	snap := s.Snapshot()
+	ids := make([]string, len(snap.Items))
+	for i, it := range snap.Items {
+		ids[i] = it.ID
+	}
+
+	// "old" has FanOutScore 1 (it unblocks "new"), "new" has 0 — so "old"
+	// (fanout 1) sorts first despite being created first anyway; the real
+	// assertion is that "new" (fanout 0, created day2) still sorts AHEAD of
+	// the two fanout-0 day1 items by fanout alone... but "new" itself has
+	// fanout 0 same as z-tied/a-tied, and was created LATER (day2), so it
+	// must sort AFTER both day1 fanout-0 items. Full expected order:
+	// old(fanout=1) , a-tied(fanout=0,day1) , z-tied(fanout=0,day1) , new(fanout=0,day2)
+	want := []string{"old", "a-tied", "z-tied", "new"}
+	if len(ids) != len(want) {
+		t.Fatalf("want %d items, got %v", len(want), ids)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Fatalf("order mismatch at index %d: got %v, want %v", i, ids, want)
+		}
+	}
+}
+
 func TestFanOutScoreIgnoresCycleInfiniteLoop(t *testing.T) {
 	s := New()
 	// a <-> b cyclic dependency must not hang recomputeFanOutLocked.

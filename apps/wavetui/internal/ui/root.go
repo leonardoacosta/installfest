@@ -623,6 +623,12 @@ func (r *Root) layout() {
 
 	r.queue.SetSize(queueWidth, tableHeight)
 
+	// DetailPane's bordered box matches QueuePane's real table height
+	// exactly (task 2.5, spec.md's "the detail pane matches the queue
+	// table's height" scenario) — same already-computed tableHeight value,
+	// no separate size derivation.
+	r.detail.SetSize(detailWidth, tableHeight)
+
 	// The memory timeline gets the SAME full height budget the queue/
 	// detail row would otherwise use — when it's the active tab, nothing
 	// else occupies that space, so it should fill it, not settle for the
@@ -652,11 +658,18 @@ func (r *Root) layout() {
 }
 
 // extraPaneReservedRows is the fixed row budget layout() reserves per
-// appended extra pane (frame + content) — generous enough for
-// MemoryTimelinePane's header line, an unavailable-badge line, and a
-// handful of date-grouped entries without needing real scrolling machinery,
-// which is out of scope for this task.
-const extraPaneReservedRows = 12
+// appended PERSISTENT extra pane (frame + content) — Sessions/KPI's real
+// content is ~1-4 lines (empty=1 line, KPI=1 line, a couple of session rows
+// =3-4), so 5 covers the realistic common case with slack without starving
+// the queue table's own height budget the way the old 12-row reservation
+// did (wavetui-table-detail-polish's proposal.md Risks table: a genuinely
+// large session count degrades gracefully via clipping, the same class of
+// problem MemoryTimelinePane.clipLines already solves elsewhere, not
+// preemptively solved here). The memory timeline and context pane are NOT
+// sized from this constant — they are tab-exclusive full-height content
+// (see persistentExtras/tableHeight below), not part of the always-visible
+// bottom strip this budget covers.
+const extraPaneReservedRows = 5
 
 // extraPanes returns every pane beyond the fixed queue/detail pair — i.e.
 // any pane attached via AppendPane. A helper rather than inline slicing so
@@ -723,23 +736,39 @@ func (r *Root) View() tea.View {
 		return v
 	}
 
-	body := lipgloss.JoinVertical(lipgloss.Left, r.renderTabBar(), r.renderTabContent())
-
-	// Persistent extras (sessions/kpi/headlessbar — NOT the memory
-	// timeline, which is tab-exclusive content rendered by
-	// renderTabContent above) still stack below as their own full-width
-	// row each. A pane whose View() returns "" (wavetui-daemon's
-	// HeadlessBar, in its common not-paused/never-enabled case —
-	// design.md § Additive Snapshot field: "renders nothing") is skipped
-	// entirely rather than wrapped in an empty bordered box — an empty box
-	// is still a visible box, which would contradict "renders nothing."
+	// Persistent extras (sessions/kpi/headlessbar — NOT the memory timeline
+	// or context pane, both tab-exclusive content rendered by
+	// renderTabContent below) render FIRST, ABOVE the tab bar (task 2.7,
+	// proposal.md's Done Means: "Operator sees Sessions/KPI/HeadlessBar
+	// rendered above the Items/Memories tab bar, visible regardless of
+	// which tab is active") — they already render regardless of activeTab
+	// (paneVisible only gates queue/memory/context), so this changes only
+	// their vertical position, not their visibility. A pane whose View()
+	// returns "" (wavetui-daemon's HeadlessBar, in its common
+	// not-paused/never-enabled case — design.md § Additive Snapshot field:
+	// "renders nothing") is skipped entirely rather than wrapped in an
+	// empty bordered box — an empty box is still a visible box, which would
+	// contradict "renders nothing."
+	var body string
 	for _, extra := range r.persistentExtras() {
 		content := extra.View()
 		if content == "" {
 			continue
 		}
 		style := paneStyle(r.focus == indexOf(r.panes, extra))
-		body = lipgloss.JoinVertical(lipgloss.Left, body, style.Render(content))
+		rendered := style.Render(content)
+		if body == "" {
+			body = rendered
+		} else {
+			body = lipgloss.JoinVertical(lipgloss.Left, body, rendered)
+		}
+	}
+
+	tabSection := lipgloss.JoinVertical(lipgloss.Left, r.renderTabBar(), r.renderTabContent())
+	if body == "" {
+		body = tabSection
+	} else {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, tabSection)
 	}
 
 	help := lipgloss.NewStyle().Faint(true).Render("1/2 or click: tabs  tab: switch pane  ↑/↓ or wheel: select  q: quit")

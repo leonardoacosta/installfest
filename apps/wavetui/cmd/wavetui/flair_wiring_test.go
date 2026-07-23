@@ -197,7 +197,11 @@ func TestStepFlairPropagatesSpriteGlyphsToQueuePane(t *testing.T) {
 	w.Update(zombieSnap) // starts sprite state + installs this frame's glyph
 
 	view := w.root.Queue().View()
-	if !strings.Contains(view, "× Stuck") {
+	// The Item column now carries a kind glyph + MM-dd date prefix ahead of
+	// the title (wavetui-table-detail-polish tasks.md [2.1]/[2.2]) — the
+	// sprite glyph still prepends ahead of that whole label, not just the
+	// title, so the zero-CreatedAt/KindBead item renders "× 🧿 ----- Stuck".
+	if !strings.Contains(view, "× 🧿 ----- Stuck") {
 		t.Fatalf("want the zombie sprite glyph prepended onto the linked item's row, got:\n%s", view)
 	}
 }

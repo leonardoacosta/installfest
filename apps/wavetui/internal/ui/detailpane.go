@@ -26,10 +26,33 @@ const detailWidth = 44
 type DetailPane struct {
 	selected store.Item
 	hasSel   bool
+
+	// height is the rendered content height threaded in from Root.layout()'s
+	// already-computed tableHeight (task 2.5, spec.md's "the detail pane
+	// matches the queue table's height" scenario) — see SetSize. 0 (the
+	// zero value, and every pre-existing test's default) means "no explicit
+	// height set yet," in which case View() renders at its natural content
+	// height exactly as it always has, matching QueuePane's own
+	// defaultQueueWidth/Height precedent of "an unset size must not break
+	// existing behavior before layout() has ever run."
+	height int
 }
 
 // NewDetailPane constructs an empty DetailPane (no selection yet).
 func NewDetailPane() *DetailPane { return &DetailPane{} }
+
+// SetSize sets DetailPane's rendered content height to match QueuePane's
+// real table height (task 2.5) — mirrors QueuePane.SetSize's existing
+// precedent (root.go's layout() calls both from the same already-computed
+// tableHeight). width is accepted for signature symmetry with
+// QueuePane.SetSize and the Sizeable interface (layout() type-asserts any
+// appended pane against Sizeable), but DetailPane keeps its own fixed
+// detailWidth — see that constant's doc comment for why a concrete width is
+// load-bearing for predictable wrapping — so width is intentionally unused
+// here.
+func (d *DetailPane) SetSize(_ int, height int) {
+	d.height = height
+}
 
 // Update implements Pane. It does NOT decide which item is selected — that
 // is SetSelected's job — it only re-syncs the currently-displayed item's own
@@ -52,10 +75,21 @@ func (d *DetailPane) Update(snap store.Snapshot) Pane {
 	return d
 }
 
-// View implements Pane.
+// View implements Pane. Its bordered box (root.go's paneStyle wraps this
+// content, not View() itself) is sized to detailWidth x d.height whenever
+// SetSize has been called (d.height > 0) — task 2.5, matching QueuePane's
+// real table height so the two panes' bordered boxes line up exactly. A
+// DetailPane that predates SetSize ever being called (d.height == 0, every
+// pre-existing test in this package) renders at its natural content height,
+// byte-for-byte identical to before this field existed.
 func (d *DetailPane) View() string {
+	style := lipgloss.NewStyle().Width(detailWidth)
+	if d.height > 0 {
+		style = style.Height(d.height)
+	}
+
 	if !d.hasSel {
-		return lipgloss.NewStyle().Width(detailWidth).Faint(true).Render("No item selected.")
+		return style.Faint(true).Render("No item selected.")
 	}
 
 	var b strings.Builder
@@ -68,6 +102,10 @@ func (d *DetailPane) View() string {
 		b.WriteString("\n")
 	}
 
+	// A nil Blocker renders nothing here at all — the absence of a blocker
+	// line IS the unblocked signal (spec.md's "an unblocked item's detail
+	// pane shows no blocker line" scenario), not a "\nUnblocked.\n" line
+	// occupying a wasted line on every unblocked item's detail view.
 	if d.selected.Blocker != nil {
 		b.WriteString("\n")
 		b.WriteString(lipgloss.NewStyle().Bold(true).Render("Blocked: " + d.selected.Blocker.Type))
@@ -77,8 +115,6 @@ func (d *DetailPane) View() string {
 			fmt.Fprintf(&b, " (see %s)", d.selected.Blocker.Ref)
 		}
 		b.WriteString("\n")
-	} else {
-		b.WriteString("\nUnblocked.\n")
 	}
 
 	if d.selected.TaskProgress != nil {
@@ -94,7 +130,7 @@ func (d *DetailPane) View() string {
 		b.WriteString("\n")
 	}
 
-	return lipgloss.NewStyle().Width(detailWidth).Render(b.String())
+	return style.Render(b.String())
 }
 
 // Focusable implements Pane. DetailPane is a read-only reflection of

@@ -604,7 +604,21 @@ func (s *Store) Snapshot() Snapshot {
 	for _, item := range s.items {
 		items = append(items, cloneItem(item))
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	// Ordered by FanOutScore descending (most transitively-blocking first),
+	// then CreatedAt ascending, then ID ascending as a final deterministic
+	// tiebreaker — see wavetui-table-detail-polish's spec.md MODIFIED "Store
+	// derives normalized queue state..." Requirement's "items are ordered by
+	// blocking weight, then date" / "equal fan-out score falls back to
+	// creation date" scenarios.
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].FanOutScore != items[j].FanOutScore {
+			return items[i].FanOutScore > items[j].FanOutScore
+		}
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
 
 	errs := make([]SourceError, 0, len(s.errors))
 	for _, e := range s.errors {

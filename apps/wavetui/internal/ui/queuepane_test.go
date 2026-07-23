@@ -132,13 +132,13 @@ func TestQueuePaneViewRendersRows(t *testing.T) {
 	}
 }
 
-func TestFormatCreatedAt(t *testing.T) {
-	if got := formatCreatedAt(time.Time{}); got != "-" {
-		t.Fatalf("zero time: want %q, got %q", "-", got)
+func TestFormatCreatedAtShort(t *testing.T) {
+	if got := formatCreatedAtShort(time.Time{}); got != "-----" {
+		t.Fatalf("zero time: want %q, got %q", "-----", got)
 	}
 	tm := time.Date(2026, 7, 4, 0, 0, 0, 0, time.UTC)
-	if got := formatCreatedAt(tm); got != "2026-07-04" {
-		t.Fatalf("want %q, got %q", "2026-07-04", got)
+	if got := formatCreatedAtShort(tm); got != "07-04" {
+		t.Fatalf("want %q, got %q", "07-04", got)
 	}
 }
 
@@ -224,16 +224,19 @@ func TestSetHighlightsAppliesColorAndGlyphToMatchingRow(t *testing.T) {
 	q.SetHighlights(map[string]flair.HighlightState{
 		"a": {Color: colorful.Color{R: 0, G: 1, B: 0}, Glyph: "!"},
 	})
-	q.Update(store.Snapshot{Items: []store.Item{
-		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
-		{ID: "b", Kind: store.KindBead, Title: "Beta item"},
-	}})
+	alpha := store.Item{ID: "a", Kind: store.KindBead, Title: "Alpha item"}
+	beta := store.Item{ID: "b", Kind: store.KindBead, Title: "Beta item"}
+	q.Update(store.Snapshot{Items: []store.Item{alpha, beta}})
 
 	view := q.View()
-	if !strings.Contains(view, "! Alpha item") {
+	// The Item column now carries a kind glyph + MM-dd date prefix ahead of
+	// the title (task 2.1/2.2, renderItemLabel) — the flair highlight glyph
+	// still prepends ahead of that whole label, not just the title.
+	if !strings.Contains(view, "! "+renderItemLabel(alpha)) {
 		t.Fatalf("want highlighted row to carry its glyph prefix, got:\n%s", view)
 	}
-	if !strings.Contains(view, "Beta item") || strings.Contains(view, "! Beta item") {
+	plainBeta := renderItemLabel(beta)
+	if !strings.Contains(view, plainBeta) || strings.Contains(view, "! "+plainBeta) {
 		t.Fatalf("unhighlighted sibling row must render its plain title, got:\n%s", view)
 	}
 }
@@ -284,16 +287,19 @@ func TestSetSpriteGlyphsComposesWithTitleAndHighlight(t *testing.T) {
 	q.SetHighlights(map[string]flair.HighlightState{
 		"a": {Color: colorful.Color{R: 0, G: 1, B: 0}, Glyph: "!"},
 	})
-	q.Update(store.Snapshot{Items: []store.Item{
-		{ID: "a", Kind: store.KindBead, Title: "Alpha item"},
-		{ID: "b", Kind: store.KindBead, Title: "Beta item"},
-	}})
+	alpha := store.Item{ID: "a", Kind: store.KindBead, Title: "Alpha item"}
+	beta := store.Item{ID: "b", Kind: store.KindBead, Title: "Beta item"}
+	q.Update(store.Snapshot{Items: []store.Item{alpha, beta}})
 
 	view := q.View()
-	if !strings.Contains(view, "! ⋋ Alpha item") {
+	// Same composition-order note as TestSetHighlightsAppliesColorAndGlyphToMatchingRow
+	// above: the sprite glyph and highlight glyph both prepend ahead of the
+	// whole glyph+date+title label (renderItemLabel), not just the title.
+	if !strings.Contains(view, "! ⋋ "+renderItemLabel(alpha)) {
 		t.Fatalf("want sprite glyph to prepend ahead of the existing highlight glyph+title, got:\n%s", view)
 	}
-	if !strings.Contains(view, "Beta item") || strings.Contains(view, "⋋ Beta item") {
+	plainBeta := renderItemLabel(beta)
+	if !strings.Contains(view, plainBeta) || strings.Contains(view, "⋋ "+plainBeta) {
 		t.Fatalf("sibling row with no sprite glyph must render its plain title, got:\n%s", view)
 	}
 }
@@ -814,11 +820,14 @@ func TestQueuePaneToggleSelectedTwiceDeselects(t *testing.T) {
 
 func TestQueuePaneSelectMarkerRendersOnSelectedRow(t *testing.T) {
 	q := NewQueuePane()
-	q.Update(store.Snapshot{Items: []store.Item{{ID: "a", Title: "Alpha item"}}})
+	item := store.Item{ID: "a", Title: "Alpha item"}
+	q.Update(store.Snapshot{Items: []store.Item{item}})
 
 	q.HandleKey(tea.KeyPressMsg{Code: tea.KeySpace})
 
-	if got := firstDataRow(q.View()); !strings.Contains(got, waveSelectMarker+"Alpha item") {
+	// The select marker prefixes the whole glyph+date+title label
+	// (renderItemLabel, task 2.1/2.2), not just the bare title.
+	if got := firstDataRow(q.View()); !strings.Contains(got, waveSelectMarker+renderItemLabel(item)) {
 		t.Fatalf("want select marker prefixing the title, got:\n%s", got)
 	}
 }

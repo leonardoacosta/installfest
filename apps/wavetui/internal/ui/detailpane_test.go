@@ -82,12 +82,19 @@ func TestDetailPaneNoDescriptionShowsNoExtraSection(t *testing.T) {
 	}
 }
 
-func TestDetailPaneUnblockedRendersUnblocked(t *testing.T) {
+// TestDetailPaneUnblockedRendersNoBlockerLine is
+// wavetui-table-detail-polish's tasks.md [2.4] regression test: an
+// unblocked item (Blocker == nil) must render NO blocker-status line at
+// all — the absence of a blocker line IS the unblocked signal (spec.md's
+// "an unblocked item's detail pane shows no blocker line" scenario) — not
+// the previous unconditional "Unblocked." line that wasted a line on every
+// unblocked item's detail view.
+func TestDetailPaneUnblockedRendersNoBlockerLine(t *testing.T) {
 	d := NewDetailPane()
 	d.SetSelected(store.Item{ID: "a", Title: "Clean item"}, true)
 
-	if got := d.View(); !strings.Contains(got, "Unblocked") {
-		t.Fatalf("want %q in view for an item with no Blocker, got:\n%s", "Unblocked", got)
+	if got := d.View(); strings.Contains(got, "Unblocked") {
+		t.Fatalf("want no %q text in view for an item with no Blocker, got:\n%s", "Unblocked", got)
 	}
 }
 
