@@ -66,7 +66,7 @@ target (file / dir / registry code)
 
 Atlas is a **durability optimization on top of** the live-mount server, not
 a replacement for it or a dependency it needs to function. See
-`at/docs/INDEX-CONTRACT.md` for the manifest contract this implements
+`~/dev/personal/atlas/docs/INDEX-CONTRACT.md` (the `at` repo) for the manifest contract this implements
 against.
 
 ### Fail-open contract (non-negotiable)

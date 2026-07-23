@@ -118,7 +118,8 @@ already in use in this repo:
 - **Header-comment extraction** (`ropen.sh`/`viewopen.sh`/`copen` style): `sed -n
   'X,Yp' "$0" | sed 's/^# \{0,1\}//'` to print an existing usage comment block
   verbatim — used where the header already carried enough prose (`mac-open.sh`,
-  `generate-raycast.sh`, `homelab/harden.sh`, `mux-remote.sh`).
+  `scripts/generate-raycast.sh`, `scripts/homelab/harden.sh`,
+  `scripts/mux-remote.sh`).
 - **Inline heredoc** (`platform/bootstrap.sh` style): `if [[ "${1:-}" == "--help"
   || "${1:-}" == "-h" ]]; then cat <<'EOF' ... EOF; exit 0; fi` — used where a
   fresh, tighter summary was clearer than the header comment (the rest).

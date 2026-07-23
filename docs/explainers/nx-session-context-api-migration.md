@@ -25,7 +25,7 @@ git-status surface, described below since cc-tmux reads git fields too.
 
 ## Why this breaks cc-tmux today
 
-`cc_tmux/cli.py`'s `_read_session_context(pane_id)` reads
+`apps/cc-tmux/src/cc_tmux/cli.py`'s `_read_session_context(pane_id)` reads
 `session-context.<pane_id>.json` for `(model_letter, context_used_pct,
 branch, dirty, ahead)`, feeding `_build_session_bar`'s row-2 status line. That
 file is no longer written by nx as of this merge. Effects, gated by the
@@ -55,7 +55,7 @@ PATCH /sessions/:id/context
 Keyed by **`session_id`**, not pane id or project code. In-memory, 600s TTL
 on the nx-agent side (not Postgres).
 
-Response shape (`nexus/packages/core/src/types/session-context.ts`):
+Response shape (`~/dev/personal/nexus/packages/core/src/types/session-context.ts`):
 
 ```ts
 {
@@ -92,7 +92,7 @@ GET /projects/:id/git-events?days=<n>
 Keyed by **project code**, not session id or pane id — cc-tmux already
 resolves `@cc-project` per pane, so this is the easier of the two to wire.
 
-The `git` object (`nexus/packages/core/src/types/git-status.ts`), folded
+The `git` object (`~/dev/personal/nexus/packages/core/src/types/git-status.ts`), folded
 into `GET /projects/:id/status` and omitted entirely when nx's git-observer
 hasn't polled that project yet:
 
@@ -123,9 +123,9 @@ verified here) or a future nx change to add it to git-observer.
   design rationale for dropping the pane-keyed file.
 - `nexus/openspec/changes/archive/2026-07-13-add-project-status-snapshots/`
   and `.../2026-07-13-add-git-status-orbit/` — the git-status surface.
-- `nexus/packages/core/src/types/session-context.ts` and
-  `.../git-status.ts` — authoritative Zod contracts; prefer these over this
-  doc if they've drifted.
+- `~/dev/personal/nexus/packages/core/src/types/session-context.ts` and
+  `~/dev/personal/nexus/packages/core/src/types/git-status.ts` — authoritative
+  Zod contracts; prefer these over this doc if they've drifted.
 
 ## Not covered here
 

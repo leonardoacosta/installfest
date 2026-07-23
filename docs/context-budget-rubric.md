@@ -27,7 +27,7 @@
 | A4 | **SKILL.md body** | total lines of SKILL.md | ≤ 400 | 401–500 | > 500 | 500 lines **[G→H-treated]** (spec SHOULD + <5,000-token guidance; treated as hard because of A10) | Recurring per-turn cost; post-compaction truncation risk |
 | A5 | **Reference file ToC** | lines per `references/*.md`; ToC = link-list or "Contents" heading in first 40 lines | ≤ 100, or any length WITH ToC | 101–300 without ToC | > 300 without ToC | 100 (best-practices) / 300 (skill-creator) **[G]** — bands bridge the two sources | Partial reads (`head -100`) miss content |
 | A6 | **Reference nesting depth** | links from `references/*.md` to further reference files | 0 | — | ≥ 1 | one-level-deep, spec SHOULD **[H]-treated** | Claude partial-reads chains; content unreachable |
-| A7 | **Always-loaded CLAUDE.md chain** (root CLAUDE.md + every `@import` + project overlay) | Σ bytes/4 of root + imports (≤4 hops) + `.claude/CLAUDE.md` | ≤ 5,000 tok | 5,001–10,000 tok | > 10,000 tok | **[R]** — anchored to memory.md's per-file guidance (A8) × a 3-file chain; docs: "Longer files consume more context and reduce adherence" | Paid every turn AND reloaded after every compaction; crowds out conversation |
+| A7 | **Always-loaded CLAUDE.md chain** (root CLAUDE.md + every `@import` + project overlay) | Σ bytes/4 of root + imports (≤4 hops) + `~/dev/cc/.claude/CLAUDE.md` | ≤ 5,000 tok | 5,001–10,000 tok | > 10,000 tok | **[R]** — anchored to memory.md's per-file guidance (A8) × a 3-file chain; docs: "Longer files consume more context and reduce adherence" | Paid every turn AND reloaded after every compaction; crowds out conversation |
 | A8 | **Per-file CLAUDE.md / rules import** | lines per file in the chain | ≤ 200 | 201–400 | > 400 | 200 lines target, memory.md **[G]** (Rule 2) | Adherence degradation (documented qualitatively) |
 | A9 | **MEMORY.md auto-load** | lines AND bytes of each `projects/*/memory/MEMORY.md` | ≤ 160 lines and ≤ 20KB | 161–200 lines or 20–25KB | > 200 lines or > 25KB | 200 lines / 25KB, whichever first, memory.md **[H]** | Content past limit **silently not loaded**; only topic-file pointers survive |
 | A10 | **Compaction carry-forward safety** | derived: A4 compliance | body ≤ 400 lines | 401–500 | > 500 | first 5,000 tokens per invoked skill, 25,000 combined **[H]** | A skill body ≤ 500 lines (~≤5k tok) survives carry-forward whole; larger bodies lose their tail **silently** after compaction — this is why A4 is treated as hard |
@@ -55,7 +55,7 @@
 
 | Rubric row | Measured | Band | Notes |
 |---|---|---|---|
-| A1 listing total | **46,200 chars (~11,550 tok): skills 31,922 + commands 14,278** | **RED — 5.8× budget** | Worse than the skills-only audit found: the command merge means all 50 command descriptions share the budget. `commands/apply.md` alone spends 1,048 chars |
+| A1 listing total | **46,200 chars (~11,550 tok): skills 31,922 + commands 14,278** | **RED — 5.8× budget** | Worse than the skills-only audit found: the command merge means all 50 command descriptions share the budget. `~/dev/cc/commands/apply.md` alone spends 1,048 chars |
 | A2 per-entry | 0 over 1,536 | GREEN | — |
 | A3 description | 1 over (t3-code-patterns, 1,190) | **RED (1)** | Point fix queued (E3) |
 | A4 bodies | 6 over 500 (max 2,527) | **RED (6)** | 1 deletes with orphan purge; 5 need references/ splits |
@@ -85,7 +85,7 @@ Tier-3 `POLICY_CHECKS`: (1) **RED-block row** — any RED on an **[H]**-tagged r
 *Accept:* both rows in TOOLING.md's ratchet table with `# requires-settings:` headers as applicable; a seeded regression (one AMBER added) trips row 2 in test.
 
 **E-R3 — Remediation order for the current REDs.**
-1. **A1 (listing, 5.8×):** orphan deletions (~2.3K) + explicit-only description trims + `when_to_use` splits + command-description diet — `commands/apply.md`'s 1,048-char description is keyword-stuffed for routing that `argument-hint` and the body already do. Target ≤ 8,000 chars without raising the fraction; raise `skillListingBudgetFraction` explicitly only if the trimmed floor still exceeds budget — a visible spend replacing silent drops.
+1. **A1 (listing, 5.8×):** orphan deletions (~2.3K) + explicit-only description trims + `when_to_use` splits + command-description diet — `~/dev/cc/commands/apply.md`'s 1,048-char description is keyword-stuffed for routing that `argument-hint` and the body already do. Target ≤ 8,000 chars without raising the fraction; raise `skillListingBudgetFraction` explicitly only if the trimmed floor still exceeds budget — a visible spend replacing silent drops.
 2. **A7/A8 (always-loaded ~16K tok):** apply CLAUDE.md's own § CLAUDE.md-split rule to itself — reference tables out of the chain into on-demand skills/rules files. BEADS.md (~7K tok) is the biggest line: its workflow detail belongs behind `bd prime` (which already exists as the on-demand loader) with a ≤200-line always-loaded core. Target: chain ≤ 10K first pass, ≤ 5K second pass.
 3. **A3/A4 point fixes + A5 ToC pass:** as already ordered in the scrutiny doc (E3/E4).
 4. **B3 evidence pass:** one `cc-runtime-evidence` sweep over UserPromptSubmit hooks; record warm runtimes in the hook headers.

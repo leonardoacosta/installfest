@@ -91,7 +91,7 @@ all overridable via `@cc-*-key` options.
 | `prefix + Y` | kill + respawn the Conductor (destructive; only when `@cc-conductor-enabled`) |
 
 Cycle moved off `prefix + Space` to `prefix + o` to avoid colliding with tmux-which-key's menu
-(which keeps `Space`); see `openspec/changes/cc-tmux-plugin/design.md` § collision.
+(which keeps `Space`); see `openspec/changes/archive/2026-07-10-cc-tmux-plugin/design.md` § collision.
 
 Troubleshooting: run `cc-tmux doctor` for a PASS/FAIL environment checklist (tmux/fzf/python
 versions, `$TMUX`, plugin symlink, hook wiring, tracked-pane count) — always exits 0, the rows
@@ -134,7 +134,8 @@ Installed by manual clone/symlink (no TPM — see `docs/audit/tmux.md` N5), each
 
 Saves and restores tmux session state so window/pane layout survives a server crash,
 `tmux kill-server`, or a machine reboot. Manual save/restore (no auto-save — tmux-continuum is
-deliberately out of scope, see `openspec/changes/add-tmux-resurrect/proposal.md` § Scope).
+deliberately out of scope, see
+`openspec/changes/archive/2026-07-21-add-tmux-resurrect/proposal.md` § Scope).
 
 | Key | Action |
 |---|---|
