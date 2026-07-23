@@ -372,3 +372,62 @@ underlying measured value shifted.
 - **WHEN** `ctx-scan diff a b` runs
 - **THEN** that row SHALL NOT appear in the diff output
 
+### Requirement: Discovery and @import resolution stay within the scan root
+The system SHALL confine both the fleet-discovery walk (`discovery.ts`) and `@import` chain
+resolution (`imports.ts`) to paths within the scan root: a candidate directory or resolved
+import whose realpath is not within the root's realpath SHALL be silently skipped (never
+followed further, never added to the discovered-project list or the resolved-import list) rather
+than causing the scan to throw. This applies in addition to, not instead of, each file's existing
+cycle guard.
+
+#### Scenario: Symlink escape yields zero out-of-root projects
+- **GIVEN** a fixture tree under `--root` containing a symlink whose target resolves outside the
+  root (e.g. to a sibling directory or the filesystem root)
+- **WHEN** `ctx-scan scan --root <fixture>` runs
+- **THEN** the discovered-project list SHALL NOT contain the symlink's target or anything beneath
+  it
+- **AND** the scan SHALL complete without throwing
+
+#### Scenario: Traversal @import resolves to zero out-of-root imports
+- **GIVEN** a project's CLAUDE.md containing an `@import` directive that traverses outside the
+  project root (e.g. `@../../../etc/hosts`)
+- **WHEN** the `@import` chain is resolved for that project
+- **THEN** the resolved-import list SHALL NOT contain the out-of-root path
+- **AND** a legitimate in-project `@import` (e.g. `@rules/CORE.md`) in the same file SHALL still
+  resolve normally
+- **AND** resolution SHALL complete without throwing
+
+### Requirement: --probe-hooks clearly warns about its untrusted per-project command source
+`ctx-scan`'s `--probe-hooks` flag SHALL carry warning text (in both its CLI option help and its
+runtime stderr warning) that explicitly names project-local `.claude/settings.json` as the
+source of the shell command it executes, so an operator understands the flag runs untrusted
+per-project content across every discovered project, not just ctx-scan's own trusted
+configuration.
+
+#### Scenario: Warning text names the untrusted source
+- **WHEN** `ctx-scan scan --help` is inspected for the `--probe-hooks` option, and when
+  `ctx-scan scan --root <path> --probe-hooks` is run
+- **THEN** both the option help text and the runtime warning SHALL state that the probed command
+  originates from each discovered project's own `.claude/settings.json`
+- **AND** SHALL advise using the flag only on roots containing solely trusted repositories
+
+### Requirement: view-model subcommand emits the band-annotated view model as JSON
+The CLI SHALL provide a `view-model` command accepting `--root <path>` and optional
+`--json <path>` that assembles the fleet for the given root, annotates rubric bands
+(`annotateFleetBands`), derives the display-ready view model (`buildViewModel`), and emits it as
+JSON wrapped in an envelope carrying a `schemaVersion` field, to stdout or the given file. The
+command SHALL NOT execute hooks, probe telemetry, or perform any network I/O — it is pure
+filesystem reads, same as a default `scan`. The emitted payload SHALL carry computed band
+values on class and document entries (never the raw-`scan` empty-bands shape).
+
+#### Scenario: view-model output is band-annotated and schema-versioned
+- Given: a fixture project tree with at least one document exceeding a Table A cap
+- When: `ctx-scan view-model --root <fixture>` runs
+- Then: the JSON output carries `schemaVersion: 1`, and the offending entry carries a non-GREEN
+  band — bands are present without a separate `audit` invocation
+
+#### Scenario: emitted shape is locked by a fixture test
+- Given: the view-model fixture snapshot test
+- When: the emitted envelope's shape changes without a `schemaVersion` bump
+- Then: the test fails, per the existing schema-versioning requirement
+

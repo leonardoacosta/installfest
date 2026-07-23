@@ -22,7 +22,9 @@ or touch each other's state.
 The Store SHALL be the single writer of derived queue state (items, dep graph, fan-out score,
 staleness clocks). It MUST NOT infer item-level meaning from which file path changed; it acts on
 a "something in this source changed" signal and always resolves current truth by re-querying the
-source's CLI.
+source's CLI. `Snapshot()`'s returned `Items` slice MUST be ordered by `FanOutScore` descending
+(most transitively-blocking first), then `CreatedAt` ascending, then `ID` ascending as a final
+deterministic tiebreaker.
 
 #### Scenario: a .beads/id.db-wal write triggers a full re-query, not a partial diff
 - Given: a single bead is updated
@@ -34,6 +36,16 @@ source's CLI.
 - Given: bead A blocks B, and B blocks C
 - When: the Store derives fan-out score for A
 - Then: A's fan-out score counts both B and C
+
+#### Scenario: items are ordered by blocking weight, then date
+- Given: item A has FanOutScore 3, item B has FanOutScore 1, both created on different days
+- When: `Snapshot()` builds its `Items` slice
+- Then: A appears before B, regardless of which was created first
+
+#### Scenario: equal fan-out score falls back to creation date
+- Given: two items share the same FanOutScore
+- When: `Snapshot()` orders them
+- Then: the earlier-created item appears first
 
 ### Requirement: BeadsSource watches .beads/ and re-queries via bd after a trailing debounce
 `BeadsSource` SHALL watch `.beads/` (the main db file, `-wal`, and `-shm`) via fsnotify, debounce
@@ -112,8 +124,11 @@ The root bubbletea model's `Update()` SHALL only ever react to a `SnapshotMsg` s
 - Then: the Program renders at roughly a 10fps cap rather than once per event
 
 ### Requirement: QueuePane renders the live queue with blocker badges and fan-out score
-`QueuePane` SHALL render a bubbles table with columns for item, type, created-at, blocker badge,
-and fan-out score, updating from each `Snapshot` it receives.
+`QueuePane` SHALL render a bubbles table with a single merged Item column (a glyph indicating
+bead vs. proposal, a leading `MM-dd ` creation-date prefix, then the title), a blocker badge
+column, and a fan-out score column, updating from each `Snapshot` it receives. When the item
+count exceeds the table's visible height, `QueuePane` SHALL render an explicit indicator that
+more items exist below the visible rows.
 
 #### Scenario: a blocked item shows its badge
 - Given: an item's `Blocker` field is populated
@@ -125,15 +140,47 @@ and fan-out score, updating from each `Snapshot` it receives.
 - When: `QueuePane` renders that row
 - Then: no blocker badge is shown
 
+#### Scenario: a bead renders its glyph
+- Given: an item's `Kind` is `KindBead`
+- When: `QueuePane` renders that row's Item column
+- Then: the row shows the 🧿 glyph before the date and title
+
+#### Scenario: a proposal renders its glyph
+- Given: an item's `Kind` is `KindProposal`
+- When: `QueuePane` renders that row's Item column
+- Then: the row shows the 📃 glyph before the date and title
+
+#### Scenario: the item count exceeds the visible table height
+- Given: the queue has more items than the table's current visible row height
+- When: `QueuePane` renders
+- Then: an indicator naming how many additional items exist below the fold is shown
+
 ### Requirement: DetailPane renders full detail for the selected queue row
 `DetailPane` SHALL render notes, blocker reason (if any), and task progress for whichever row is
-currently selected in `QueuePane`.
+currently selected in `QueuePane`, at the same rendered height as `QueuePane`'s own table.
+`DetailPane` MUST NOT render an "Unblocked" line for an unblocked item — the absence of a
+blocker line IS the unblocked signal.
 
 #### Scenario: selecting a row updates the detail pane
 - Given: the operator moves the queue selection to a different row
 - When: the selection changes
 - Then: `DetailPane` immediately reflects the newly selected item's notes, blocker reason, and
   task progress
+
+#### Scenario: an unblocked item's detail pane shows no blocker line
+- Given: the selected item's `Blocker` field is nil
+- When: `DetailPane` renders
+- Then: no "Unblocked" (or any other blocker-status) line is shown at all
+
+#### Scenario: a blocked item's detail pane names the blocker
+- Given: the selected item's `Blocker` field is populated
+- When: `DetailPane` renders
+- Then: the blocker's type and reason are shown
+
+#### Scenario: the detail pane matches the queue table's height
+- Given: `QueuePane`'s table is sized to N visible rows by `Root.layout()`
+- When: `DetailPane` renders
+- Then: its bordered box renders at the same height as `QueuePane`'s bordered box
 
 ### Requirement: A missing .beads/ or openspec/ directory degrades to an unavailable badge, never a crash
 When `.beads/` or `openspec/changes/` does not exist at startup, the corresponding source SHALL
@@ -323,7 +370,8 @@ gate applies to any future wave-progress trigger pending a progress event from
 The system SHALL provide `MemoryTimelinePane`, implementing `wavetui-core`'s `Pane` interface and
 attached to the existing focus ring, which renders one interleaved, date-grouped timeline for
 whichever item is currently selected, merging bead lifecycle events, memory/journal entries, and
-openspec archive milestones.
+openspec archive milestones. Each rendered entry SHALL show its time-of-day when its `Precision`
+is `PrecisionTimestamp`, and the acting operator (`Actor`) when non-empty.
 
 #### Scenario: selecting an item populates the timeline pane
 - Given: the operator moves the queue selection to an item with bead lifecycle history
@@ -336,6 +384,27 @@ openspec archive milestones.
   milestone
 - When: it is selected
 - Then: `MemoryTimelinePane` renders an empty state, not an "unavailable" badge
+
+#### Scenario: a timestamp-precision entry shows its time-of-day
+- Given: an entry's `Precision` is `PrecisionTimestamp`
+- When: `MemoryTimelinePane` renders that entry
+- Then: its time-of-day is shown alongside the entry text, not just its date group header
+
+#### Scenario: a date-only-precision entry shows no time
+- Given: an entry's `Precision` is `PrecisionDateOnly`
+- When: `MemoryTimelinePane` renders that entry
+- Then: no time-of-day is shown for it — there is none to show
+
+#### Scenario: a bead-sourced entry with a known actor names them
+- Given: a `SourceBead` entry whose underlying record carries a non-empty actor
+- When: `MemoryTimelinePane` renders that entry
+- Then: the actor is shown alongside the entry text
+
+#### Scenario: an entry with no actor shows none
+- Given: an entry whose `Actor` field is empty (archive/journal-sourced entries, or a bead
+  record with no actor recorded)
+- When: `MemoryTimelinePane` renders that entry
+- Then: no actor placeholder or blank label is shown
 
 ### Requirement: BeadsHistorySource reads bead lifecycle events from .beads/interactions.jsonl, never the internal database
 `BeadsHistorySource` SHALL read `.beads/interactions.jsonl` directly to recover creation, claim,
@@ -514,7 +583,10 @@ fallback match on the transcript's `cwd` field against the item's known repo pat
 claim-timestamp proximity within a configurable window (default 10 minutes). A subagent sidechain
 transcript (`isSidechain: true`) SHALL inherit its parent session's item linkage via `parentUuid`
 rather than being matched independently. The transcript's own `cwd` field MUST be trusted over any
-inference from directory-name flattening.
+inference from directory-name flattening. The resolved `cwd` used in this matching SHALL also be
+published onto the linked item's `store.SessionLink` so a downstream pane can render it —
+matching without publishing it leaves the operator no way to inspect the comparison the algorithm
+made.
 
 #### Scenario: an exact /apply reference links immediately
 - Given: a `user`-type transcript line contains the text `/apply if-abc12`
@@ -544,6 +616,13 @@ inference from directory-name flattening.
 - When: `TranscriptSource` determines the session's working directory
 - Then: it uses the `cwd` field recorded inside the transcript lines, never a path reconstructed
   from the flattened directory name
+
+#### Scenario: the matched cwd is available on the linked item's SessionLink
+- Given: `TranscriptSource` has resolved a session's linkage (via either the exact-reference or
+  cwd+timestamp path)
+- When: it publishes the resulting `store.SessionLinkEvent`
+- Then: the published `SessionLink.CWD` carries the same `cwd` value the linkage decision itself
+  was made against
 
 ### Requirement: Context gauge derives a percent-of-window estimate and badges at a 70% threshold
 `TranscriptSource` SHALL derive a context-percent estimate per session from cumulative
@@ -670,8 +749,10 @@ a fallback for panes cc-tmux has not tagged, and MUST NOT assume any positional 
 ### Requirement: SessionsPane renders the pane map, context gauges, and zombie badges as a focus-ring pane
 `SessionsPane` SHALL implement `wavetui-core`'s `Pane` interface (`Update(Snapshot) Pane`,
 `View() string`, `Focusable() bool`) and render, per linked session: its pane identity (when
-known), context-percent gauge, and zombie badge (when applicable). It SHALL attach to
-`wavetui-core`'s existing focus ring without requiring any change to the root model.
+known), the linked session's own reported working directory, context-percent gauge, and zombie
+badge (when applicable). It SHALL attach to `wavetui-core`'s existing focus ring without requiring
+any change to the root model. The pane's header SHALL state that its contents are scoped to
+sessions linked to the currently selected item, not every live Claude Code session in the repo.
 
 #### Scenario: SessionsPane implements the shared Pane interface
 - Given: `wavetui-core`'s root model's pane collection
@@ -683,6 +764,17 @@ known), context-percent gauge, and zombie badge (when applicable). It SHALL atta
 - Given: an item has a linked session with a context-percent estimate
 - When: `SessionsPane` renders that item's row
 - Then: the context-percent gauge is displayed and reflects the current estimate
+
+#### Scenario: a linked session's cwd is visible on its row
+- Given: an item has a linked session whose `SessionLink.CWD` is non-empty
+- When: `SessionsPane` renders that item's row
+- Then: the row displays that cwd value alongside the existing pane/context%/zombie fields
+
+#### Scenario: the header states the pane's per-item scope
+- Given: an operator has any item selected, linked or not
+- When: `SessionsPane` renders its header
+- Then: the header text makes clear the list below is scoped to the selected item's linked
+  sessions, not a repo-wide list of every live Claude Code session
 
 ### Requirement: KPIBar renders continue-count, rate-limit incidents, and stale-claim minutes as a focus-ring pane
 `KPIBar` SHALL implement `wavetui-core`'s `Pane` interface and render a continue-count proxy
@@ -1147,7 +1239,9 @@ MUST NOT fire automatically.
 ### Requirement: An operator keybinding enables/disables headless admission
 `HeadlessBar` SHALL expose a keybinding that toggles a `Controller`-owned `enabled` boolean. The
 toggle SHALL default to `false` on every app start — no configuration flag or timer may enable
-admission.
+admission. The current admission state SHALL be visibly indicated in the UI at all times,
+including before the keybinding has ever been pressed — not only once admission has been
+toggled on.
 
 #### Scenario: admission is disabled by default on app start
 - Given: `wavetui` has just started
@@ -1164,6 +1258,12 @@ admission.
 - When: the operator presses the toggle keybinding again
 - Then: `Controller`'s admission state becomes disabled; already-running headless children are
   not killed, but no new item is admitted
+
+#### Scenario: the toggle keybinding and its off-state are discoverable before ever being pressed
+- Given: `wavetui` has just started and admission has never been toggled
+- When: the operator looks at the running UI
+- Then: an always-visible hint names the toggle keybinding and shows admission is currently off
+  — the operator does not need to already know the keybinding from source or spec to discover it
 
 ### Requirement: Controller.OnSnapshot dispatches eligible ready items when admission is enabled
 `Controller.OnSnapshot` SHALL, when admission is enabled, scan `snap.Items` for eligible items
@@ -1227,4 +1327,72 @@ path invented).
 - Given: `Dispatch` returns a non-`ErrConcurrencyCapReached` error for an eligible item
 - When: the admission loop encounters it
 - Then: it surfaces through the same failure-reporting path manual dispatch failures already use
+
+### Requirement: CtxScanSource polls the current project and publishes a context report
+A `CtxScanSource` SHALL shell out to `ctx-scan view-model --root <repo-root>` (the project
+wavetui is running in — never a fleet-wide root), decode the band-annotated payload, verify its
+`schemaVersion`, and publish it to the bus as a typed event applied by the single Store writer
+onto the snapshot. Invocations SHALL be driven by a poll ticker (interval from the
+`ctx_scan_poll_seconds` config knob, default 60) and by a coalesced manual-refresh trigger, with
+at most one shellout in flight — a burst of triggers produces one invocation. Any exec, decode,
+or schema-version failure SHALL publish an error string while retaining the last-good report,
+and SHALL back off exponentially — never a panic, never fabricated data. The manual-refresh
+trigger SHALL be a non-blocking signal into the source's goroutine; no UI code invokes the CLI
+directly.
+
+#### Scenario: a poll tick refreshes the report
+- Given: the source is running and `ctx-scan` succeeds
+- When: the poll interval elapses
+- Then: a new report event reaches the Store and the snapshot's context report updates
+
+#### Scenario: rapid manual refreshes coalesce into one invocation
+- Given: a scan is already in flight
+- When: the refresh trigger fires multiple times before it completes
+- Then: exactly one follow-up invocation runs after the current one finishes
+
+#### Scenario: a missing or failing ctx-scan binary degrades to a badge
+- Given: the `ctx-scan` executable is absent from PATH or exits non-zero
+- When: an invocation is attempted
+- Then: the snapshot carries the error string and the last-good report (if any) is retained —
+  no panic, no partial decode rendered
+
+#### Scenario: a schemaVersion mismatch is an error, not a garbage render
+- Given: the CLI emits a payload with an unexpected `schemaVersion`
+- When: the source decodes it
+- Then: an error is published and the payload is discarded
+
+### Requirement: ContextPane renders the context breakdown as a drill-down tab
+A `ContextPane` SHALL render the current project's context report as the full-screen
+`[3] Context` tab, implementing the shared pane interface. It SHALL present three drill levels —
+class breakdown (one row per context class with estimated tokens and GREEN/AMBER/RED band
+styling), documents within a selected class (tokens, band, truncation flags), and single-document
+detail (tier, origin, raw vs effective chars, violations) — navigated with `j`/`k` cursor,
+`enter` to descend, `esc` to ascend. The `r` key SHALL invoke the injected refresh trigger only;
+per the existing snapshot-delivery requirement, the pane's update path never calls a source or
+CLI. When the snapshot carries a context-scan error, the pane SHALL render an unavailable badge
+with that error instead of report content.
+
+#### Scenario: pressing 3 shows the class breakdown
+- Given: a snapshot carrying a context report
+- When: the operator presses `3`
+- Then: the Context tab renders one row per context class with token estimates and band colors
+
+#### Scenario: drill-down reaches document detail and walks back
+- Given: the class breakdown is shown
+- When: the operator selects a class, presses `enter`, selects a document, presses `enter`,
+  then presses `esc` twice
+- Then: the pane shows class documents, then document detail, then returns to the class
+  breakdown with cursor position preserved
+
+#### Scenario: manual refresh updates the numbers in place
+- Given: the operator edits a config file that changes a document's size
+- When: the operator presses `r` and the rescan completes
+- Then: the affected rows re-render with updated tokens and bands, on whatever drill level is
+  currently shown
+
+#### Scenario: scan failure renders a badge, not a crash
+- Given: the snapshot carries a context-scan error string
+- When: the Context tab renders
+- Then: an unavailable badge with the error is shown; if a last-good report exists it remains
+  visible, marked stale
 
