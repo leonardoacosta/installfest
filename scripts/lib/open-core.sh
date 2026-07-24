@@ -269,7 +269,7 @@ open_core_resolve_url() {
 
   ts_ip="$(open_core_resolve_ts_ip)"
   local ropen_token token_qs
-  ropen_token="$(open_core_ropen_token)"
+  ropen_token="$(open_core_ropen_token)" || true
   token_qs=""
   [[ -n "$ropen_token" ]] && token_qs="?token=${ropen_token}"
   OPEN_URL="http://${ts_ip}:${ROPEN_PORT}/${mount}/${rel_path}${token_qs}"

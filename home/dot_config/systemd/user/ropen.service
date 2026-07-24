@@ -14,7 +14,11 @@ Type=simple
 # script's own default) if tailscale is down/unreachable at start — fails safe,
 # never re-widens to 0.0.0.0.
 ExecStartPre=/bin/sh -c 'echo "ROPEN_BIND=$(tailscale ip -4 2>/dev/null || echo 127.0.0.1)" > %t/ropen-bind.env'
-EnvironmentFile=%t/ropen-bind.env
+# `-` prefix: tolerate the file being absent on the first-ever start — it is
+# created by the ExecStartPre above, but systemd loads EnvironmentFile for the
+# start-pre task too, so a mandatory (unprefixed) missing file deadlocks the
+# very fork that would create it (Failed to spawn 'start-pre' task).
+EnvironmentFile=-%t/ropen-bind.env
 ExecStart=%h/.local/bin/ropen --serve
 Restart=always
 RestartSec=5
