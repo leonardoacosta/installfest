@@ -1,5 +1,33 @@
 ## ADDED Requirements
 
+### Requirement: Vendored base provides per-session token/cost via herdr-token-dashboard's own engine
+`apps/herdr-token-tab` SHALL be forked from `Davidcreador/herdr-token-dashboard` at commit
+`b8c9bbe5c46d976e32ed51146139b0996bf7f334` (MIT), retaining the upstream `LICENSE` file
+unmodified and recording the fork commit + upstream URL in a header comment at the top of the
+vendored `main.go`. The vendored code SHALL retain its existing Claude Code transcript
+resolution (munge-cwd path construction, glob-by-session-UUID fallback), turn-level dedup
+(`messageID + "\x00" + requestID` key, last-write-wins), and cost-estimation pricing table
+(longest-matching-substring model lookup, cache-read at 0.1x and cache-write at 1.25x the
+matched input rate) unmodified in behavior. Upstream's Pi and OpenCode reader code paths SHALL
+be removed during the vendor step (dead code for this fleet's Claude-only agent roster) — the
+Claude reader path SHALL NOT be altered by this removal.
+
+#### Scenario: vendored transcript reading behaves identically to upstream
+- Given: the vendored `claude_test.go` (carried over from upstream, unmodified)
+- When: `go test ./...` runs against the vendored tree before any augmentation is added
+- Then: every test passes, confirming the fork introduced no behavioral change
+
+#### Scenario: Pi/OpenCode removal does not affect the Claude path
+- Given: the vendor step has stripped Pi and OpenCode reader code
+- When: `go test ./...` runs
+- Then: all Claude-path tests still pass unmodified — the removal touched only dead branches
+
+#### Scenario: the LICENSE and attribution survive the fork
+- Given: `apps/herdr-token-tab` after vendoring
+- When: `apps/herdr-token-tab/LICENSE` is inspected
+- Then: it is byte-identical to upstream's MIT license text, and the vendored `main.go`'s header
+  comment names the fork commit and upstream repository URL
+
 ### Requirement: AccountsSource polls nx-agent and publishes deduped account usage
 An `AccountsSource` SHALL poll nx-agent's `GET /credentials` on an interval, dedupe rows by
 `(accountEmail, orgUuid)` using the same rules `apps/cc-tmux/src/cc_tmux/usage.py`'s
@@ -26,87 +54,50 @@ live, never a panic.
 - Then: `AccountsSource` publishes an unavailable state and the tab's Accounts section shows a
   badge, not stale numbers
 
-### Requirement: SessionSource resolves each herdr pane's Claude transcript and computes token/cost/severity
-A `SessionSource` SHALL, for each herdr-tracked pane whose `AgentSession.Source` is
-`"herdr:claude"` or `"claude"`, resolve that pane's transcript path by munging its cwd (every
-character outside `[A-Za-z0-9-]` replaced with `-`) to
-`~/.claude/projects/<munged-cwd>/<sessionID>.jsonl`, falling back to
-`glob(~/.claude/projects/*/<sessionID>.jsonl)` when the munged-cwd path does not exist (session
-UUIDs are globally unique, so the first glob match is safe). It SHALL parse assistant-type JSONL
-lines only, aggregating usage into a map keyed on `messageID + "\x00" + requestID` where each
-repeated key OVERWRITES the prior entry (last-write-wins, so streamed/retried duplicate records
-collapse to the final usage numbers) — message count SHALL be the count of unique keys, not raw
-line count. Malformed lines SHALL be skipped, never aborting the whole parse. The source SHALL
-NOT depend on nx-agent's context-window API for this token count — it computes raw tokens
-(`input + cache_read + cache_creation`, summed per deduped turn) directly from the transcript, so
-it cannot inherit nx-agent's known percentage-clamp round-trip bug. It SHALL further compute an
-estimated dollar cost via a longest-matching-substring model lookup against a pricing table
-(input/output USD-per-MTok, cache-read billed at 0.1x and cache-write at 1.25x the matched input
-rate) — an unmatched model SHALL contribute $0 cost while still retaining its token counts. It
-SHALL resolve a severity tier for the raw token count using the same six-tier ramp
-`apps/cc-tmux/src/cc_tmux/render.py`'s `_context_color_pair` defines (dim ≤100k, green >100k,
-yellow >200k, orange >300k, red >500k, red/bright-red pulsing >600k, dark-red/red pulsing
->750k), and SHALL flag a pane as past the handoff threshold when its resolved usage ratio is at
-or above 0.63 of the pane's context window, carrying the same `!handoff:/workflow:handoff`
-label text `render_session_bar` already renders.
-
-#### Scenario: a pane's cwd changed after the transcript path was first resolved
-- Given: a transcript exists under a munged directory that does not match the pane's current cwd
-- When: `SessionSource` resolves the pane's transcript path
-- Then: the munged-cwd lookup misses and the glob-by-session-UUID fallback finds the file
-
-#### Scenario: a streamed message is recorded twice with different token counts
-- Given: two JSONL lines share the same `message.id` and `requestId` but the second carries
-  higher token counts (the finalized record)
-- When: `SessionSource` aggregates usage
-- Then: the pane's token count reflects the SECOND (later) record, and the message count treats
-  the pair as one turn
+### Requirement: SeverityRamp colors vendored token counts and flags the handoff threshold
+A `severity.Tier(rawTokens int)` function SHALL classify the vendored code's own raw token count
+(input + cache-read + cache-creation, as already computed by the vendored transcript reader)
+into the same six severity tiers `apps/cc-tmux/src/cc_tmux/render.py`'s `_context_color_pair`
+defines (dim ≤100k, green >100k, yellow >200k, orange >300k, red >500k, red/bright-red pulsing
+>600k, dark-red/red pulsing >750k). A `severity.PastHandoff(rawTokens, windowSize int) bool`
+SHALL flag a pane whose usage ratio is at or above 0.63 of its context window (the
+`_SES_HANDOFF_THRESHOLD` value), carrying the same `!handoff:/workflow:handoff` label text
+`render_session_bar` already renders. This severity coloring SHALL be rendered ALONGSIDE the
+vendored code's existing dollar-cost coloring (green <$5, yellow <$25, red >$25) — it augments
+the Sessions row, it does not replace or reinterpret the vendored cost column.
 
 #### Scenario: real usage exceeds 200,000 tokens
-- Given: a transcript whose true summed usage is 620,000 tokens
-- When: `SessionSource` computes the raw token count
-- Then: the reported value reflects the real ~620k figure (not a value frozen at "200.0k"), and
-  its severity tier resolves to the red/bright-red pulsing (>600k) tier, not green
-
-#### Scenario: an unmatched model still reports tokens
-- Given: a transcript entry whose model id matches no pricing-table substring
-- When: cost is computed for that turn
-- Then: the turn's cost contribution is $0 while its token counts are retained unchanged
+- Given: the vendored transcript reader computes a real 620,000-token total for a pane
+- When: `severity.Tier` classifies that count
+- Then: it resolves to the red/bright-red pulsing (>600k) tier
 
 #### Scenario: a pane crosses the handoff threshold
 - Given: a pane's resolved usage ratio is 0.70 of its context window
 - When: the Sessions row for that pane renders
-- Then: it carries the `!handoff:/workflow:handoff` suffix in the red severity color
+- Then: it carries the `!handoff:/workflow:handoff` suffix in the red severity color, alongside
+  its unmodified vendored cost-column coloring
 
-### Requirement: TokenTab renders Accounts (top) and Sessions (bottom) in one herdr tab
-A `TokenTab` SHALL open as a herdr-owned tab (`placement = "tab"` in the plugin manifest) showing
-two stacked sections built from `AccountsSource` and `SessionSource`'s published state: an
-Accounts block per deduped credential (leading `*` marker on the active account only, 5H/7D
-percentages, an identity line, up to two reset-countdown lines — matching
-`render_accounts_popup`'s existing layout and values for the same live data) above a Sessions
-table (one row per tracked Claude pane: project, raw context tokens with severity coloring and
-handoff suffix, 5H/7D from that pane's active account, and estimated cost). The plugin SHALL
+### Requirement: TokenTab renders Accounts (top) above the vendored Sessions table (bottom)
+The plugin SHALL open as a herdr-owned tab (`placement = "tab"` in a manifest rebranded from
+upstream's `dave.token-dashboard` to this fork's own plugin id and keybinding) rendering an
+Accounts block (per `AccountsSource`) above the vendored Sessions table (per the vendored
+transcript/pricing engine, now decorated with `SeverityRamp`'s coloring). The plugin SHALL
 integrate with herdr via CLI subprocess only (`herdr pane list`, `herdr plugin pane open`) — it
-SHALL NOT call `pane.report_metadata` or open a raw socket connection. Status/refresh detection
-SHALL be poll-loop-driven as the primary mechanism; the manifest MAY also declare a
-`pane.agent_status_changed` event hook, but the plugin SHALL NOT rely on it firing (per the
-confirmed herdr 0.7.x gap documented in `docs/reference/herdr-integration-patterns.md`). When
-`AccountsSource` reports unavailable, the Accounts section SHALL show a badge while the Sessions
-section continues rendering from its own (independent) data — the two sections SHALL degrade
-independently, never both failing because one data source is down.
+SHALL NOT call `pane.report_metadata` or open a raw socket connection, matching upstream's own
+integration posture. Status/refresh detection SHALL be poll-loop-driven as the primary
+mechanism; the manifest MAY declare a `pane.agent_status_changed` event hook but the plugin
+SHALL NOT rely on it firing (per the confirmed herdr 0.7.x gap in
+`docs/reference/herdr-integration-patterns.md`). When `AccountsSource` reports unavailable, the
+Accounts section SHALL show a badge while the vendored Sessions section continues rendering
+independently.
 
 #### Scenario: opening the tab
 - Given: nx-agent is reachable and at least one herdr pane is running Claude Code
-- When: the operator invokes the tab's open action (keybinding or `herdr plugin action invoke`)
+- When: the operator invokes the tab's open action
 - Then: a herdr tab opens showing the Accounts block above the Sessions table, both populated
 
 #### Scenario: nx-agent is down but transcripts are readable
-- Given: `AccountsSource` reports unavailable while `SessionSource` is functioning normally
+- Given: `AccountsSource` reports unavailable while the vendored Sessions engine is functioning
 - When: the tab renders
 - Then: the Accounts section shows an unavailable badge and the Sessions table still renders
-  real per-pane token/cost/severity data
-
-#### Scenario: the manifest's event hook does not fire
-- Given: herdr 0.7.x, matching the documented gap
-- When: a tracked pane's agent status changes
-- Then: the tab's own poll loop (not the event hook) is what detects and reflects the change
+  real per-pane token/cost/severity data, unaffected
