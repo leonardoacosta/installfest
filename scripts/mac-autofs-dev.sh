@@ -58,6 +58,21 @@
 # Verified end-to-end 2026-07-22 via SSH to the real Mac (4-mount version):
 # mount, directory listing, and a write test all succeeded. Unified-mount
 # version not yet independently re-verified — same mechanism, single key.
+#
+# CORRECTED 2026-07-24: MOUNT_PREFIX "/Volumes" -> "/System/Volumes/Data/Volumes".
+# Root-caused live (if-y95z): every boot since 07-22
+# actually failed to mount at all — `sudo automount -vc` on the real Mac
+# returned `mount /System/Volumes/Data/Volumes: Operation not permitted`, not
+# a network/NFS-layer error. Since macOS Catalina, `/Volumes` itself lives on
+# the read-only sealed System volume; an autofs indirect map can't register
+# ITS OWN mountpoint there — the map has to target the real writable path,
+# `/System/Volumes/Data/Volumes`, directly (external confirmation: this is a
+# documented macOS Catalina+ autofs restriction, not specific to this setup).
+# `/Volumes/dev` still works fine as the day-to-day access path afterward —
+# it's a firmlink to the same location — only the map's own registration
+# needed the unaliased path. configure_auto_master_entry() below migrates the
+# stale `/Volumes auto_dev` line the same way it already migrated the earlier
+# stale `/-` line.
 
 set -uo pipefail
 
@@ -70,7 +85,8 @@ NFS_HOST="homelab.tail296462.ts.net"
 EXPORT_ROOT="/srv/nfs-dev-export"
 MAP_FILE="/etc/auto_dev"
 MASTER_FILE="/etc/auto_master"
-MOUNT_PREFIX="/Volumes"
+MOUNT_PREFIX="/System/Volumes/Data/Volumes"
+STALE_MOUNT_PREFIX="/Volumes"  # pre-2026-07-24 value — see configure_auto_master_entry() migration
 MOUNT_OPTS="fstype=nfs,vers=3,resvport,nosuid,intr,locallocks"
 MOUNT_KEY="dev"
 
@@ -140,6 +156,17 @@ configure_auto_master_entry() {
         info "removing stale direct-map auto_dev line (collided with the built-in /- -static line)"
         sudo sed -i '' -E '/^[[:space:]]*\/-[[:space:]]+auto_dev([[:space:]]|$)/d' "$MASTER_FILE" \
             || { error "failed to remove stale auto_master line"; exit 1; }
+    fi
+
+    # Migrate the pre-2026-07-24 "/Volumes auto_dev" line — that mountpoint
+    # can never actually mount (see the header's CORRECTED 2026-07-24 note);
+    # leaving it in place alongside the new correct line is dead weight at
+    # best. Anchored on STALE_MOUNT_PREFIX specifically so this is a no-op
+    # once already migrated (grep won't find it after the sed removes it).
+    if [[ -f "$MASTER_FILE" ]] && grep -qE "^[[:space:]]*${STALE_MOUNT_PREFIX//\//\\/}[[:space:]]+auto_dev([[:space:]]|\$)" "$MASTER_FILE" 2>/dev/null; then
+        info "removing stale auto_dev line under ${STALE_MOUNT_PREFIX} (mounts there are rejected by macOS — see header)"
+        sudo sed -i '' -E "/^[[:space:]]*${STALE_MOUNT_PREFIX//\//\\/}[[:space:]]+auto_dev([[:space:]]|\$)/d" "$MASTER_FILE" \
+            || { error "failed to remove stale ${STALE_MOUNT_PREFIX} auto_master line"; exit 1; }
     fi
 
     if [[ -f "$MASTER_FILE" ]] && grep -qE "^[[:space:]]*${MOUNT_PREFIX//\//\\/}[[:space:]]+auto_dev([[:space:]]|\$)" "$MASTER_FILE" 2>/dev/null; then
