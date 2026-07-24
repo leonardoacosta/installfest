@@ -329,11 +329,63 @@ footer { margin-top: 48px; font-family: var(--font-mono); font-size: 11px; color
       </div>
       <p class="mock-caption"><strong>Sidebar tokens</strong> (<code>pane.report_metadata</code> +
         <code>[ui.sidebar.agents]</code>, the mechanism found earlier this session) — always visible
-        alongside every pane, no keypress. Capped at 16 short tokens per pane; this mockup shows only
-        cc-tmux's <code>state</code>/<code>wait-reason</code> — task-summary/project/branch would need
-        more rows or truncation.</p>
+        alongside every pane, no keypress. Capped at 16 short tokens per pane. <code>$cc_state</code>/
+        <code>$cc_wait</code> here are PROPOSED token names carrying cc-tmux's real tmux pane options
+        <code>@cc-state</code> (<code>waiting|idle|active</code>) and <code>@cc-wait-reason</code>
+        (<code>question|plan|permission|elicitation</code>, only set while waiting) — nothing writes
+        these into herdr today; task-summary/project/branch would need more rows or truncation.</p>
     </div>
   </div>
+</section>
+
+<section class="animate" style="--i:1.8">
+  <h2><span class="h-tag" style="background:var(--ds-teal-dim);color:var(--ds-teal-700)">Refined Design: Accounts + Sessions Tab</span></h2>
+  <p class="section-sub">Leo's ask (this session): make the owned-tab option act like cc-tmux's EXISTING
+    floating accounts panel — <code>cmd_accounts_popup</code> / <code>render_accounts_popup</code> in
+    <code>apps/cc-tmux/src/cc_tmux/render.py</code> — as the top section (accounts, active indication,
+    5H, 7D), with per-session token usage as a second bottom section, and the context-limit
+    meter/warning surfaced in the tab too. This mockup reuses cc-tmux's REAL rendering semantics, not
+    invented ones: the braille usage glyph shape, the <code>*</code> active marker, the reset-countdown
+    lines, and the SES (session context-window usage) 6-tier severity ramp + 63%-threshold handoff
+    warning from <code>render_session_bar</code> / <code>_context_color_pair</code>.</p>
+  <div class="term" style="max-width:720px">
+    <div class="term-bar">
+      <div class="term-dot" style="background:#ff5f57"></div>
+      <div class="term-dot" style="background:#febc2e"></div>
+      <div class="term-dot" style="background:#28c840"></div>
+      <div class="term-title">herdr — tab: cc-tmux Token Tab</div>
+    </div>
+    <div class="term-body">
+      <div class="dim" style="margin-bottom:2px">ACCOUNTS</div>
+      <div><span class="t-green">*</span> <span class="dim">⣿⣶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠀</span>&nbsp; 5H:<span class="t-green">36%</span> 7D:<span class="t-green">71%</span></div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;leo@x.dev&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;37a74420</div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;5H resets at&nbsp;&nbsp;03:45pm&nbsp; in 2h14m</div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;7D resets Sat&nbsp;03:45pm&nbsp; in 3d14h</div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;─────────────────────────────────</div>
+      <div><span class="dim">&nbsp;&nbsp;⣦⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠀</span>&nbsp; 5H:<span class="t-green">12%</span> 7D:<span class="t-green">44%</span></div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;leo@priceless.dev&nbsp;&nbsp;bc7da511</div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;5H resets at&nbsp;&nbsp;06:10pm&nbsp; in 4h39m</div>
+      <div class="dim">&nbsp;&nbsp;&nbsp;─────────────────────────────────</div>
+
+      <div class="term-detail">
+        <div class="dim" style="margin-bottom:4px">SESSIONS</div>
+        <div class="term-tbl" style="grid-template-columns:44px 92px 74px 66px 56px 1fr">
+          <div class="th">PANE</div><div class="th">PROJECT</div><div class="th">SES</div><div class="th">5H·7D</div><div class="th">COST</div><div class="th">MODEL</div>
+          <div>w1:p1</div><div>installfest</div><div class="t-cyan">252.5k</div><div class="dim">36%·71%</div><div>$0.42</div><div class="dim">sonnet-4-5</div>
+          <div>w2:p1</div><div>cc</div><div class="t-red">612.3k <span class="t-red">!handoff</span></div><div class="dim">12%·44%</div><div>$0.61</div><div class="dim">opus-4</div>
+          <div>w1:p2</div><div>nx</div><div class="dim">48.1k</div><div class="dim">36%·71%</div><div>$0.08</div><div class="dim">haiku-4-5</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="mock-caption" style="max-width:720px"><strong>SES</strong> = session context-window usage
+    (raw tokens burned this session), colored by the same 6-tier ramp <code>_context_color_pair</code>
+    already drives in the row-2 status bar: dim ≤100k → green &gt;100k → yellow &gt;200k → orange
+    &gt;300k → red &gt;500k → red/bright-red pulsing &gt;600k → dark-red/red pulsing &gt;750k.
+    <code>w2:p1</code> above is past the 63%-of-window <code>_SES_HANDOFF_THRESHOLD</code>, so it grows
+    the same <code>!handoff:/workflow:handoff</code> suffix the status bar already shows — naming the
+    escape hatch, not just coloring the row. 5H/7D here are per-pane's ACTIVE account's usage (same
+    figures as that account's row above), not a third independent metric.</p>
 </section>
 
 <section class="animate" style="--i:2">
