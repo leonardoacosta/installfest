@@ -52,18 +52,49 @@ def load_or_create_token() -> str:
 TOKEN = load_or_create_token()
 
 
-def _is_trusted_html(path: pathlib.Path) -> bool:
-    """True only for self-generated recon/report HTML (docs/recon/*.html) —
-    the narrow, deliberately-named trust boundary for serving a full <html>
-    document live. "Under ~/dev" is NOT sufficient here: every ropen mount
-    is itself a curated ~/dev subtree (personal/priceless/cc/central-
-    planning/brown), each holding arbitrary cloned third-party repos whose
-    HTML must never be trusted just because it's reachable via a mount."""
+TRUST_MARKER = '.ropen-trust-html'
+
+
+def _is_trusted_html(path: pathlib.Path, serve_dir: pathlib.Path) -> bool:
+    """Trusted iff either:
+
+    (a) self-generated recon/report HTML (docs/recon/*.html) — the original
+        narrow boundary, always safe since ropen itself is the only writer.
+
+    (b) an explicit per-repo opt-in: a `.ropen-trust-html` marker file sits
+        in path's own directory or any ancestor UP TO (and including)
+        serve_dir — the mount root. "Under ~/dev" is NOT sufficient on its
+        own here: every ropen mount is itself a curated ~/dev subtree
+        (personal/priceless/cc/central-planning/brown), each holding
+        arbitrary cloned third-party repos whose HTML must never be trusted
+        just because it's reachable via a mount. The marker makes trust an
+        explicit, deliberate, per-directory-tree decision the operator
+        plants themselves (e.g. inside a personal repo they authored) —
+        self-service, no ropen-server.py edit + restart needed per repo,
+        same "explicit opt-in" philosophy as (a). The walk NEVER goes above
+        serve_dir, so a marker anywhere outside the requested mount (e.g.
+        loose in ~/dev itself) can't blanket-trust every mount.
+    """
     try:
         resolved = path.resolve()
     except OSError:
         return False
-    return resolved.parent.name == 'recon' and resolved.parent.parent.name == 'docs'
+    if resolved.parent.name == 'recon' and resolved.parent.parent.name == 'docs':
+        return True
+    try:
+        boundary = serve_dir.resolve()
+    except OSError:
+        return False
+    current = resolved.parent
+    while True:
+        if (current / TRUST_MARKER).is_file():
+            return True
+        if current == boundary:
+            return False
+        parent = current.parent
+        if parent == current:
+            return False  # reached filesystem root without hitting boundary
+        current = parent
 
 
 def load_registry():
@@ -466,13 +497,13 @@ class Handler(BaseHTTPRequestHandler):
                 tb = traceback.format_exc()
                 self.send_error(500, f"{e}\n\n{tb}")
         elif target.suffix.lower() in ('.html', '.htm'):
-            # Only self-generated recon/report HTML (docs/recon/*.html) is
-            # trusted to render live — every other full HTML document is
-            # untrusted and MUST serve inert as text/plain. Every ropen mount
-            # is itself a curated ~/dev subtree holding arbitrary cloned
-            # repos, so "is it under ~/dev" is not a real trust boundary.
+            # Trusted (see _is_trusted_html): docs/recon/*.html, or any
+            # directory tree carrying a .ropen-trust-html marker up to the
+            # mount root. Everything else serves inert as text/plain — a
+            # ropen mount is itself a curated ~/dev subtree holding arbitrary
+            # cloned repos, so "is it under ~/dev" is not a real trust boundary.
             data = target.read_bytes()
-            ctype = 'text/html; charset=utf-8' if _is_trusted_html(target) else 'text/plain; charset=utf-8'
+            ctype = 'text/html; charset=utf-8' if _is_trusted_html(target, serve_dir) else 'text/plain; charset=utf-8'
             self.send_response(200)
             self.send_header('Content-Type', ctype)
             self.send_header('Content-Length', str(len(data)))
