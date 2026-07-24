@@ -45,6 +45,14 @@ export BROWSER="$HOME/.local/bin/mac-open"
 # this file) still works as OpenSSH's automatic fallback identity if this
 # socket isn't reachable (1Password app not running).
 export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+{{ else if eq .machine "homelab" -}}
+# SSH agent socket — systemd socket-activated ssh-agent (no desktop needed,
+# works headless). `leo-cc-homelab-20260721` auto-loads into it via the
+# ssh-agent.service override (dot_config/systemd/user/ssh-agent.service.d/).
+# Root cause this fixes: bd/Dolt's git+ssh remote had no agent to source a
+# key from at all (`Could not open a connection to your authentication
+# agent`), so every `bd dolt push`/`pull` failed publickey auth (if-kjbg).
+export SSH_AUTH_SOCK="/run/user/1000/ssh-agent.socket"
 {{ end -}}
 
 # XDG Base Directories

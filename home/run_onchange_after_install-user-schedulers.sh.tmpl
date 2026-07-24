@@ -26,6 +26,7 @@
 #   mesh-heartbeat timer:     {{ include "dot_config/systemd/user/mesh-heartbeat.timer" | sha256sum }}
 #   daily-brief service:      {{ include "dot_config/systemd/user/daily-brief.service" | sha256sum }}
 #   daily-brief timer:        {{ include "dot_config/systemd/user/daily-brief.timer" | sha256sum }}
+#   ssh-agent-keys drop-in:   {{ include "dot_config/systemd/user/ssh-agent.service.d/homelab-keys.conf" | sha256sum }}
 {{- end }}
 
 set -euo pipefail
@@ -108,6 +109,11 @@ case "$(uname -s)" in
       echo "scheduler: bun not available; skipping nexus-listener (install bun first)"
     fi
     systemctl --user daemon-reload
+    # Socket-activated ssh-agent (headless-safe — no desktop keyring needed).
+    # The ssh-agent.service.d drop-in auto-loads the GitHub key on each start;
+    # without this, bd's git+ssh Dolt remote has no agent to auth with at all.
+    systemctl --user enable --now ssh-agent.socket
+    echo "scheduler: enabled ssh-agent.socket"
     # Stop/disable the legacy bash notifier service if it's installed.
     systemctl --user stop nexus-notifier.service 2>/dev/null || true
     systemctl --user disable nexus-notifier.service 2>/dev/null || true
