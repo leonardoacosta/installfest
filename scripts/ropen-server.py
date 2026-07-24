@@ -316,18 +316,66 @@ INDEX_HTML = """\
 ##LIST##
 </body></html>"""
 
+COOKIE_NAME = 'ropen_token'
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _send_ok(self, content_type: str, data: bytes, extra_headers=None):
+        """Centralized 200 response for user-navigable content (root index,
+        directory listings, .md/.html/other file bodies). Sets Content-Type/
+        Length and, when this request authenticated via ?token=/X-Token
+        (see do_GET), a session cookie — so the NEXT request (e.g. clicking
+        a plain <a href> inside served HTML, which has no way to know about
+        ropen's token scheme) succeeds via cookie instead of 403ing. The
+        cookie value IS the token, just delivered a different way; it grants
+        nothing a bare ?token= URL couldn't already grant. HttpOnly (no JS
+        read access); no Secure flag (this server is intentionally HTTP-only
+        — Tailscale itself is the transport security boundary, not TLS);
+        SameSite=Lax so top-level link navigation still sends it.
+        """
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(len(data)))
+        if getattr(self, '_issue_cookie', False):
+            self.send_header('Set-Cookie', f'{COOKIE_NAME}={TOKEN}; Path=/; HttpOnly; SameSite=Lax')
+        for k, v in (extra_headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
-        # Auth gate — every request must carry a valid token (query param or
-        # header) before any file content or listing is returned.
+        # Auth gate — accept a valid token via query param, X-Token header,
+        # or a previously-issued session cookie (set by _send_ok above once
+        # a query/header auth succeeds). The cookie path exists specifically
+        # so click-through navigation inside served HTML works: that HTML's
+        # own <a href> links can't carry ?token= (their author has no idea
+        # ropen exists), so without the cookie fallback every such click
+        # 403'd (confirmed live 2026-07-24 — if-eoya's trust-boundary widening
+        # exposed this for the first time, since only ropen's own generated
+        # links, which already embed ?token=, were ever clickable live HTML
+        # before that change).
         query = parse_qs(self.path.split('?', 1)[1]) if '?' in self.path else {}
         supplied = query.get('token', [None])[0]
         header_token = self.headers.get('X-Token')
+        cookie_header = self.headers.get('Cookie', '')
+        cookie_token = None
+        for part in cookie_header.split(';'):
+            part = part.strip()
+            if part.startswith(COOKIE_NAME + '='):
+                cookie_token = part[len(COOKIE_NAME) + 1:]
+                break
         via_param = supplied is not None and hmac.compare_digest(supplied, TOKEN)
         via_header = header_token is not None and hmac.compare_digest(header_token, TOKEN)
-        if not (via_param or via_header):
+        via_cookie = cookie_token is not None and hmac.compare_digest(cookie_token, TOKEN)
+        if not (via_param or via_header or via_cookie):
             self.send_error(403, 'Missing or invalid token')
             return
+        # Only (re-)issue the cookie when auth came via param/header — a
+        # cookie-authenticated request re-setting itself is a harmless no-op
+        # either way, but keeping this explicit documents the intent: the
+        # cookie is *granted* by a real token, never self-perpetuating from
+        # nothing.
+        self._issue_cookie = via_param or via_header
 
         mounts, sentinels, registry = load_state()
 
@@ -394,11 +442,7 @@ class Handler(BaseHTTPRequestHandler):
                 sections.append('<h1>ropen — active mounts</h1><p class="empty">No mounts or registered projects. Run <code>ropen &lt;file&gt;</code> to add one.</p>')
 
             body = INDEX_HTML.replace('##LIST##', ''.join(sections)).encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_ok('text/html; charset=utf-8', body)
             return
 
         # Parse: /<mount>/<rest>
@@ -460,11 +504,7 @@ class Handler(BaseHTTPRequestHandler):
                 title = f'{mount}/{rel_str}' if rel_str else mount
                 listing = f'<h1 style="font-family:ui-monospace,monospace;font-size:16px">{html.escape(title)}</h1><ul>' + ''.join(items) + '</ul>'
                 body = INDEX_HTML.replace('##LIST##', listing).encode()
-                self.send_response(200)
-                self.send_header('Content-Type', 'text/html; charset=utf-8')
-                self.send_header('Content-Length', str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_ok('text/html; charset=utf-8', body)
                 return
 
         if not target.is_file():
@@ -479,19 +519,10 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if raw_mode:
                     data = target.read_bytes()
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/markdown; charset=utf-8')
-                    self.send_header('Cache-Control', 'no-store')
-                    self.send_header('Content-Length', str(len(data)))
-                    self.end_headers()
-                    self.wfile.write(data)
+                    self._send_ok('text/markdown; charset=utf-8', data, extra_headers={'Cache-Control': 'no-store'})
                 else:
                     data = render_md_shell(target, mount)
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'text/html; charset=utf-8')
-                    self.send_header('Content-Length', str(len(data)))
-                    self.end_headers()
-                    self.wfile.write(data)
+                    self._send_ok('text/html; charset=utf-8', data)
             except Exception as e:
                 import traceback
                 tb = traceback.format_exc()
@@ -504,19 +535,11 @@ class Handler(BaseHTTPRequestHandler):
             # cloned repos, so "is it under ~/dev" is not a real trust boundary.
             data = target.read_bytes()
             ctype = 'text/html; charset=utf-8' if _is_trusted_html(target, serve_dir) else 'text/plain; charset=utf-8'
-            self.send_response(200)
-            self.send_header('Content-Type', ctype)
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            self._send_ok(ctype, data)
         else:
             ctype, _ = mimetypes.guess_type(str(target))
             data = target.read_bytes()
-            self.send_response(200)
-            self.send_header('Content-Type', ctype or 'application/octet-stream')
-            self.send_header('Content-Length', str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            self._send_ok(ctype or 'application/octet-stream', data)
 
     def log_message(self, *args):
         pass
