@@ -46,6 +46,11 @@ brew "git"
 brew "grep"
 # Lightweight and flexible command-line JSON processor
 brew "jq"
+# Next-gen ls replacement — icons + OSC 8 hyperlinks + colors (ls/la/lt/ll
+# aliases in home/dot_zsh/functions/load-tools.zsh; was pacman-only on
+# Arch/homelab, missing here entirely, so these aliases silently no-op'd
+# on the Mac)
+brew "lsd"
 # Apple Silicon Monitor Top written in Go Lang
 brew "mactop"
 # Control and observe media playback from the command-line
