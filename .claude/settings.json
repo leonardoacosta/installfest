@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/tmux-sidebar-open",
+            "timeout": 10,
+            "continueOnError": true
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

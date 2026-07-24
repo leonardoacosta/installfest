@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Install/update tmux-plugins/tmux-sidebar — a toggleable file-tree pane
+# (prefix+Tab) rendered by `@sidebar-tree-command`, which this repo points at
+# scripts/tmux-sidebar-tree.sh. Installed manually since this repo runs no TPM
+# (see docs/audit/tmux.md N5 — deliberate: single run-shell line is cleaner
+# than TPM for one plugin), matching tmux-which-key / cc-tmux / tmux-resurrect.
+#
+# Re-runs whenever tmux.conf changes (the file that wires this plugin in) so
+# a fresh machine picks up the clone automatically on first `chezmoi apply`.
+#
+#   tmux.conf: {{ include "dot_config/tmux/tmux.conf.tmpl" | sha256sum }}
+
+set -euo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+. "$DOTFILES/scripts/utils.sh"
+
+PLUGIN_DIR="$HOME/.tmux/plugins/tmux-sidebar"
+REPO="https://github.com/tmux-plugins/tmux-sidebar"
+
+if ! command -v git >/dev/null 2>&1; then
+  warning "tmux-sidebar: git not available; skipping install"
+  exit 0
+fi
+
+if [ -d "$PLUGIN_DIR/.git" ]; then
+  info "tmux-sidebar: updating existing clone"
+  git -C "$PLUGIN_DIR" pull --ff-only --recurse-submodules || \
+    warning "tmux-sidebar: pull failed — leaving existing clone as-is"
+else
+  info "tmux-sidebar: cloning to $PLUGIN_DIR"
+  mkdir -p "$(dirname "$PLUGIN_DIR")"
+  if git clone --recursive "$REPO" "$PLUGIN_DIR"; then
+    success "tmux-sidebar: cloned"
+  else
+    warning "tmux-sidebar: clone failed — plugin will not load until this succeeds"
+  fi
+fi
+
+if command -v tree >/dev/null 2>&1; then
+  success "tmux-sidebar: tree present, sidebar listing available"
+else
+  warning "tmux-sidebar: tree not found — sidebar falls back to a flat \`ls -1\`"
+fi

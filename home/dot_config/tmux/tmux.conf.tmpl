@@ -231,6 +231,29 @@ if-shell "test -f ~/.tmux/plugins/tmux-which-key/plugin.sh.tmux" \
 if-shell "test -f ~/.tmux/plugins/cc-tmux/cc-tmux.tmux" \
   "run-shell ~/.tmux/plugins/cc-tmux/cc-tmux.tmux"
 
+# tmux-sidebar: toggleable file-tree pane (prefix+Tab; prefix+Bspace to open
+# focused), installed by run_onchange_after_install-tmux-sidebar.sh.tmpl.
+#
+# ORDERING: unlike the @cc-* block below, these options MUST be set BEFORE the
+# run-shell that sources the plugin. sidebar.tmux reads them ONCE at load to
+# compose the argument string it stores in @sidebar-key-<key> and binds; it
+# never re-reads them per-toggle, so an option set after the run-shell is
+# silently ignored until the next config reload.
+#
+# @sidebar-tree-position: the plugin's own default is already 'left'
+# (scripts/variables.sh TREE_POSITION), but the documented knob is framed as
+# opt-in-to-right (docs/options.md), so pin it — left placement is load-bearing
+# here, not incidental.
+set -g @sidebar-tree-position 'left'
+# @sidebar-tree-command: the listing command, run with cwd == the tracked pane's
+# path and piped into @sidebar-tree-pager. `tree` has a single global -L depth,
+# so the wrapper composes two invocations (shallow root + deep openspec/changes)
+# — see scripts/tmux-sidebar-tree.sh.
+set -g @sidebar-tree-command '~/.local/bin/tmux-sidebar-tree'
+set -g @sidebar-tree-width '45'
+if-shell "test -f ~/.tmux/plugins/tmux-sidebar/sidebar.tmux" \
+  "run-shell ~/.tmux/plugins/tmux-sidebar/sidebar.tmux"
+
 # tmux-resurrect: save/restore window & pane layout + cwd across a server crash
 # or reboot (prefix+Ctrl-s save, prefix+Ctrl-r restore), installed by
 # run_onchange_after_install-tmux-resurrect.sh.tmpl into ~/.tmux/plugins/.
