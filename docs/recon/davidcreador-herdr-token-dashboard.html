@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recon — Davidcreador/herdr-token-dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', Consolas, monospace;
+  --ds-background-100: #fafafa;
+  --ds-surface: #ffffff;
+  --ds-gray-100: #f5f5f5;
+  --ds-gray-400: rgba(0,0,0,0.08);
+  --ds-gray-500: rgba(0,0,0,0.16);
+  --ds-gray-900: #666666;
+  --ds-gray-1000: #171717;
+  --ds-blue-700: #0070f3;  --ds-blue-dim: rgba(0,112,243,0.07);
+  --ds-green-700: #0f7d3c; --ds-green-dim: rgba(15,125,60,0.08);
+  --ds-red-800: #e5484d;   --ds-red-dim: rgba(229,72,77,0.07);
+  --ds-amber-700: #a35200; --ds-amber-dim: rgba(245,166,35,0.12);
+  --ds-teal-700: #0e9384;  --ds-teal-dim: rgba(14,147,132,0.08);
+  --shadow-medium: 0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-large: 0 8px 30px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ds-background-100: #0a0a0a;
+    --ds-surface: #111111;
+    --ds-gray-100: #1a1a1a;
+    --ds-gray-400: rgba(255,255,255,0.09);
+    --ds-gray-500: rgba(255,255,255,0.18);
+    --ds-gray-900: #a1a1a1;
+    --ds-gray-1000: #ededed;
+    --ds-blue-700: #52a8ff;  --ds-blue-dim: rgba(82,168,255,0.10);
+    --ds-green-700: #3fca7a; --ds-green-dim: rgba(63,202,122,0.10);
+    --ds-red-800: #ff6369;   --ds-red-dim: rgba(255,99,105,0.10);
+    --ds-amber-700: #f7b955; --ds-amber-dim: rgba(247,185,85,0.10);
+    --ds-teal-700: #3ddbc9;  --ds-teal-dim: rgba(61,219,201,0.10);
+    --shadow-medium: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-large: 0 8px 30px rgba(0,0,0,0.6);
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; min-width: 0; }
+body {
+  background: var(--ds-background-100);
+  background-image:
+    radial-gradient(ellipse at 15% 0%, var(--ds-blue-dim) 0%, transparent 45%),
+    radial-gradient(ellipse at 85% 15%, var(--ds-teal-dim) 0%, transparent 40%);
+  color: var(--ds-gray-1000);
+  font-family: var(--font-sans);
+  padding: 44px 32px 96px;
+}
+.container { max-width: 1100px; margin: 0 auto; }
+@keyframes fadeUp { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+.animate { animation: fadeUp 0.4s ease-out both; animation-delay: calc(var(--i,0)*0.05s); }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:0.01ms!important; animation-delay:0ms!important; transition-duration:0.01ms!important; } }
+
+header { margin-bottom: 40px; }
+.meta-line {
+  font-family: var(--font-mono); font-size: 12px; color: var(--ds-gray-900);
+  display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 14px;
+}
+.meta-line span::after { content: '·'; margin-left: 14px; color: var(--ds-gray-500); }
+.meta-line span:last-child::after { content: ''; margin-left: 0; }
+h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
+h1 code { font-family: var(--font-mono); font-size: 22px; color: var(--ds-blue-700); }
+.subtitle { color: var(--ds-gray-900); font-size: 14px; max-width: 800px; line-height: 1.6; }
+.subtitle strong { color: var(--ds-gray-1000); }
+
+section { margin-bottom: 36px; }
+h2 { font-size: 18px; font-weight: 650; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.h-tag {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; padding: 2px 8px; border-radius: 5px;
+}
+.section-sub { color: var(--ds-gray-900); font-size: 13px; max-width: 840px; margin-bottom: 18px; line-height: 1.6; }
+
+/* pipeline */
+.pipeline { display: flex; align-items: stretch; overflow-x: auto; gap: 0; padding: 4px 0 12px; }
+.pipeline-step {
+  background: var(--ds-surface); border: 1px solid var(--ds-gray-400); border-radius: 10px;
+  padding: 12px 14px; min-width: 148px; flex-shrink: 0; box-shadow: var(--shadow-medium);
+}
+.pipeline-step .step-num { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--ds-gray-900); margin-bottom: 4px; }
+.pipeline-step .step-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.pipeline-step .step-detail { font-size: 11px; color: var(--ds-gray-900); line-height: 1.5; }
+.pipeline-arrow { display: flex; align-items: center; padding: 0 6px; color: var(--ds-gray-500); font-size: 16px; flex-shrink: 0; }
+.pipeline-step--finding { border-color: var(--ds-green-700); box-shadow: 0 0 0 1px var(--ds-green-dim), var(--shadow-medium); }
+.pipeline-step--finding .step-num { color: var(--ds-green-700); }
+.finding-pin {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700; text-transform: uppercase;
+  color: var(--ds-green-700); background: var(--ds-green-dim); border-radius: 4px;
+  padding: 1px 6px; display: inline-block; margin-top: 6px;
+}
+
+/* cards */
+.card-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+.card {
+  background: var(--ds-surface); border: 1px solid var(--ds-gray-400); border-radius: 12px;
+  padding: 22px 26px; box-shadow: var(--shadow-large);
+}
+.card.steal { border-left: 3px solid var(--ds-green-700); }
+.card.adapt { border-left: 3px solid var(--ds-blue-700); }
+.card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.badge {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 3px 10px;
+  border-radius: 999px; border: 1px solid;
+}
+.badge.steal { color: var(--ds-green-700); background: var(--ds-green-dim); border-color: color-mix(in srgb, var(--ds-green-700) 35%, transparent); }
+.badge.adapt { color: var(--ds-blue-700); background: var(--ds-blue-dim); border-color: color-mix(in srgb, var(--ds-blue-700) 35%, transparent); }
+.badge.effort { color: var(--ds-gray-900); background: var(--ds-gray-100); border-color: var(--ds-gray-400); }
+.card-title { font-size: 16px; font-weight: 650; }
+.card-source { font-family: var(--font-mono); font-size: 11px; color: var(--ds-gray-900); margin-bottom: 16px; }
+.ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.ba-box { background: var(--ds-gray-100); border-radius: 8px; padding: 12px 14px; }
+.ba-label { font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.ba-box.before .ba-label { color: var(--ds-red-800); }
+.ba-box.after .ba-label { color: var(--ds-green-700); }
+.ba-box p { font-size: 12.5px; line-height: 1.6; color: var(--ds-gray-1000); }
+.card details { margin-top: 12px; }
+.card summary {
+  cursor: pointer; font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  color: var(--ds-gray-900); padding: 6px 0; list-style: none; display: flex; align-items: center; gap: 6px;
+}
+.card summary::before { content: '▸'; transition: transform 0.15s; }
+.card details[open] summary::before { transform: rotate(90deg); }
+.pv-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.pv-table td { padding: 7px 10px; border-top: 1px solid var(--ds-gray-400); vertical-align: top; line-height: 1.55; }
+.pv-table td:first-child { font-family: var(--font-mono); color: var(--ds-gray-900); white-space: nowrap; width: 130px; font-size: 11px; }
+.evidence-line {
+  font-family: var(--font-mono); font-size: 11px; color: var(--ds-teal-700); background: var(--ds-teal-dim);
+  border-radius: 6px; padding: 6px 10px; margin-top: 14px; display: inline-block;
+}
+code { font-family: var(--font-mono); font-size: 11.5px; background: var(--ds-gray-100); color: var(--ds-blue-700); padding: 1px 6px; border-radius: 4px; }
+
+/* legend + implementation order */
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11px; color: var(--ds-gray-900); }
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 11px; height: 11px; border-radius: 3px; }
+
+.order-list { display: grid; gap: 10px; }
+.order-row {
+  display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 14px;
+  background: var(--ds-surface); border: 1px solid var(--ds-gray-400); border-radius: 8px; padding: 10px 16px;
+}
+.order-num { font-family: var(--font-mono); font-weight: 700; color: var(--ds-gray-900); }
+.order-title { font-size: 13px; font-weight: 550; }
+.order-note { font-size: 11px; color: var(--ds-gray-900); }
+
+.novel-list { display: grid; gap: 10px; }
+.novel-item { background: var(--ds-gray-100); border-radius: 8px; padding: 12px 16px; font-size: 12.5px; line-height: 1.6; }
+.novel-item .n-domain { font-family: var(--font-mono); font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--ds-amber-700); margin-bottom: 4px; }
+
+footer { margin-top: 48px; font-family: var(--font-mono); font-size: 11px; color: var(--ds-gray-900); text-align: center; }
+
+@media (max-width: 700px) {
+  body { padding: 28px 16px 64px; }
+  .ba-grid { grid-template-columns: 1fr; }
+  .order-row { grid-template-columns: 24px 1fr; }
+  .order-row .order-note { grid-column: 1 / -1; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="animate" style="--i:0">
+  <div class="meta-line">
+    <span>Context: project (installfest)</span>
+    <span>Stars: 9</span>
+    <span>License: MIT</span>
+    <span>Last push: 2026-07-15</span>
+    <span>Profile: external-repos</span>
+    <span>Trust tier: unrated</span>
+  </div>
+  <h1>Recon: <code>Davidcreador/herdr-token-dashboard</code></h1>
+  <p class="subtitle">A Go herdr plugin showing live token spend + cost across Claude Code / OpenCode / Pi
+    agent panes. Recon'd to answer this session's open question — <strong>how do we show custom data on
+    herdr's agent tabs</strong> — and it turned up a concrete, shipping answer that differs from our
+    working assumption, plus two directly reusable implementation patterns.</p>
+</header>
+
+<section class="animate" style="--i:1">
+  <h2><span class="h-tag" style="background:var(--ds-blue-dim);color:var(--ds-blue-700)">Architecture</span></h2>
+  <p class="section-sub">How the plugin turns a tracked herdr pane into a rendered cost row — and where
+    each Steal/Adapt finding attaches. All herdr calls are CLI subprocess only, confirmed by an explicit
+    grep for <code>report_metadata</code> / <code>socket</code> / <code>net.Dial</code> across the full
+    source (zero matches).</p>
+  <div class="pipeline">
+    <div class="pipeline-step">
+      <div class="step-num">POLL</div>
+      <div class="step-name">herdr pane list</div>
+      <div class="step-detail">CLI subprocess,<br>every 3s</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step pipeline-step--finding">
+      <div class="step-num">RESOLVE</div>
+      <div class="step-name">Claude transcript</div>
+      <div class="step-detail">munge-cwd path,<br>glob-by-UUID fallback</div>
+      <div class="finding-pin">Card A</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step pipeline-step--finding">
+      <div class="step-num">DEDUP</div>
+      <div class="step-name">turns map</div>
+      <div class="step-detail">messageID+requestID key,<br>last-write-wins</div>
+      <div class="finding-pin">Card A</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step pipeline-step--finding">
+      <div class="step-num">PRICE</div>
+      <div class="step-name">claudeCost()</div>
+      <div class="step-detail">longest-substr match,<br>0.1×/1.25× cache</div>
+      <div class="finding-pin">Card B</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step">
+      <div class="step-num">RENDER</div>
+      <div class="step-name">owned tab TUI</div>
+      <div class="step-detail">Bubble Tea,<br>NOT report_metadata</div>
+    </div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-step pipeline-step--finding">
+      <div class="step-num">NOTIFY</div>
+      <div class="step-name">poll-diff → toast</div>
+      <div class="step-detail">event hook doesn't fire<br>on herdr 0.7.0</div>
+      <div class="finding-pin">Card A</div>
+    </div>
+  </div>
+</section>
+
+<section class="animate" style="--i:2">
+  <h2><span class="h-tag" style="background:var(--ds-green-dim);color:var(--ds-green-700)">Findings</span></h2>
+
+  <div class="card-grid">
+
+    <div class="card steal">
+      <div class="card-head">
+        <span class="badge steal">STEAL</span>
+        <span class="badge effort">effort: small</span>
+        <span class="card-title">herdr integration patterns: transcript reading, manifest shape, poll-primary gotcha</span>
+      </div>
+      <div class="card-source">main.go · claude_test.go · herdr-plugin.toml · README.md</div>
+      <div class="ba-grid">
+        <div class="ba-box before">
+          <div class="ba-label">Before</div>
+          <p>No reference exists for locating/parsing a Claude Code session transcript, or which herdr
+            manifest event hooks are trustworthy. cc-tmux has zero herdr awareness today.</p>
+        </div>
+        <div class="ba-box after">
+          <div class="ba-label">After</div>
+          <p><code>docs/reference/herdr-integration-patterns.md</code> captures the munge-cwd + glob
+            fallback path resolution, the messageID+requestID turn dedup, the manifest shape, and — most
+            load-bearing — that <code>pane.agent_status_changed</code> does not reliably fire on herdr
+            0.7.x, so any plugin must poll-and-diff as primary.</p>
+        </div>
+      </div>
+      <details>
+        <summary>Placement Verdict (11 rows)</summary>
+        <table class="pv-table">
+          <tr><td>Layer</td><td>Reference doc — no script/skill/command yet, since no working caller exists (Act-now-bias rule caps a no-caller finding at a docs note)</td></tr>
+          <tr><td>Landing path</td><td><code>docs/reference/herdr-integration-patterns.md</code></td></tr>
+          <tr><td>Extend-before-create</td><td>No existing doc owns this. <code>cc-status</code> reads cc-tmux's own tmux state; <code>usage.py</code> reads nexus-agent's account-level HTTP API — neither touches transcripts or herdr. New domain — create.</td></tr>
+          <tr><td>Standalone vs facet</td><td>Standalone — no canonical skill yet owns herdr-plugin-authoring to attach a <code>references/</code> dir to</td></tr>
+          <tr><td>Scope</td><td>installfest-local — cc-tmux is the fleet's own tmux/herdr plugin, not duplicated elsewhere</td></tr>
+          <tr><td>Tracked medium</td><td>New file, plainly tracked under <code>docs/</code> — no gitignore carve-outs in that tree</td></tr>
+          <tr><td>Gitignore hazard</td><td>None</td></tr>
+          <tr><td>Description class</td><td>n/a — plain doc, not a skill (no caller yet)</td></tr>
+          <tr><td>Wiring sites</td><td>None yet — a future <code>/feature</code> for the real integration would cite it directly</td></tr>
+          <tr><td>Caller + cadence</td><td><strong>No current caller</strong> — explicit docs-note ceiling; do not build a skill/harness until a real feature is spec'd</td></tr>
+          <tr><td>Fleet propagation</td><td>n/a — installfest-local</td></tr>
+        </table>
+      </details>
+      <div class="evidence-line">Evidence: 6/6 citations verified (1 re-attributed: "future compatibility" phrasing is the README's, not main.go's — corrected before landing)</div>
+    </div>
+
+    <div class="card adapt">
+      <div class="card-head">
+        <span class="badge adapt">ADAPT</span>
+        <span class="badge effort">effort: small</span>
+        <span class="card-title">Cost-estimation pricing table — longest-substring match + cache multipliers</span>
+      </div>
+      <div class="card-source">main.go (claudePricing, claudeRates, claudeCost) · claude_test.go</div>
+      <div class="ba-grid">
+        <div class="ba-box before">
+          <div class="ba-label">Before</div>
+          <p>cc's <code>claude-api</code> skill has raw pricing figures but no documented recipe for
+            estimating cost when a transcript has token counts but no embedded dollar figure — exactly
+            Claude Code's own transcript shape.</p>
+        </div>
+        <div class="ba-box after">
+          <div class="ba-label">After</div>
+          <p>Skill gains: match model substrings longest-first (so <code>sonnet-4-5</code> beats
+            <code>sonnet-4</code> regardless of table order); bill cache-read at 0.1× and cache-write at
+            1.25× the matched input rate; unmatched models keep tokens but contribute $0 cost.</p>
+        </div>
+      </div>
+      <details>
+        <summary>Placement Verdict (11 rows)</summary>
+        <table class="pv-table">
+          <tr><td>Layer</td><td>Skill update — extends cc's existing <code>claude-api</code> skill</td></tr>
+          <tr><td>Landing path</td><td><code>~/dev/cc/skills/claude-api/SKILL.md</code> (or its <code>references/</code> dir)</td></tr>
+          <tr><td>Extend-before-create</td><td><code>claude-api</code> already covers model IDs/pricing/params — extend, never create a sibling</td></tr>
+          <tr><td>Standalone vs facet</td><td>Facet of <code>claude-api</code>'s existing pricing coverage</td></tr>
+          <tr><td>Scope</td><td><strong>Global (cc)</strong> — project-context inversion rule: cost-estimation-from-tokens is fleet-wide Anthropic-API knowledge, not installfest-specific</td></tr>
+          <tr><td>Tracked medium</td><td>n/a this session — cc-repo edit deferred, not made from installfest context</td></tr>
+          <tr><td>Gitignore hazard</td><td>None expected — skills are tracked in cc</td></tr>
+          <tr><td>Description class</td><td>Auto-trigger — already exists on <code>claude-api</code></td></tr>
+          <tr><td>Wiring sites</td><td>None new — extends the existing skill body in place</td></tr>
+          <tr><td>Caller + cadence</td><td>Any future cost-estimation work in any repo; on-demand reference</td></tr>
+          <tr><td>Fleet propagation</td><td>n/a — a cc skill is already fleet-visible by definition</td></tr>
+        </table>
+      </details>
+      <div class="evidence-line">Evidence: 4/4 citations verified</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="animate" style="--i:3">
+  <h2><span class="h-tag" style="background:var(--ds-amber-dim);color:var(--ds-amber-700)">Novel Patterns</span></h2>
+  <p class="section-sub">Genuinely novel, not adopted this run (no caller) — kept on record for the revisit trigger noted.</p>
+  <div class="novel-list">
+    <div class="novel-item"><div class="n-domain">Agent-pane detection</div>Poll-loop-as-primary, event-hook-as-future-compat-stub — <code>pane.agent_status_changed</code> doesn't fire on herdr 0.7.0 per the plugin's own code comment; the README frames the manifest hook as kept for future herdr versions. Revisit: the moment any herdr plugin build starts here (installfest runs 0.7.5, same minor line).</div>
+    <div class="novel-item"><div class="n-domain">Multi-agent data source</div>OpenCode live-API-with-disk-fallback — try <code>127.0.0.1:4096/session/{id}</code> first, degrade to on-disk JSON when unreachable. Revisit: if OpenCode or a similar live+persisted agent CLI ever joins the fleet.</div>
+    <div class="novel-item"><div class="n-domain">Docs tooling</div>ANSI-capture-to-SVG TUI preview — <code>herdr pane read --source visible --ansi</code> piped through an SGR-escape-code parser to generate an accurate README screenshot. Revisit: any future herdr/tmux plugin README needing a real preview image.</div>
+  </div>
+</section>
+
+<section class="animate" style="--i:4">
+  <h2><span class="h-tag" style="background:var(--ds-teal-dim);color:var(--ds-teal-700)">Legend</span></h2>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--ds-green-dim);border:1px solid var(--ds-green-700)"></div>Steal</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--ds-blue-dim);border:1px solid var(--ds-blue-700)"></div>Adapt</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:var(--ds-amber-dim);border:1px solid var(--ds-amber-700)"></div>Novel pattern (not adopted)</div>
+  </div>
+</section>
+
+<section class="animate" style="--i:5">
+  <h2><span class="h-tag" style="background:var(--ds-gray-100);color:var(--ds-gray-1000)">Implementation Order</span></h2>
+  <p class="section-sub">Quickest wins first. Both findings are docs-only this session — no code lands until a real feature is spec'd.</p>
+  <div class="order-list">
+    <div class="order-row">
+      <div class="order-num">1</div>
+      <div class="order-title">Write <code>docs/reference/herdr-integration-patterns.md</code> (Card A)</div>
+      <div class="order-note">installfest · create · small</div>
+    </div>
+    <div class="order-row">
+      <div class="order-num">2</div>
+      <div class="order-title">Update <code>claude-api</code> skill with the pricing recipe (Card B)</div>
+      <div class="order-note">cc repo · update · small</div>
+    </div>
+    <div class="order-row">
+      <div class="order-num">3</div>
+      <div class="order-title"><code>/feature</code> the actual cc-tmux/herdr integration once the tab-vs-sidebar-tokens decision is made</div>
+      <div class="order-note">installfest · new · medium — future, not this run</div>
+    </div>
+  </div>
+</section>
+
+<footer>docs/recon/davidcreador-herdr-token-dashboard.md · generated via wayfinder</footer>
+
+</div>
+</body>
+</html>
