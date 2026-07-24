@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# run_onchange_after_brew-bundle.sh - keep Homebrew packages in sync with the Brewfile.
+#
+# Re-runs whenever platform/homebrew/Brewfile changes.
+# Hash: {{ include "../platform/homebrew/Brewfile" | sha256sum }}
+#
+# WHY THIS EXISTS (if-mwcz follow-up)
+#
+# `run_once_install-packages.sh.tmpl` calls `run_brew_bundle` too, but it's a
+# `run_once_` script — chezmoi tracks it by the hash of ITS OWN rendered
+# content, which never changes just because the Brewfile gains a line. So a
+# Brewfile edit (e.g. adding `lsd`) landed on a previously-bootstrapped Mac
+# via the git hook chain's `chezmoi apply`, but the new package was never
+# actually installed — confirmed live 2026-07-24, `brew install lsd` had to
+# be run by hand. This wrapper closes that gap going forward: it hashes the
+# Brewfile itself, so any future addition/removal re-triggers `brew bundle`
+# on every machine that already ran the one-time bootstrap.
+#
+# Deliberately NOT a replacement for run_once_install-packages.sh.tmpl's own
+# call — that one still owns the FIRST-EVER install on a fresh machine
+# (ordering there matters: Homebrew itself, Xcode, Rosetta, etc. must exist
+# before `brew bundle` can do anything). This wrapper only handles the
+# steady-state "Brewfile changed, keep an already-bootstrapped machine in
+# sync" case, and explicitly no-ops if Homebrew isn't installed yet so it
+# can never race that initial bootstrap regardless of script-ordering.
+#
+# Gated on .chezmoi.os == "darwin" — the Brewfile is Mac-only (Arch uses
+# scripts/install-arch.sh + pacman, see run_once_install-packages.sh.tmpl).
+
+{{ if ne .chezmoi.os "darwin" -}}
+# Non-mac OS ({{ .chezmoi.os }}) — nothing to do.
+exit 0
+{{- else -}}
+set -uo pipefail
+
+DOTFILES="{{ .chezmoi.workingTree }}"
+export DOTFILES
+
+# Double-check at runtime in case the OS was resolved optimistically.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "brew-bundle: not Darwin, skipping" >&2
+    exit 0
+fi
+
+if ! command -v brew &>/dev/null; then
+    echo "brew-bundle: Homebrew not installed yet — skipping (run_once_install-packages.sh.tmpl owns first-time bootstrap)" >&2
+    exit 0
+fi
+
+# shellcheck source=../scripts/utils.sh
+. "$DOTFILES/scripts/utils.sh"
+# shellcheck source=../scripts/brew-install.sh
+. "$DOTFILES/scripts/brew-install.sh"
+
+run_brew_bundle || echo "brew-bundle: brew bundle had errors (some casks may need manual install)" >&2
+{{- end }}
+{{- /* trailing newline */}}
