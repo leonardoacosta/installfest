@@ -157,6 +157,36 @@ code { font-family: var(--font-mono); font-size: 11.5px; background: var(--ds-gr
 
 footer { margin-top: 48px; font-family: var(--font-mono); font-size: 11px; color: var(--ds-gray-900); text-align: center; }
 
+/* ============ TERMINAL MOCKUPS (fixed dark chrome, not theme-reactive — depicts a real terminal) ============ */
+.mock-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.mock-caption { font-size: 12px; color: var(--ds-gray-900); margin-top: 10px; line-height: 1.6; }
+.mock-caption strong { color: var(--ds-gray-1000); }
+.term {
+  background: #131417; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+  overflow: hidden; box-shadow: var(--shadow-large); font-family: var(--font-mono);
+}
+.term-bar { display: flex; align-items: center; gap: 7px; padding: 9px 12px; background: #1b1c20; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.term-dot { width: 10px; height: 10px; border-radius: 50%; }
+.term-title { margin-left: 6px; font-size: 11px; color: #8a8d93; }
+.term-body { padding: 14px 16px; font-size: 11.5px; line-height: 1.7; color: #d4d6dc; overflow-x: auto; }
+.term-body .dim { color: #6b6e76; }
+.t-green { color: #3fca7a; } .t-cyan { color: #3ddbc9; } .t-amber { color: #f7b955; } .t-red { color: #ff6369; } .t-blue { color: #52a8ff; }
+.term-tbl { display: grid; grid-template-columns: 52px 62px 56px 52px 92px 40px 1fr; gap: 2px 12px; white-space: nowrap; }
+.term-tbl .th { color: #6b6e76; font-size: 10px; text-transform: uppercase; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 4px; }
+.term-detail { margin-top: 12px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); }
+.sidebar-mock { display: flex; }
+.sb-rail { width: 168px; background: #17181c; border-right: 1px solid rgba(255,255,255,0.07); padding: 10px 0; flex-shrink: 0; }
+.sb-group-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #565961; padding: 4px 12px 6px; }
+.sb-row { padding: 6px 12px; border-left: 2px solid transparent; }
+.sb-row.active { background: rgba(82,168,255,0.08); border-left-color: #52a8ff; }
+.sb-row .sb-main { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.sb-row .sb-sub { font-size: 10px; color: #6b6e76; padding-left: 14px; margin-top: 2px; }
+.sb-row .sb-token { color: #f7b955; }
+.sb-pane { flex: 1; padding: 14px 16px; color: #6b6e76; font-size: 11px; display: flex; align-items: center; justify-content: center; text-align: center; }
+
+@media (max-width: 900px) {
+  .mock-row { grid-template-columns: 1fr; }
+}
 @media (max-width: 700px) {
   body { padding: 28px 16px 64px; }
   .ba-grid { grid-template-columns: 1fr; }
@@ -229,6 +259,79 @@ footer { margin-top: 48px; font-family: var(--font-mono); font-size: 11px; color
       <div class="step-name">poll-diff → toast</div>
       <div class="step-detail">event hook doesn't fire<br>on herdr 0.7.0</div>
       <div class="finding-pin">Card A</div>
+    </div>
+  </div>
+</section>
+
+<section class="animate" style="--i:1.5">
+  <h2><span class="h-tag" style="background:var(--ds-red-dim);color:var(--ds-red-800)">What This Renders As</span></h2>
+  <p class="section-sub">Both are real herdr surfaces, not artistic license — left is what
+    <code>herdr-token-dashboard</code> actually draws (Bubble Tea + Lip Gloss, reconstructed from its
+    README's documented columns/cards); right is the sidebar-token alternative from
+    <code>reference_herdr_sidebar_metadata_mechanism</code>, applied to cc-tmux's own state shape. Neither
+    is built — this is what each option would look like if it were.</p>
+  <div class="mock-row">
+    <div>
+      <div class="term">
+        <div class="term-bar">
+          <div class="term-dot" style="background:#ff5f57"></div>
+          <div class="term-dot" style="background:#febc2e"></div>
+          <div class="term-dot" style="background:#28c840"></div>
+          <div class="term-title">herdr — tab: Token Dashboard</div>
+        </div>
+        <div class="term-body">
+          <div class="term-tbl">
+            <div class="th">PANE</div><div class="th">AGENT</div><div class="th">STATUS</div><div class="th">COST</div><div class="th">MODEL</div><div class="th">MSGS</div><div class="th">TOOLS</div>
+            <div>w1:p1</div><div class="t-blue">claude</div><div class="t-green">● done</div><div class="t-green">$0.42</div><div class="dim">sonnet-4-5</div><div>12</div><div class="dim">bash×4 edit×2</div>
+            <div>w2:p1</div><div class="t-cyan">opencode</div><div class="t-amber">● work</div><div class="t-amber">$0.61</div><div class="dim">gpt-5</div><div>38</div><div class="dim">read×74</div>
+            <div>w1:p2</div><div class="t-blue">claude</div><div class="dim">● idle</div><div>$0.08</div><div class="dim">haiku-4-5</div><div>3</div><div class="dim">—</div>
+          </div>
+          <div class="term-detail">
+            <div><span class="dim">▸ w1:p1</span> claude · anthropic · sonnet-4-5</div>
+            <div class="dim">  cwd: ~/dev/personal/installfest · duration: 14m32s</div>
+            <div class="dim">  in:31.2k out:2.9k cache-r:180.4k cache-w:6.1k</div>
+            <div class="dim">  tools: bash×4 edit×2 read×9</div>
+          </div>
+        </div>
+      </div>
+      <p class="mock-caption"><strong>Owned tab</strong> (what the real plugin does) — full summary
+        table + expandable per-agent detail card. No 16-token / 32-char limit; room for a tool
+        breakdown and duration. Costs a keypress (<code>prefix+$</code>) to open; not visible at a glance
+        alongside other panes.</p>
+    </div>
+    <div>
+      <div class="term">
+        <div class="term-bar">
+          <div class="term-dot" style="background:#ff5f57"></div>
+          <div class="term-dot" style="background:#febc2e"></div>
+          <div class="term-dot" style="background:#28c840"></div>
+          <div class="term-title">herdr — sidebar (always visible)</div>
+        </div>
+        <div class="sidebar-mock">
+          <div class="sb-rail">
+            <div class="sb-group-label">Agents</div>
+            <div class="sb-row active">
+              <div class="sb-main"><span class="t-amber">●</span> installfest <span class="dim">w1:t1</span></div>
+              <div class="sb-sub sb-token">$cc_state: waiting</div>
+              <div class="sb-sub sb-token">$cc_wait: permission</div>
+            </div>
+            <div class="sb-row">
+              <div class="sb-main"><span class="t-green">●</span> cc <span class="dim">w2:t1</span></div>
+              <div class="sb-sub sb-token">$cc_state: active</div>
+            </div>
+            <div class="sb-row">
+              <div class="sb-main"><span class="dim">●</span> nx <span class="dim">w3:t1</span></div>
+              <div class="sb-sub sb-token">$cc_state: idle · 41m</div>
+            </div>
+          </div>
+          <div class="sb-pane">(main pane content)</div>
+        </div>
+      </div>
+      <p class="mock-caption"><strong>Sidebar tokens</strong> (<code>pane.report_metadata</code> +
+        <code>[ui.sidebar.agents]</code>, the mechanism found earlier this session) — always visible
+        alongside every pane, no keypress. Capped at 16 short tokens per pane; this mockup shows only
+        cc-tmux's <code>state</code>/<code>wait-reason</code> — task-summary/project/branch would need
+        more rows or truncation.</p>
     </div>
   </div>
 </section>
